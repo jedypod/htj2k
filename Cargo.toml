@@ -1,0 +1,12 @@
+[package]
+name = "htj2k"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83"
+license = "BSD-2-Clause"
+description = "High-Throughput JPEG 2000 (HTJ2K, ITU-T T.814) codestream codec in safe Rust, ported from OpenJPH"
+keywords = ["jpeg2000", "htj2k", "codec", "image"]
+categories = ["multimedia::images", "multimedia::encoding"]
+exclude = ["oracle/"]
+
+[dependencies]
