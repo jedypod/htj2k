@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 mod error;
+pub mod file;
 pub mod line;
 pub mod types;
 
