@@ -207,6 +207,21 @@ impl Tile {
                         c[2].org.x, c[2].org.y, c[2].siz.w, c[2].siz.h
                     );
                 }
+                // The inverse RCT takes three lines of one width. OpenJPH
+                // asserts this; components of the same depth always agree.
+                let wide = |c: u32| {
+                    build.qcd.get_qcc(c).propose_precision(
+                        build.cod.get_coc(c),
+                        build.cod,
+                        build.qcd,
+                    ) > 32
+                };
+                if r[0] && (wide(0) != wide(1) || wide(1) != wide(2)) {
+                    return ojph_error!(
+                        0x00070026,
+                        "the colour components need different sample widths, so the colour transform cannot be applied"
+                    );
+                }
                 // The reversible lines are 32 bits wide even when the
                 // components are 64: the inverse RCT narrows its results.
                 for _ in 0..3 {
