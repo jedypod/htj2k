@@ -25,9 +25,18 @@ INC="-DOJPH_DISABLE_SIMD -I$CORE/coding -I$CORE -I$CORE/openjph -I$CORE/common -
 $SANCXX -std=c++14 -O1 -g -DNDEBUG -fsanitize=address,undefined $INC $SRCS -o "$WORK/synth_san"
 $CXX -std=c++14 -O2 -DNDEBUG $INC $SRCS -o "$WORK/synth_rel"
 SEEDS="$HERE/../dec32_small.ojbk $HERE/../dec32_depths.ojbk $HERE/../dec64.ojbk"
-"$WORK/synth_san" list /dev/null $SEEDS 2> "$WORK/san.log"
+# The sanitizer reports each source line once per process, so run again
+# without the cases found so far until a run is clean.
+BAD=""
+while :; do
+  "$WORK/synth_san" "list:$BAD" /dev/null $SEEDS 2> "$WORK/san.log"
+  # a case is bad if any sanitizer report follows its CASE line
+  NEW=$(awk '/^CASE /{c=$2; next} /runtime error|ERROR: AddressSanitizer/{if (c != "") bad[c]=1} END{s=""; for (k in bad) s = s (s==""?"":",") k; print s}' "$WORK/san.log")
+  [ -n "$NEW" ] || break
+  BAD="${BAD:+$BAD,}$NEW"
+done
+BAD=$(printf '%s' "$BAD" | tr ',' '\n' | sort -n | paste -sd, -)
 N=$(grep -c '^CASE ' "$WORK/san.log")
-# a case is bad if any sanitizer report follows its CASE line
-BAD=$(awk '/^CASE /{c=$2; next} /runtime error|ERROR: AddressSanitizer/{if (c != "") bad[c]=1} END{s=""; for (k in bad) s = s (s==""?"":",") k; print s}' "$WORK/san.log")
+N=$((N + $(printf '%s' "$BAD" | tr ',' '\n' | grep -c .)))
 echo "sanitizer run: $N cases; with undefined behaviour: ${BAD:-none}" >&2
 "$WORK/synth_rel" "write:$BAD" "$HERE/synth.ojbh" $SEEDS

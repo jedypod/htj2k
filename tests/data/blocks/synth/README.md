@@ -37,13 +37,16 @@ The 64-bit decoder is built from a copy of OpenJPH's source with one fix,
 which `build.sh` applies: the SigProp value `3u << (p - 2)`
 (`ojph_block_decoder64.cpp:1549`) is a 32-bit shift in OpenJPH 0.33.0. It
 loses a bit for `missing_msbs` = 29 and is undefined for 28 or less. The
-copy shifts in 64 bits, as the crate does. The fix changes 35 of the
-records, all of them 64-bit calls with 2 or 3 passes.
+copy shifts in 64 bits, as the crate does. The fix changes the output of
+34 of the calls, all of them 64-bit calls with 2 or 3 passes and
+`missing_msbs` of 28 or 29.
 
 `build.sh` first runs every case under clang ASan+UBSan and leaves out each
-case that reports undefined behaviour. Two cases do, both 64-bit calls with
-refinement passes and `missing_msbs` = 61, where `p - 2` wraps around in a
-shift count. Both builds use `-DNDEBUG`, because corrupt data trips
+case that reports undefined behaviour. The sanitizer reports a source line
+only once per process, so the script runs it again without the cases found
+so far, until a run is clean. Four cases are left out, all 64-bit calls
+with refinement passes and `missing_msbs` = 61, where `p - 2` wraps around
+in a shift count. Both builds use `-DNDEBUG`, because corrupt data trips
 OpenJPH's `assert`s.
 
 ## Record layout (`OJBH`)

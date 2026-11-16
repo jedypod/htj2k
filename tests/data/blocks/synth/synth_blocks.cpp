@@ -15,8 +15,9 @@
 // record stores the FNV-1a-64 of the whole buffer after the call.
 //
 // Usage: synth_blocks MODE OUT SEED.ojbk...  (OUT: synth.ojbh)
-//   MODE "list": print "CASE n" to stderr before each call (for a
-//                sanitizer build, to find cases with undefined behaviour);
+//   MODE "list[:n,n,...]": print "CASE n" to stderr before each call,
+//                skipping the listed case numbers (for a sanitizer build,
+//                to find cases with undefined behaviour);
 //   MODE "write[:n,n,...]": write OUT, skipping the listed case numbers.
 // See build.sh.
 
@@ -128,6 +129,7 @@ static void emit(Case c) {
   c.stride = c.w + 8 + below(4);
   int no = case_no++;
   if (list_mode) {
+    if (skip.count(no)) return;
     fprintf(stderr, "CASE %d\n", no);
     bool r;
     run_at(c, 0, r);
@@ -192,10 +194,12 @@ static void add_refinement(Case& c, ui32 passes) {
 int main(int argc, char** argv) {
   if (argc < 4) { fprintf(stderr, "usage: see source\n"); return 2; }
   std::string mode = argv[1];
-  if (mode == "list") list_mode = true;
-  else if (mode.compare(0, 5, "write") == 0) {
-    if (mode.size() > 6) {
-      const char* p = mode.c_str() + 6;
+  bool list = mode.compare(0, 4, "list") == 0;
+  if (list || mode.compare(0, 5, "write") == 0) {
+    list_mode = list;
+    size_t names = list ? 5 : 6;
+    if (mode.size() > names) {
+      const char* p = mode.c_str() + names;
       while (*p) { skip.insert(atoi(p)); while (*p && *p != ',') ++p; if (*p) ++p; }
     }
   } else { fprintf(stderr, "bad mode\n"); return 2; }
