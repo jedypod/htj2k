@@ -21,6 +21,8 @@ use crate::transform::colour::{
 use crate::types::{div_ceil, Point, Rect};
 use crate::Result;
 
+/// `OJPH_NLT_NO_NLT`
+const NLT_TYPE0: u8 = 0;
 /// `OJPH_NLT_LUT_STYLE_NLT`
 const NLT_TYPE2: u8 = 2;
 /// `OJPH_NLT_BINARY_COMPLEMENT_NLT`
@@ -140,7 +142,8 @@ impl Tile {
 
             let num_bits = szp.get_bit_depth(i);
             let is_signed = szp.is_signed(i);
-            let nlt = build.nlt.get_nlt_rec(i).cloned();
+            let reversible = build.cod.get_coc(i).is_reversible();
+            let mut nlt = build.nlt.get_nlt_rec(i).cloned();
             if let Some(rec) = &nlt {
                 let bd = u32::from(rec.get_bit_depth());
                 let is = rec.is_signed();
@@ -155,11 +158,19 @@ impl Tile {
                         i
                     );
                 }
+                // Type 0, and type 3 on unsigned reversible samples, change
+                // nothing; `pull` converts both as no nonlinearity. OpenJPH
+                // 0.33.0 leaves the line unwritten for them, which was
+                // fixed after that release (OpenJPH #421).
+                let nlt_type = rec.get_type();
+                if nlt_type == NLT_TYPE0 || (nlt_type == NLT_TYPE3 && !is_signed && reversible) {
+                    nlt = None;
+                }
             }
             tile.num_bits.push(num_bits);
             tile.is_signed.push(is_signed);
             tile.nlt.push(nlt);
-            tile.reversible.push(build.cod.get_coc(i).is_reversible());
+            tile.reversible.push(reversible);
         }
 
         *offset = offset.wrapping_add(tile_rect.siz.w);

@@ -105,7 +105,7 @@ nlt0_depth32s | lossless | 1868 | 1584 | b4e816fa60c16897 | ojph_enc -o nlt0_dep
 nlt1_depth32s | lossless | 1873 | 1584 | b4e816fa60c16897 | ojph_enc -o nlt1_depth32s.j2c --size 22x18 --depth 32 --signed 1 --levels 2 --block 16x16 --pattern noise --nlt3 --seed 532
 nlt3_comp1_of3 | lossless | 2378 | 4752 | d694ac9599e4f435 | ojph_enc -o nlt3_comp1_of3.j2c --size 22x18 --comps 3 --depth 16 --signed 1 --nlt3-comps 1 --levels 2 --seed 540
 nlt3_rct | lossless | 2589 | 4752 | 5a8b3a7e39d03eea | ojph_enc -o nlt3_rct.j2c --size 22x18 --comps 3 --depth 16 --signed 1 --nlt3 --rct 1 --levels 2 --seed 541
-nlt3_unsigned | MISMATCH sizes 256/256, 64 samples differ | 145 | 256 | d80ac658736bb725 | ojph_enc -o nlt3_unsigned.j2c --size 8x8 --depth 16 --signed 0 --nlt3-comps 0 --seed 542
+nlt3_unsigned | lossless | 323 | 256 | 4befd2af9192cd90 | ojph_enc -o nlt3_unsigned.j2c --size 8x8 --depth 16 --signed 0 --nlt3-comps 0 --seed 542
 nlt3_depth32s_l5 | lossless | 1337 | 1024 | f5261b4e1ed43176 | ojph_enc -o nlt3_depth32s_l5.j2c --size 16x16 --depth 32 --signed 1 --nlt3 --levels 5 --block 8x8 --pattern noise --seed 543
 tiles16_61x47 | lossless | 2384 | 11468 | 0eea88c18734d97e | ojph_enc -o tiles16_61x47.j2c --size 61x47 --tile 16x16 --levels 2 --block 8x8 --seed 600
 tiles_off_61x47 | lossless | 2459 | 11468 | 6d7cd83b0f266e5c | ojph_enc -o tiles_off_61x47.j2c --size 61x47 --img-off 5,3 --tile-off 2,1 --tile 32x20 --levels 3 --block 16x8 --seed 601

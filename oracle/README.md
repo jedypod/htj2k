@@ -27,11 +27,11 @@ not stop on it.
 
 ## OpenJPH version
 
-The tools use OpenJPH **0.33.0** (`OPENJPH_VERSION_*` in
-`src/core/openjph/ojph_version.h`). The source is expected as a git
-checkout of that release at `../../reference/OpenJPH`, relative to this
-directory, with no local changes. To build against a different copy, set
-`OJPH_SRC`.
+The tools use OpenJPH at commit `97a9579` ("Fix lines left unconverted for
+NLT type 0 and unsigned type 3 (#421)"), which is release **0.33.0** plus
+five commits. Only that one changes the library since the release. The
+source is expected as a git checkout at `../../reference/OpenJPH`, relative
+to this directory. To build against a different copy, set `OJPH_SRC`.
 
 `build.sh` compiles the core sources directly into `libojph_oracle.a`,
 without CMake. It never modifies the reference tree.
@@ -155,14 +155,10 @@ These are found by the matrix and kept in it on purpose.
     Pillow) decodes these codestreams to the same values as `ojph_dec`.
   * So the stored `.raw` is the correct decode of the codestream, and a
     decoder port should match it.
-* **`nlt3_unsigned`.** NLT type 3 is meant for signed components. OpenJPH
-  accepts it on an unsigned one, and `ojph_dec` returns all zeros.
-  OpenJPEG, which ignores NLT, gives a constant mid-grey, and OpenJPH makes
-  no block-decoder calls for it. So the samples are lost on the encode
-  side: every code block is empty. The cause in OpenJPH's source was not
-  traced. The `.raw` still records what OpenJPH's decoder returns for an
-  all-empty unsigned component with NLT type 3, which is 0 rather than
-  mid-range.
+* **`nlt3_unsigned`** is lossless since OpenJPH #421. In release 0.33.0,
+  NLT type 3 on an unsigned reversible component left the lines
+  unconverted on both the encoding and the decoding side, so this case
+  encoded to all-empty code blocks and decoded to zeros.
 * **Refused cases** (no files are kept; the error text is in the manifest):
   * `levels33_4x4`: OpenJPH allows at most 32 decompositions.
   * `blk2x2_illegal` and `blk128x64_illegal`: incorrect code-block

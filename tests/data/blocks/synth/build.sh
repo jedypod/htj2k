@@ -14,7 +14,7 @@ WORK=${WORK:-$(mktemp -d)}
 CXX=${CXX:-g++}
 SANCXX=${SANCXX:-clang++}  # needs the ASan/UBSan runtimes
 # The 64-bit decoder is built from a copy with one fix: the SigProp value
-# 3u << (p - 2) is a 32-bit shift in OpenJPH 0.33.0, wrong for
+# 3u << (p - 2) is a 32-bit shift in OpenJPH, wrong for
 # missing_msbs <= 29; the crate shifts in 64 bits, and so must the vectors.
 DEC64="$WORK/ojph_block_decoder64_fixed.cpp"
 sed 's/ui64 val = 3u << (p - 2);/ui64 val = (ui64)3 << (p - 2);/' \

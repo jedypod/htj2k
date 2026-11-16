@@ -247,8 +247,8 @@ def cases():
 
 def tidy(stderr):
     """One-line error text with machine-specific source paths shortened."""
-    src = os.path.realpath(os.path.join(HERE, "..", "..", "reference",
-                                        "OpenJPH"))
+    src = os.path.realpath(os.environ.get("OJPH_SRC") or os.path.join(
+        HERE, "..", "..", "reference", "OpenJPH"))
     return " / ".join(l.replace(src + "/", "OpenJPH/")
                       for l in stderr.strip().splitlines())
 
