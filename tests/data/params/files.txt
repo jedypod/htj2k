@@ -1,0 +1,206 @@
+FILE prog_lrcp.j2c
+CAP pcap=00020000
+SIZ rsiz=4000 x=40 y=24 xo=0 yo=0 xt=40 yt=24 xto=0 yto=0 c=3
+SSIZ 0 07 1 1 depth=8 signed=0
+SSIZ 1 07 1 1 depth=8 signed=0
+SSIZ 2 07 1 1 depth=8 signed=0
+COD idx=65535 scod=01 prog=0 layers=1 mct=0 nd=2 bw=1 bh=1 bs=40 wt=1 rev=1 ct=0 lps=3x3,4x4,4x4,
+QCD idx=65535 sqcd=20 n=7 v=48,50,50,50,48,48,48,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+MAGB 10
+COMP 0 w=40 h=24 rw=40 rh=24 rds=1x1 nd=2 rev=1 guard=1 prec=12
+KMAX 0 9 10 10 10 9 9 9
+NLTREC 0 none
+COMP 1 w=40 h=24 rw=40 rh=24 rds=1x1 nd=2 rev=1 guard=1 prec=12
+KMAX 1 9 10 10 10 9 9 9
+NLTREC 1 none
+COMP 2 w=40 h=24 rw=40 rh=24 rds=1x1 nd=2 rev=1 guard=1 prec=12
+KMAX 2 9 10 10 10 9 9 9
+NLTREC 2 none
+FILE prog_pcrl_sub.j2c
+CAP pcap=00020000
+SIZ rsiz=4000 x=40 y=24 xo=0 yo=0 xt=40 yt=24 xto=0 yto=0 c=3
+SSIZ 0 07 1 1 depth=8 signed=0
+SSIZ 1 07 2 2 depth=8 signed=0
+SSIZ 2 07 2 2 depth=8 signed=0
+COD idx=65535 scod=01 prog=3 layers=1 mct=0 nd=2 bw=1 bh=1 bs=40 wt=1 rev=1 ct=0 lps=3x3,4x4,4x4,
+QCD idx=65535 sqcd=20 n=7 v=48,50,50,50,48,48,48,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+MAGB 10
+COMP 0 w=40 h=24 rw=40 rh=24 rds=1x1 nd=2 rev=1 guard=1 prec=12
+KMAX 0 9 10 10 10 9 9 9
+NLTREC 0 none
+COMP 1 w=20 h=12 rw=20 rh=12 rds=2x2 nd=2 rev=1 guard=1 prec=12
+KMAX 1 9 10 10 10 9 9 9
+NLTREC 1 none
+COMP 2 w=20 h=12 rw=20 rh=12 rds=2x2 nd=2 rev=1 guard=1 prec=12
+KMAX 2 9 10 10 10 9 9 9
+NLTREC 2 none
+FILE prog_rpcl_tiles.j2c
+CAP pcap=00020000
+SIZ rsiz=4000 x=45 y=30 xo=0 yo=0 xt=24 yt=16 xto=0 yto=0 c=3
+SSIZ 0 07 1 1 depth=8 signed=0
+SSIZ 1 07 1 1 depth=8 signed=0
+SSIZ 2 07 1 1 depth=8 signed=0
+COD idx=65535 scod=01 prog=2 layers=1 mct=0 nd=3 bw=1 bh=1 bs=40 wt=1 rev=1 ct=0 lps=4x4,4x4,4x4,4x4,
+QCD idx=65535 sqcd=20 n=10 v=48,50,50,50,50,50,50,48,48,48,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+MAGB 10
+COMP 0 w=45 h=30 rw=45 rh=30 rds=1x1 nd=3 rev=1 guard=1 prec=12
+KMAX 0 9 10 10 10 10 10 10 9 9 9
+NLTREC 0 none
+COMP 1 w=45 h=30 rw=45 rh=30 rds=1x1 nd=3 rev=1 guard=1 prec=12
+KMAX 1 9 10 10 10 10 10 10 9 9 9
+NLTREC 1 none
+COMP 2 w=45 h=30 rw=45 rh=30 rds=1x1 nd=3 rev=1 guard=1 prec=12
+KMAX 2 9 10 10 10 10 10 10 9 9 9
+NLTREC 2 none
+FILE levels32_1x1.j2c
+CAP pcap=00020000
+SIZ rsiz=4000 x=1 y=1 xo=0 yo=0 xt=1 yt=1 xto=0 yto=0 c=1
+SSIZ 0 07 1 1 depth=8 signed=0
+COD idx=65535 scod=00 prog=0 layers=1 mct=0 nd=32 bw=4 bh=4 bs=40 wt=1 rev=1 ct=0 lps=15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,15x15,
+QCD idx=65535 sqcd=20 n=97 v=48,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,58,50,50,50,50,50,50,50,50,50,50,50,50,48,48,48,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+MAGB 11
+COMP 0 w=1 h=1 rw=1 rh=1 rds=1x1 nd=32 rev=1 guard=1 prec=13
+KMAX 0 9 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 11 10 10 10 10 10 10 10 10 10 10 10 10 9 9 9
+NLTREC 0 none
+FILE irv_u8.j2c
+CAP pcap=00020000
+SIZ rsiz=4000 x=32 y=32 xo=0 yo=0 xt=32 yt=32 xto=0 yto=0 c=1
+SSIZ 0 07 1 1 depth=8 signed=0
+COD idx=65535 scod=00 prog=0 layers=1 mct=0 nd=3 bw=4 bh=4 bs=40 wt=0 rev=0 ct=0 lps=15x15,15x15,15x15,15x15,
+QCD idx=65535 sqcd=22 n=10 v=6735,674c,674c,6764,5003,5003,5046,57d2,57d2,5761,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+MAGB 10
+COMP 0 w=32 h=32 rw=32 rh=32 rds=1x1 nd=3 rev=0 guard=1 prec=14
+KMAX 0 12 12 12 12 10 10 10 10 10 10
+DELTA 0 39f35000 3a74c000 3a74c000 3af64000 3b003000 3b003000 3b846000 3b7d2000 3b7d2000 3bf61000
+NLTREC 0 none
+FILE irv_rct_u12.j2c
+CAP pcap=00020000
+SIZ rsiz=4000 x=32 y=24 xo=0 yo=0 xt=32 yt=24 xto=0 yto=0 c=3
+SSIZ 0 0b 1 1 depth=12 signed=0
+SSIZ 1 0b 1 1 depth=12 signed=0
+SSIZ 2 0b 1 1 depth=12 signed=0
+COD idx=65535 scod=00 prog=0 layers=1 mct=1 nd=3 bw=4 bh=4 bs=40 wt=0 rev=0 ct=1 lps=15x15,15x15,15x15,15x15,
+QCD idx=65535 sqcd=22 n=10 v=6735,674c,674c,6764,5003,5003,5046,57d2,57d2,5761,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+MAGB 10
+COMP 0 w=32 h=24 rw=32 rh=24 rds=1x1 nd=3 rev=0 guard=1 prec=14
+KMAX 0 12 12 12 12 10 10 10 10 10 10
+DELTA 0 39f35000 3a74c000 3a74c000 3af64000 3b003000 3b003000 3b846000 3b7d2000 3b7d2000 3bf61000
+NLTREC 0 none
+COMP 1 w=32 h=24 rw=32 rh=24 rds=1x1 nd=3 rev=0 guard=1 prec=14
+KMAX 1 12 12 12 12 10 10 10 10 10 10
+DELTA 1 39f35000 3a74c000 3a74c000 3af64000 3b003000 3b003000 3b846000 3b7d2000 3b7d2000 3bf61000
+NLTREC 1 none
+COMP 2 w=32 h=24 rw=32 rh=24 rds=1x1 nd=3 rev=0 guard=1 prec=14
+KMAX 2 12 12 12 12 10 10 10 10 10 10
+DELTA 2 39f35000 3a74c000 3a74c000 3af64000 3b003000 3b003000 3b846000 3b7d2000 3b7d2000 3bf61000
+NLTREC 2 none
+FILE irv_s16.j2c
+CAP pcap=00020000
+SIZ rsiz=4000 x=27 y=21 xo=0 yo=0 xt=27 yt=21 xto=0 yto=0 c=1
+SSIZ 0 8f 1 1 depth=16 signed=1
+COD idx=65535 scod=00 prog=0 layers=1 mct=0 nd=2 bw=4 bh=4 bs=40 wt=0 rev=0 ct=0 lps=15x15,15x15,15x15,
+QCD idx=65535 sqcd=22 n=7 v=6fe6,6035,6035,6078,581a,581a,67bf,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+MAGB 12
+COMP 0 w=27 h=21 rw=27 rh=21 rds=1x1 nd=2 rev=0 guard=1 prec=15
+KMAX 0 13 12 12 12 11 11 12
+DELTA 0 397e6000 3a035000 3a035000 3a878000 3a81a000 3a81a000 3afbf000
+NLTREC 0 none
+FILE coc_levels_rpcl.j2c
+CAP pcap=00020000
+SIZ rsiz=4000 x=33 y=27 xo=0 yo=0 xt=33 yt=27 xto=0 yto=0 c=3
+SSIZ 0 07 1 1 depth=8 signed=0
+SSIZ 1 07 1 1 depth=8 signed=0
+SSIZ 2 07 1 1 depth=8 signed=0
+COD idx=65535 scod=00 prog=2 layers=1 mct=0 nd=3 bw=2 bh=2 bs=40 wt=1 rev=1 ct=0 lps=15x15,15x15,15x15,15x15,
+COC idx=1 scod=00 prog=2 layers=1 mct=0 nd=1 bw=0 bh=1 bs=40 wt=1 rev=1 ct=0 lps=15x15,15x15,
+COC idx=2 scod=00 prog=2 layers=1 mct=0 nd=2 bw=3 bh=3 bs=40 wt=1 rev=1 ct=0 lps=15x15,15x15,15x15,
+QCD idx=65535 sqcd=20 n=10 v=48,50,50,50,50,50,50,48,48,48,
+QCC idx=1 sqcd=20 n=4 v=48,48,48,48,
+QCC idx=2 sqcd=20 n=7 v=48,50,50,50,48,48,48,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+MAGB 10
+COMP 0 w=33 h=27 rw=33 rh=27 rds=1x1 nd=3 rev=1 guard=1 prec=12
+KMAX 0 9 10 10 10 10 10 10 9 9 9
+NLTREC 0 none
+COMP 1 w=33 h=27 rw=33 rh=27 rds=1x1 nd=1 rev=1 guard=1 prec=11
+KMAX 1 9 9 9 9
+NLTREC 1 none
+COMP 2 w=33 h=27 rw=33 rh=27 rds=1x1 nd=2 rev=1 guard=1 prec=12
+KMAX 2 9 10 10 10 9 9 9
+NLTREC 2 none
+FILE nlt3_comp1_of3.j2c
+CAP pcap=00020000
+SIZ rsiz=c200 x=22 y=18 xo=0 yo=0 xt=22 yt=18 xto=0 yto=0 c=3
+SSIZ 0 8f 1 1 depth=16 signed=1
+SSIZ 1 8f 1 1 depth=16 signed=1
+SSIZ 2 8f 1 1 depth=16 signed=1
+COD idx=65535 scod=00 prog=0 layers=1 mct=0 nd=2 bw=4 bh=4 bs=40 wt=1 rev=1 ct=0 lps=15x15,15x15,15x15,
+QCD idx=65535 sqcd=20 n=7 v=88,90,90,90,88,88,88,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+NLT c=1 en=1 bd=8f t=3 np=0 dmin=0 dmax=0 pt=0
+MAGB 18
+COMP 0 w=22 h=18 rw=22 rh=18 rds=1x1 nd=2 rev=1 guard=1 prec=20
+KMAX 0 17 18 18 18 17 17 17
+NLTREC 0 none
+COMP 1 w=22 h=18 rw=22 rh=18 rds=1x1 nd=2 rev=1 guard=1 prec=20
+KMAX 1 17 18 18 18 17 17 17
+NLTREC 1 type=3 bd=16 signed=1
+COMP 2 w=22 h=18 rw=22 rh=18 rds=1x1 nd=2 rev=1 guard=1 prec=20
+KMAX 2 17 18 18 18 17 17 17
+NLTREC 2 none
+FILE nlt3_rct.j2c
+CAP pcap=00020000
+SIZ rsiz=c200 x=22 y=18 xo=0 yo=0 xt=22 yt=18 xto=0 yto=0 c=3
+SSIZ 0 8f 1 1 depth=16 signed=1
+SSIZ 1 8f 1 1 depth=16 signed=1
+SSIZ 2 8f 1 1 depth=16 signed=1
+COD idx=65535 scod=00 prog=0 layers=1 mct=1 nd=2 bw=4 bh=4 bs=40 wt=1 rev=1 ct=1 lps=15x15,15x15,15x15,
+QCD idx=65535 sqcd=20 n=7 v=90,98,98,98,90,90,90,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+NLT c=0 en=1 bd=8f t=3 np=0 dmin=0 dmax=0 pt=0
+NLT c=1 en=1 bd=8f t=3 np=0 dmin=0 dmax=0 pt=0
+NLT c=2 en=1 bd=8f t=3 np=0 dmin=0 dmax=0 pt=0
+MAGB 19
+COMP 0 w=22 h=18 rw=22 rh=18 rds=1x1 nd=2 rev=1 guard=1 prec=21
+KMAX 0 18 19 19 19 18 18 18
+NLTREC 0 type=3 bd=16 signed=1
+COMP 1 w=22 h=18 rw=22 rh=18 rds=1x1 nd=2 rev=1 guard=1 prec=21
+KMAX 1 18 19 19 19 18 18 18
+NLTREC 1 type=3 bd=16 signed=1
+COMP 2 w=22 h=18 rw=22 rh=18 rds=1x1 nd=2 rev=1 guard=1 prec=21
+KMAX 2 18 19 19 19 18 18 18
+NLTREC 2 type=3 bd=16 signed=1
+FILE s16_rct_4c_300x8.j2c
+CAP pcap=00020000
+SIZ rsiz=c200 x=300 y=8 xo=0 yo=0 xt=300 yt=8 xto=0 yto=0 c=4
+SSIZ 0 8f 1 1 depth=16 signed=1
+SSIZ 1 8f 1 1 depth=16 signed=1
+SSIZ 2 8f 1 1 depth=16 signed=1
+SSIZ 3 8f 1 1 depth=16 signed=1
+COD idx=65535 scod=00 prog=2 layers=1 mct=1 nd=5 bw=5 bh=3 bs=40 wt=1 rev=1 ct=1 lps=15x15,15x15,15x15,15x15,15x15,15x15,
+QCD idx=65535 sqcd=20 n=16 v=90,98,98,98,98,98,98,98,98,98,98,98,98,90,90,90,
+NLT c=65535 en=0 bd=00 t=255 np=0 dmin=0 dmax=0 pt=0
+NLT c=0 en=1 bd=8f t=3 np=0 dmin=0 dmax=0 pt=0
+NLT c=1 en=1 bd=8f t=3 np=0 dmin=0 dmax=0 pt=0
+NLT c=2 en=1 bd=8f t=3 np=0 dmin=0 dmax=0 pt=0
+NLT c=3 en=1 bd=8f t=3 np=0 dmin=0 dmax=0 pt=0
+MAGB 19
+COMP 0 w=300 h=8 rw=300 rh=8 rds=1x1 nd=5 rev=1 guard=1 prec=21
+KMAX 0 18 19 19 19 19 19 19 19 19 19 19 19 19 18 18 18
+NLTREC 0 type=3 bd=16 signed=1
+COMP 1 w=300 h=8 rw=300 rh=8 rds=1x1 nd=5 rev=1 guard=1 prec=21
+KMAX 1 18 19 19 19 19 19 19 19 19 19 19 19 19 18 18 18
+NLTREC 1 type=3 bd=16 signed=1
+COMP 2 w=300 h=8 rw=300 rh=8 rds=1x1 nd=5 rev=1 guard=1 prec=21
+KMAX 2 18 19 19 19 19 19 19 19 19 19 19 19 19 18 18 18
+NLTREC 2 type=3 bd=16 signed=1
+COMP 3 w=300 h=8 rw=300 rh=8 rds=1x1 nd=5 rev=1 guard=1 prec=21
+KMAX 3 18 19 19 19 19 19 19 19 19 19 19 19 19 18 18 18
+NLTREC 3 type=3 bd=16 signed=1

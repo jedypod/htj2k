@@ -1,0 +1,2 @@
+IRV97 latk=29 satk=4a00 k=3f9d7658 n=4 3ee31355 3f620676 bd5901ae bfcb0673
+REV53 latk=13 satk=5801 k=00000000 n=2 e=2 b=2 a=1 e=1 b=1 a=-1
