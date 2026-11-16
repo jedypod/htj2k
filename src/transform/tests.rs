@@ -1,0 +1,787 @@
+// This file is part of htj2k, a safe Rust port of OpenJPH
+// (https://github.com/aous72/OpenJPH), which is released under the
+// 2-Clause BSD license; see LICENSE-OPENJPH for the original copyright
+// notice and licence text, which also apply to this file.
+
+//! Tests of the transform kernels: bit-exact comparison against golden
+//! vectors produced by OpenJPH's generic C++ kernels
+//! (`oracle/kernels_dump.cpp`, format in `tests/data/kernels/README.md`),
+//! and round-trip property tests.
+//!
+//! These are unit tests rather than integration tests because building a
+//! [`ParamAtk`] needs its `pub(crate)` fields.
+
+use super::codeblock_fun::*;
+use super::colour::*;
+use super::wavelet::*;
+use crate::line::{LineBuf, LineData};
+use crate::params::{LiftingStep, ParamAtk};
+
+// ---------------------------------------------------------------------------
+// Golden-vector file reader
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+enum Field {
+    I32(Vec<i32>),
+    I64(Vec<i64>),
+    F32(Vec<f32>),
+    U32(Vec<u32>),
+    U64(Vec<u64>),
+    U16(Vec<u16>),
+}
+
+impl Field {
+    fn i32(&self) -> &[i32] {
+        match self {
+            Field::I32(v) => v,
+            f => panic!("expected i32 field, got {f:?}"),
+        }
+    }
+    fn i64(&self) -> &[i64] {
+        match self {
+            Field::I64(v) => v,
+            f => panic!("expected i64 field, got {f:?}"),
+        }
+    }
+    fn f32(&self) -> &[f32] {
+        match self {
+            Field::F32(v) => v,
+            f => panic!("expected f32 field, got {f:?}"),
+        }
+    }
+    fn u32(&self) -> &[u32] {
+        match self {
+            Field::U32(v) => v,
+            f => panic!("expected u32 field, got {f:?}"),
+        }
+    }
+    fn u64(&self) -> &[u64] {
+        match self {
+            Field::U64(v) => v,
+            f => panic!("expected u64 field, got {f:?}"),
+        }
+    }
+    fn u16(&self) -> &[u16] {
+        match self {
+            Field::U16(v) => v,
+            f => panic!("expected u16 field, got {f:?}"),
+        }
+    }
+
+    /// A line buffer holding this field as its full backing vector, with
+    /// `pre_size == 1` (the layout of the dump).
+    fn line(&self) -> LineBuf {
+        let (len, data) = match self {
+            Field::I32(v) => (v.len(), LineData::I32(v.clone())),
+            Field::I64(v) => (v.len(), LineData::I64(v.clone())),
+            Field::F32(v) => (v.len(), LineData::F32(v.clone())),
+            f => panic!("not a line: {f:?}"),
+        };
+        LineBuf {
+            size: len - 1,
+            pre_size: 1,
+            data,
+        }
+    }
+}
+
+/// The canonical pattern every NaN is compared as.
+const NAN_BITS: u64 = 0x7FC0_0000;
+
+/// Bit patterns of the samples of a field or line, for exact comparison.
+///
+/// Floats are compared by bit pattern, except that all NaNs compare
+/// equal: Rust (LLVM) does not preserve NaN signs and payloads (it may,
+/// for example, commute the operands of a multiplication, and x86 returns
+/// the first NaN operand), so an optimised build can produce a NaN of
+/// another sign than the C++. Debug builds match the C++ NaN bit for bit.
+fn bits_of_field(f: &Field) -> Vec<u64> {
+    match f {
+        Field::I32(v) => v.iter().map(|&x| x as u32 as u64).collect(),
+        Field::I64(v) => v.iter().map(|&x| x as u64).collect(),
+        Field::F32(v) => v
+            .iter()
+            .map(|&x| {
+                if x.is_nan() {
+                    NAN_BITS
+                } else {
+                    x.to_bits() as u64
+                }
+            })
+            .collect(),
+        Field::U32(v) => v.iter().map(|&x| x as u64).collect(),
+        Field::U64(v) => v.clone(),
+        Field::U16(v) => v.iter().map(|&x| x as u64).collect(),
+    }
+}
+
+fn bits_of_line(l: &LineBuf) -> Vec<u64> {
+    match &l.data {
+        LineData::I32(v) => bits_of_field(&Field::I32(v.clone())),
+        LineData::I64(v) => bits_of_field(&Field::I64(v.clone())),
+        LineData::F32(v) => bits_of_field(&Field::F32(v.clone())),
+        LineData::None => Vec::new(),
+    }
+}
+
+fn bits_of_f32s(v: &[f32]) -> Vec<u64> {
+    bits_of_field(&Field::F32(v.to_vec()))
+}
+
+fn read_records(name: &str) -> Vec<Vec<Field>> {
+    let path = format!("{}/tests/data/kernels/{}", env!("CARGO_MANIFEST_DIR"), name);
+    let buf = std::fs::read(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
+    let mut pos = 0usize;
+    let mut take = |n: usize| -> &[u8] {
+        let s = &buf[pos..pos + n];
+        pos += n;
+        s
+    };
+    let u32_at = |b: &[u8]| u32::from_le_bytes(b.try_into().unwrap());
+    let mut records = Vec::new();
+    let mut remaining = buf.len();
+    while remaining > 0 {
+        let nf = u32_at(take(4));
+        let mut used = 4;
+        let mut fields = Vec::with_capacity(nf as usize);
+        for _ in 0..nf {
+            let tag = take(1)[0];
+            let count = u32_at(take(4)) as usize;
+            let size = match tag {
+                1 | 3 | 4 => 4,
+                2 | 5 => 8,
+                6 => 2,
+                t => panic!("{name}: bad tag {t}"),
+            };
+            let d = take(size * count);
+            used += 5 + size * count;
+            fields.push(match tag {
+                1 => Field::I32(
+                    d.chunks_exact(4)
+                        .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+                        .collect(),
+                ),
+                2 => Field::I64(
+                    d.chunks_exact(8)
+                        .map(|c| i64::from_le_bytes(c.try_into().unwrap()))
+                        .collect(),
+                ),
+                3 => Field::F32(
+                    d.chunks_exact(4)
+                        .map(|c| f32::from_bits(u32_at(c)))
+                        .collect(),
+                ),
+                4 => Field::U32(d.chunks_exact(4).map(u32_at).collect()),
+                5 => Field::U64(
+                    d.chunks_exact(8)
+                        .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+                        .collect(),
+                ),
+                _ => Field::U16(
+                    d.chunks_exact(2)
+                        .map(|c| u16::from_le_bytes(c.try_into().unwrap()))
+                        .collect(),
+                ),
+            });
+        }
+        remaining -= used;
+        records.push(fields);
+    }
+    assert!(!records.is_empty(), "{name}: no records");
+    records
+}
+
+// ---------------------------------------------------------------------------
+// Kernels, as init_rev53 / init_irv97 in ojph_params.cpp
+// ---------------------------------------------------------------------------
+
+fn rev_step(a: i16, b: i16, e: u8) -> LiftingStep {
+    LiftingStep {
+        rev_a: a,
+        rev_b: b,
+        rev_e: e,
+        ..Default::default()
+    }
+}
+
+fn irv_step(a: f32) -> LiftingStep {
+    LiftingStep {
+        irv_a: a,
+        ..Default::default()
+    }
+}
+
+fn rev53() -> ParamAtk {
+    let steps = vec![rev_step(1, 2, 2), rev_step(-1, 1, 1)];
+    ParamAtk {
+        latk: (5 + 2 * 2 + 2 + 2) as u16,
+        satk: 0x5801,
+        katk: 0.0,
+        steps,
+        others: Vec::new(),
+    }
+}
+
+fn irv97() -> ParamAtk {
+    let steps = vec![
+        irv_step(0.443506852043971f64 as f32),
+        irv_step(0.882911075530934f64 as f32),
+        irv_step(-0.052980118572961f64 as f32),
+        irv_step(-1.586134342059924f64 as f32),
+    ];
+    ParamAtk {
+        latk: (5 + 4 + 4 * (1 + 4)) as u16,
+        satk: 0x4a00,
+        katk: 1.230174104914001f64 as f32,
+        steps,
+        others: Vec::new(),
+    }
+}
+
+/// A kernel from the steps field of a dump record: `[a, b, e]*` for a
+/// reversible kernel, `[K, a*]` for an irreversible one.
+fn atk_from_steps(f: &Field) -> ParamAtk {
+    match f {
+        Field::I32(v) => {
+            let steps = v
+                .chunks_exact(3)
+                .map(|c| rev_step(c[0] as i16, c[1] as i16, c[2] as u8))
+                .collect();
+            ParamAtk {
+                latk: 0,
+                satk: 0x5801,
+                katk: 0.0,
+                steps,
+                others: Vec::new(),
+            }
+        }
+        Field::F32(v) => {
+            let steps = v[1..].iter().map(|&a| irv_step(a)).collect();
+            ParamAtk {
+                latk: 0,
+                satk: 0x4a00,
+                katk: v[0],
+                steps,
+                others: Vec::new(),
+            }
+        }
+        f => panic!("bad steps field {f:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Golden vectors
+// ---------------------------------------------------------------------------
+
+#[test]
+fn golden_kernels_match_helpers() {
+    // The 5/3 and 9/7 kernels that get_atk(1) / get_atk(0) produced match
+    // the test helpers bit for bit.
+    let recs = read_records("wavelet_horz.bin");
+    let rev = recs.iter().find(|r| r[0].u32()[0] == 0).unwrap();
+    let a = atk_from_steps(&rev[1]);
+    assert_eq!(a.steps, rev53().steps);
+    let irv = recs.iter().find(|r| r[0].u32()[0] == 2).unwrap();
+    let a = atk_from_steps(&irv[1]);
+    let b = irv97();
+    assert_eq!(a.get_k().to_bits(), b.get_k().to_bits());
+    for (x, y) in a.steps.iter().zip(&b.steps) {
+        assert_eq!(x.irv_a.to_bits(), y.irv_a.to_bits());
+    }
+    assert_eq!(a.steps.len(), b.steps.len());
+}
+
+#[test]
+fn golden_wavelet_horz() {
+    let recs = read_records("wavelet_horz.bin");
+    for (i, r) in recs.iter().enumerate() {
+        let p = r[0].u32();
+        let (kind, width, even, ana) = (p[0], p[1], p[2] != 0, p[3] != 0);
+        let atk = atk_from_steps(&r[1]);
+        let (mut a, mut b, mut c) = (r[2].line(), r[3].line(), r[4].line());
+        match (kind, ana) {
+            (2, true) => irv_horz_ana(&atk, &mut a, &mut b, &c, width, even),
+            (2, false) => irv_horz_syn(&atk, &mut a, &mut b, &mut c, width, even),
+            (_, true) => rev_horz_ana(&atk, &mut a, &mut b, &c, width, even),
+            (_, false) => rev_horz_syn(&atk, &mut a, &mut b, &mut c, width, even),
+        }
+        for (j, l) in [&a, &b, &c].iter().enumerate() {
+            assert_eq!(
+                bits_of_line(l),
+                bits_of_field(&r[5 + j]),
+                "record {i} params {p:?} line {j}"
+            );
+        }
+    }
+    eprintln!("wavelet_horz: {} records", recs.len());
+}
+
+#[test]
+fn golden_wavelet_vert() {
+    let recs = read_records("wavelet_vert.bin");
+    for (i, r) in recs.iter().enumerate() {
+        let p = r[0].u32();
+        let (kind, repeat, synthesis, alias) = (p[0], p[1], p[2] != 0, p[3] != 0);
+        let (sig, other, mut aug) = (r[2].line(), r[3].line(), r[4].line());
+        let oth = if alias { &sig } else { &other };
+        match kind {
+            0 | 1 => {
+                let s = r[1].i32();
+                rev_vert_step(
+                    &rev_step(s[0] as i16, s[1] as i16, s[2] as u8),
+                    &sig,
+                    oth,
+                    &mut aug,
+                    repeat,
+                    synthesis,
+                )
+            }
+            2 => irv_vert_step(
+                &irv_step(r[1].f32()[0]),
+                &sig,
+                oth,
+                &mut aug,
+                repeat,
+                synthesis,
+            ),
+            _ => irv_vert_times_k(r[1].f32()[0], &mut aug, repeat),
+        }
+        assert_eq!(
+            bits_of_line(&aug),
+            bits_of_field(&r[5]),
+            "record {i} params {p:?}"
+        );
+    }
+    eprintln!("wavelet_vert: {} records", recs.len());
+}
+
+#[test]
+fn golden_colour() {
+    let recs = read_records("colour.bin");
+    // record 0: CT_CNST
+    let c = recs[0][0].f32();
+    let ours = [
+        ct_cnst::ALPHA_RF,
+        ct_cnst::ALPHA_GF,
+        ct_cnst::ALPHA_BF,
+        ct_cnst::BETA_CB_F,
+        ct_cnst::BETA_CR_F,
+        ct_cnst::GAMMA_CR2R,
+        ct_cnst::GAMMA_CB2B,
+        ct_cnst::GAMMA_CR2G,
+        ct_cnst::GAMMA_CB2G,
+    ];
+    assert_eq!(bits_of_f32s(c), bits_of_f32s(&ours), "CT_CNST");
+
+    for (i, r) in recs.iter().enumerate().skip(1) {
+        let p = r[0].u32();
+        let func = p[0];
+        match func {
+            0 | 1 => {
+                let (so, doff, width) = (p[2], p[3], p[4]);
+                let shift = r[1].i64()[0];
+                let src = r[2].line();
+                let mut dst = r[3].line();
+                if func == 0 {
+                    rev_convert(&src, so, &mut dst, doff, shift, width);
+                } else {
+                    rev_convert_nlt_type3(&src, so, &mut dst, doff, shift, width);
+                }
+                assert_eq!(
+                    bits_of_line(&dst),
+                    bits_of_field(&r[4]),
+                    "record {i} params {p:?}"
+                );
+            }
+            2..=5 => {
+                let (bd, is_signed, off, width) = (p[1], p[2] != 0, p[3], p[4]);
+                let src = r[1].line();
+                let mut dst = r[2].line();
+                match func {
+                    2 => irv_convert_to_integer(&src, &mut dst, off, bd, is_signed, width),
+                    3 => {
+                        irv_convert_to_integer_nlt_type3(&src, &mut dst, off, bd, is_signed, width)
+                    }
+                    4 => irv_convert_to_float(&src, off, &mut dst, bd, is_signed, width),
+                    _ => irv_convert_to_float_nlt_type3(&src, off, &mut dst, bd, is_signed, width),
+                }
+                assert_eq!(
+                    bits_of_line(&dst),
+                    bits_of_field(&r[3]),
+                    "record {i} params {p:?}"
+                );
+            }
+            6 | 7 => {
+                let repeat = p[2];
+                let mut l: Vec<LineBuf> = (1..7).map(|j| r[j].line()).collect();
+                let (rgb, ycc) = l.split_at_mut(3);
+                let [rr, gg, bb] = rgb else { unreachable!() };
+                let [yy, cb, cr] = ycc else { unreachable!() };
+                if func == 6 {
+                    rct_forward(rr, gg, bb, yy, cb, cr, repeat);
+                } else {
+                    rct_backward(yy, cb, cr, rr, gg, bb, repeat);
+                }
+                for (j, line) in l.iter().enumerate() {
+                    assert_eq!(
+                        bits_of_line(line),
+                        bits_of_field(&r[7 + j]),
+                        "record {i} params {p:?} line {j}"
+                    );
+                }
+            }
+            _ => {
+                let repeat = p[2];
+                let n = repeat as usize;
+                let (mut o0, mut o1, mut o2) = (vec![0.0f32; n], vec![0.0f32; n], vec![0.0f32; n]);
+                let (a, b, c) = (r[1].f32(), r[2].f32(), r[3].f32());
+                if func == 8 {
+                    ict_forward(a, b, c, &mut o0, &mut o1, &mut o2, repeat);
+                } else {
+                    ict_backward(a, b, c, &mut o0, &mut o1, &mut o2, repeat);
+                }
+                for (j, o) in [&o0, &o1, &o2].iter().enumerate() {
+                    assert_eq!(
+                        bits_of_f32s(o),
+                        bits_of_field(&r[4 + j]),
+                        "record {i} params {p:?} out {j}"
+                    );
+                }
+            }
+        }
+    }
+    eprintln!("colour: {} records", recs.len());
+}
+
+#[test]
+fn golden_nlt() {
+    let recs = read_records("nlt.bin");
+    for (i, r) in recs.iter().enumerate() {
+        let p = r[0].u32();
+        let f = r[1].f32();
+        let (variant, width, off) = (p[0], p[7], p[8]);
+        let rec = NltLut {
+            nlt_type: p[1] as u8,
+            bit_depth: p[2] as u8,
+            is_signed: p[3] != 0,
+            approx_encoding_nlt: p[4] != 0,
+            precise_max_steps: p[5],
+            num_points: p[6],
+            multiplier: f[0],
+            fd_min: f[1],
+            fd_max: f[2],
+            delta: f[3],
+            inv_delta: f[4],
+            ft_min: f[5],
+            ft_max: f[6],
+            dec_points: r[2].f32(),
+            approx_enc_points: r[3].f32(),
+            precise_enc_dec_indices: r[4].u16(),
+            precise_dec_lut: r[5].f32(),
+        };
+        let src = r[6].line();
+        let mut dst = r[7].line();
+        // the bit_depth and is_signed arguments are unused; the dump passes
+        // 7 and !is_signed
+        if variant == 0 {
+            irv_convert_to_integer_nlt(&src, &mut dst, off, 7, !rec.is_signed, width, &rec);
+        } else {
+            irv_convert_to_float_nlt(&src, off, &mut dst, 7, !rec.is_signed, width, &rec);
+        }
+        assert_eq!(
+            bits_of_line(&dst),
+            bits_of_field(&r[8]),
+            "record {i} params {p:?}"
+        );
+    }
+    eprintln!("nlt: {} records", recs.len());
+}
+
+#[test]
+fn golden_codeblock() {
+    let recs = read_records("codeblock.bin");
+    for (i, r) in recs.iter().enumerate() {
+        let p = r[0].u32();
+        let (func, k_max, count) = (p[0], p[1], p[2]);
+        let n = count as usize;
+        let delta = r[1].f32()[0];
+        let msg = format!("record {i} params {p:?}");
+        match func {
+            0 => {
+                let mut dp = vec![0xDEAD_BEEFu32; n];
+                let mut mv = r[3].u32()[0];
+                rev_tx_to_cb32(r[2].i32(), &mut dp, k_max, delta, count, &mut mv);
+                assert_eq!(dp, r[4].u32(), "{msg}");
+                assert_eq!(mv, r[5].u32()[0], "{msg}");
+            }
+            1 => {
+                let mut dp = vec![0xDEAD_BEEFu64; n];
+                let mut mv = r[3].u64()[0];
+                rev_tx_to_cb64(r[2].i64(), &mut dp, k_max, delta, count, &mut mv);
+                assert_eq!(dp, r[4].u64(), "{msg}");
+                assert_eq!(mv, r[5].u64()[0], "{msg}");
+            }
+            2 => {
+                let mut dp = vec![0xDEAD_BEEFu32; n];
+                let mut mv = r[3].u32()[0];
+                irv_tx_to_cb32(r[2].f32(), &mut dp, k_max, delta, count, &mut mv);
+                assert_eq!(dp, r[4].u32(), "{msg}");
+                assert_eq!(mv, r[5].u32()[0], "{msg}");
+            }
+            3 => {
+                let mut dp = vec![0x5A5A_5A5Ai32; n];
+                rev_tx_from_cb32(r[2].u32(), &mut dp, k_max, delta, count);
+                assert_eq!(dp, r[3].i32(), "{msg}");
+            }
+            4 => {
+                let mut dp = vec![0x5A5A_5A5Ai64; n];
+                rev_tx_from_cb64(r[2].u64(), &mut dp, k_max, delta, count);
+                assert_eq!(dp, r[3].i64(), "{msg}");
+            }
+            5 => {
+                let mut dp = vec![0.0f32; n];
+                irv_tx_from_cb32(r[2].u32(), &mut dp, k_max, delta, count);
+                assert_eq!(bits_of_f32s(&dp), bits_of_field(&r[3]), "{msg}");
+            }
+            _ => {
+                let mut dp = vec![0.0f32; n];
+                irv_tx_from_cb64(r[2].u64(), &mut dp, k_max, delta, count);
+                assert_eq!(bits_of_f32s(&dp), bits_of_field(&r[3]), "{msg}");
+            }
+        }
+    }
+    eprintln!("codeblock: {} records", recs.len());
+}
+
+// ---------------------------------------------------------------------------
+// Properties
+// ---------------------------------------------------------------------------
+
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+    /// A value in `[-2^(bits-1), 2^(bits-1))`.
+    fn signed(&mut self, bits: u32) -> i64 {
+        (self.next() >> (64 - bits)) as i64 - (1i64 << (bits - 1))
+    }
+}
+
+fn line_i32(size: usize) -> LineBuf {
+    LineBuf::new_i32(size + 1, 1)
+}
+
+fn line_i64(size: usize) -> LineBuf {
+    LineBuf::new_i64(size + 1, 1)
+}
+
+#[test]
+fn rev_analysis_then_synthesis_is_identity() {
+    let mut rng = Rng(1);
+    let kernels = [
+        rev53(),
+        ParamAtk {
+            latk: 0,
+            satk: 0x5801,
+            katk: 0.0,
+            steps: vec![rev_step(-1, 3, 2), rev_step(3, -5, 3)],
+            others: Vec::new(),
+        },
+        ParamAtk {
+            latk: 0,
+            satk: 0x5801,
+            katk: 0.0,
+            steps: vec![rev_step(1, 0, 0), rev_step(-2, 1, 1)],
+            others: Vec::new(),
+        },
+    ];
+    let mut cases = 0;
+    for atk in &kernels {
+        for width in 1..=70u32 {
+            for even in [true, false] {
+                let w = width as usize;
+                let half = w.div_ceil(2);
+                // 32-bit
+                let mut src = line_i32(w);
+                for v in &mut src.i32_mut()[..w] {
+                    *v = rng.signed(24) as i32;
+                }
+                let (mut l, mut h, mut dst) = (line_i32(half), line_i32(half), line_i32(w));
+                rev_horz_ana(atk, &mut l, &mut h, &src, width, even);
+                rev_horz_syn(atk, &mut dst, &mut l, &mut h, width, even);
+                assert_eq!(
+                    &dst.i32()[..w],
+                    &src.i32()[..w],
+                    "i32 width {width} even {even}"
+                );
+                // 64-bit
+                let mut src = line_i64(w);
+                for v in &mut src.i64_mut()[..w] {
+                    *v = rng.signed(50);
+                }
+                let (mut l, mut h, mut dst) = (line_i64(half), line_i64(half), line_i64(w));
+                rev_horz_ana(atk, &mut l, &mut h, &src, width, even);
+                rev_horz_syn(atk, &mut dst, &mut l, &mut h, width, even);
+                assert_eq!(
+                    &dst.i64()[..w],
+                    &src.i64()[..w],
+                    "i64 width {width} even {even}"
+                );
+                cases += 2;
+            }
+        }
+    }
+    // vertical steps: synthesis undoes analysis, even with wrapping
+    for atk in &kernels {
+        for s in &atk.steps {
+            let n = 37;
+            let mut sig = line_i32(n);
+            let mut aug = line_i32(n);
+            for v in sig.i32_mut()[..n]
+                .iter_mut()
+                .chain(aug.i32_mut()[..n].iter_mut())
+            {
+                *v = rng.next() as i32;
+            }
+            let orig = aug.clone();
+            rev_vert_step(s, &sig, &sig, &mut aug, n as u32, false);
+            rev_vert_step(s, &sig, &sig, &mut aug, n as u32, true);
+            assert_eq!(aug, orig);
+            cases += 1;
+        }
+    }
+    eprintln!("rev identity: {cases} cases");
+}
+
+#[test]
+fn rct_forward_then_backward_is_identity() {
+    let mut rng = Rng(2);
+    for wide in [false, true] {
+        for repeat in [0u32, 1, 2, 7, 33, 64] {
+            let n = repeat as usize;
+            let mut rgb: Vec<LineBuf> = (0..3).map(|_| line_i32(n)).collect();
+            for l in &mut rgb {
+                for v in &mut l.i32_mut()[..n] {
+                    // RCT is exact while 2 * g and the sums fit
+                    *v = rng.signed(if wide { 32 } else { 28 }) as i32;
+                }
+            }
+            let mut ycc: Vec<LineBuf> = (0..3)
+                .map(|_| if wide { line_i64(n) } else { line_i32(n) })
+                .collect();
+            {
+                let [y, cb, cr] = &mut ycc[..] else {
+                    unreachable!()
+                };
+                rct_forward(&rgb[0], &rgb[1], &rgb[2], y, cb, cr, repeat);
+            }
+            let mut out: Vec<LineBuf> = (0..3).map(|_| line_i32(n)).collect();
+            {
+                let [r, g, b] = &mut out[..] else {
+                    unreachable!()
+                };
+                rct_backward(&ycc[0], &ycc[1], &ycc[2], r, g, b, repeat);
+            }
+            for c in 0..3 {
+                assert_eq!(
+                    &out[c].i32()[..n],
+                    &rgb[c].i32()[..n],
+                    "wide {wide} repeat {repeat} comp {c}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn rev_tx_to_cb_then_from_cb_is_identity() {
+    let mut rng = Rng(3);
+    for k_max in 1..=31u32 {
+        let n = 50;
+        let src: Vec<i32> = (0..n)
+            .map(|_| {
+                let m = (rng.next() as u32) >> (32 - k_max); // |v| < 2^k_max
+                if rng.next() & 1 == 0 {
+                    m as i32
+                } else {
+                    (m as i32).wrapping_neg()
+                }
+            })
+            .collect();
+        let mut cb = vec![0u32; n];
+        let mut mv = 0u32;
+        rev_tx_to_cb32(&src, &mut cb, k_max, 0.0, n as u32, &mut mv);
+        let mut back = vec![0i32; n];
+        rev_tx_from_cb32(&cb, &mut back, k_max, 0.0, n as u32);
+        assert_eq!(back, src, "k_max {k_max}");
+        assert_eq!(mv, cb.iter().fold(0, |a, &v| a | (v & 0x7FFF_FFFF)));
+    }
+    for k_max in 1..=63u32 {
+        let n = 50;
+        let src: Vec<i64> = (0..n)
+            .map(|_| {
+                let m = rng.next() >> (64 - k_max);
+                if rng.next() & 1 == 0 {
+                    m as i64
+                } else {
+                    (m as i64).wrapping_neg()
+                }
+            })
+            .collect();
+        let mut cb = vec![0u64; n];
+        let mut mv = 0u64;
+        rev_tx_to_cb64(&src, &mut cb, k_max, 0.0, n as u32, &mut mv);
+        let mut back = vec![0i64; n];
+        rev_tx_from_cb64(&cb, &mut back, k_max, 0.0, n as u32);
+        assert_eq!(back, src, "k_max {k_max}");
+    }
+}
+
+#[test]
+fn irv_analysis_then_synthesis_is_close() {
+    // Not exact, but a sanity check of the float path end to end.
+    let mut rng = Rng(4);
+    let atk = irv97();
+    for width in 1..=70u32 {
+        for even in [true, false] {
+            let w = width as usize;
+            let half = w.div_ceil(2);
+            let mut src = LineBuf::new_f32(w + 1, 1);
+            for v in &mut src.f32_mut()[..w] {
+                *v = (rng.next() >> 40) as f32 / 16_777_216.0 - 0.5;
+            }
+            let (mut l, mut h, mut dst) = (
+                LineBuf::new_f32(half + 1, 1),
+                LineBuf::new_f32(half + 1, 1),
+                LineBuf::new_f32(w + 1, 1),
+            );
+            irv_horz_ana(&atk, &mut l, &mut h, &src, width, even);
+            irv_horz_syn(&atk, &mut dst, &mut l, &mut h, width, even);
+            for (a, b) in dst.f32()[..w].iter().zip(&src.f32()[..w]) {
+                assert!(
+                    (a - b).abs() < 1e-5,
+                    "width {width} even {even}: {a} vs {b}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn mem_clear_and_find_max_val() {
+    let mut a = [1u32, 2, 3];
+    mem_clear(&mut a);
+    assert_eq!(a, [0, 0, 0]);
+    let mut b = [5u64; 4];
+    mem_clear(&mut b[1..]);
+    assert_eq!(b, [5, 0, 0, 0]);
+    assert_eq!(find_max_val32(&[7, 9]), 7);
+    assert_eq!(find_max_val64(&[u64::MAX, 1]), u64::MAX);
+}
