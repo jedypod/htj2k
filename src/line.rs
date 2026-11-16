@@ -38,15 +38,27 @@ pub struct LineBuf {
 
 impl LineBuf {
     pub fn new_i32(size: usize, pre_size: usize) -> Self {
-        LineBuf { size, pre_size, data: LineData::I32(vec![0; size + pre_size]) }
+        LineBuf {
+            size,
+            pre_size,
+            data: LineData::I32(vec![0; size + pre_size]),
+        }
     }
 
     pub fn new_i64(size: usize, pre_size: usize) -> Self {
-        LineBuf { size, pre_size, data: LineData::I64(vec![0; size + pre_size]) }
+        LineBuf {
+            size,
+            pre_size,
+            data: LineData::I64(vec![0; size + pre_size]),
+        }
     }
 
     pub fn new_f32(size: usize, pre_size: usize) -> Self {
-        LineBuf { size, pre_size, data: LineData::F32(vec![0.0; size + pre_size]) }
+        LineBuf {
+            size,
+            pre_size,
+            data: LineData::F32(vec![0.0; size + pre_size]),
+        }
     }
 
     pub fn is_i32(&self) -> bool {

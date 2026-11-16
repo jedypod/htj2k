@@ -22,7 +22,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
     pub fn new(code: u32, message: impl Into<Cow<'static, str>>) -> Self {
-        Error { code, message: message.into() }
+        Error {
+            code,
+            message: message.into(),
+        }
     }
 
     /// The OpenJPH message code for this error.

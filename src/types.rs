@@ -42,5 +42,5 @@ pub struct Rect {
 /// `ceil(a / b)` for unsigned integers, as OpenJPH's `ojph_div_ceil`.
 #[inline]
 pub const fn div_ceil(a: u32, b: u32) -> u32 {
-    ((a as u64 + b as u64 - 1) / b as u64) as u32
+    a.div_ceil(b)
 }

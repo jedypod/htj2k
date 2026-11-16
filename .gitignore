@@ -1,3 +1,4 @@
 /target
 /oracle/build
 Cargo.lock
+/.claude

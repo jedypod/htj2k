@@ -13,8 +13,8 @@ pub mod file;
 pub mod line;
 pub mod types;
 
-pub mod coding;
 pub mod codestream;
+pub mod coding;
 pub mod params;
 pub mod transform;
 
