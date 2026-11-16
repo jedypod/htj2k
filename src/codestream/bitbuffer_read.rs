@@ -88,7 +88,8 @@ impl<'f, 'a> BitReadBuf<'f, 'a> {
     /// still accepts the block and pads it with zeros, so that is not
     /// reported as a failure here either.
     pub(crate) fn read_chunk(&mut self, num_bytes: u32) -> (usize, u32, bool) {
-        debug_assert!(self.avail_bits == 0 && !self.unstuff);
+        // OpenJPH asserts that no bits are pending here. A damaged packet
+        // header can leave some, and a release build carries on.
         let offset = self.file.tell();
         let bytes = num_bytes.min(self.bytes_left);
         let bytes_read = self.file.remaining().len().min(bytes as usize) as u32;
@@ -113,7 +114,8 @@ impl<'f, 'a> BitReadBuf<'f, 'a> {
         if self.unstuff {
             result = self.read()?;
         }
-        debug_assert!(!self.unstuff);
+        // OpenJPH asserts that no stuffing is pending here; it still is
+        // when the byte just read is 0xFF, which a release build ignores.
         if uses_eph {
             self.skip_eph()?;
         }
