@@ -1,0 +1,185 @@
+# OpenJPH test oracle
+
+These C++ tools and scripts produce the reference data in `tests/data/`.
+They are built against OpenJPH, the C++ HTJ2K codec that this crate ports.
+They are not part of the crate build.
+
+## One command
+
+```sh
+oracle/regen.sh
+```
+
+This builds the tools into `oracle/build/`, which git ignores, and then
+regenerates `tests/data/matrix`, `tests/data/strips` and `tests/data/blocks`.
+It needs g++ (C++14), gcc, make and python3, and takes a few seconds. The
+output is deterministic: two runs produce byte-identical files.
+
+You can also run the steps one at a time: `oracle/build.sh`, then
+`python3 oracle/gen_matrix.py`, `python3 oracle/gen_strips.py` and
+`python3 oracle/gen_blocks.py`. `gen_blocks.py` reads the output of the
+other two.
+
+`gen_matrix.py` exits 1 whenever a reversible case fails to round-trip. In
+0.33.0 that always happens, because of the encoder issues listed under
+[Known issues](#known-issues). `regen.sh` reports that exit status but does
+not stop on it.
+
+## OpenJPH version
+
+The tools use OpenJPH **0.33.0** (`OPENJPH_VERSION_*` in
+`src/core/openjph/ojph_version.h`). The source is expected as a git
+checkout of that release at `../../reference/OpenJPH`, relative to this
+directory, with no local changes. To build against a different copy, set
+`OJPH_SRC`.
+
+`build.sh` compiles the core sources directly into `libojph_oracle.a`,
+without CMake. It never modifies the reference tree.
+
+* It uses `-O2 -g -DOJPH_DISABLE_SIMD` and leaves out every
+  `*_sse*`/`*_avx*`/`*_ssse3`/`*_wasm`/`*_vsx` source. So
+  `ojph_codeblock_fun.cpp` always dispatches the generic C++ code paths,
+  including `ojph_decode_codeblock32` and `ojph_decode_codeblock64`.
+* Asserts stay enabled (no `-DNDEBUG`).
+* The block decoders are instrumented without a patch.
+  `coding/ojph_block_decoder32.cpp` and `64.cpp` are compiled with
+  `-Dojph_decode_codeblockNN=ojph_decode_codeblockNN_real`, and
+  `block_dump.cpp` supplies the original names as wrappers. Each wrapper
+  appends a record to `$OJPH_BLOCK_DUMP` when that variable is set, and
+  otherwise does nothing.
+
+## Tools
+
+* **`ojph_enc -o out.j2c [options]`** synthesises a deterministic image and
+  writes a raw codestream (`.j2c`, no JP2/JPH boxes). Run `ojph_enc --help`
+  for the options. They cover the size, components, depth (1 to 32) and
+  signedness, `--irrev` (9/7), `--qstep`, `--rct`, `--levels`, `--block`,
+  `--precincts`, `--coc` (per-component levels and block size), `--prog`,
+  `--tile`, `--tile-off`, `--img-off`, `--tlm`, `--tileparts R|C|RC`,
+  `--nlt3` and `--nlt3-comps`, `--sub`, `--planar`, `--seed` and
+  `--pattern smooth|noise|const|zero`. `--raw-out FILE` also writes the
+  input samples in the `.raw` layout below.
+  * The random numbers come from splitmix64 seeded with `--seed`. For each
+    component, the tool draws the constant value, then a gradient phase,
+    then one value per sample in raster order.
+  * `noise` is uniform over the full legal range. `smooth` is a diagonal
+    gradient over the full range plus noise of about ±1/64 of the range,
+    clamped. `const` is one random legal value per component. `zero` is all
+    zeros.
+* **`ojph_dec in.j2c out.raw [--info]`** decodes with OpenJPH and writes
+  exactly what `codestream::pull` returns. `--info` prints one line per
+  component and a COD summary.
+  * It handles both `i32` and `i64` line buffers.
+  * For irreversible streams, OpenJPH 0.33.0's `pull` also returns
+    integer lines, because OpenJPH rounds and clamps internally. `ojph_dec`
+    dumps those lines, and it would stop with an error if a float line came
+    back.
+
+## File formats
+
+### `.raw`: decoded samples (from `ojph_dec`, and `ojph_enc --raw-out`)
+
+The components follow each other in order. Each component is all its lines,
+top to bottom, at the reconstructed size from SIZ:
+`ceil((Xsiz)/XRsiz) - ceil(XOsiz/XRsiz)` by the same for y, so subsampled
+components are smaller. There is no header. Each sample is 4 bytes
+little-endian, holding the low 32 bits of the value: two's complement for a
+signed component, a plain u32 for an unsigned one. For an unsigned 32-bit
+component, `ojph_enc` passes values above `i32::MAX` to OpenJPH as their bit
+pattern, the way OpenJPH's 32-bit line buffers take them.
+
+### `tests/data/matrix/MANIFEST.txt`
+
+Lines starting with `#` are comments. Every other line has these
+`|`-separated fields:
+
+```
+name | status | j2c bytes | raw bytes | raw_fnv1a64 | command [| error]
+```
+
+The `status` values are:
+
+* `lossless`: the decoded `.raw` equals the encoder input exactly.
+* `lossy maxerr=N`: an `--irrev` case. N is max |decoded − input|, read as
+  signed or unsigned per `--signed`.
+* `MISMATCH ...`: a reversible case where decoded ≠ input. These are kept
+  and listed under [Known issues](#known-issues).
+* `REFUSED`: the case did not encode. The error text from OpenJPH or
+  `ojph_enc` follows, and no files are kept.
+* `DECODE-FAILED`: `ojph_dec` failed.
+
+`command` is the exact `ojph_enc` command line, with paths relative to
+`tests/data/matrix`. The script also passes `--raw-out`. `raw_fnv1a64` is
+FNV-1a-64 (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) of the
+`.raw` file, written as 16 hex digits. Each `<name>.j2c` has its
+`<name>.raw` beside it.
+
+### `tests/data/strips/MANIFEST.txt`
+
+`gen_strips.py` encodes 11 images with `ojph_enc` and decodes them with
+`ojph_dec`, as decoder vectors at sizes the matrix avoids. All use one
+tile, RPCL, 128x32 code blocks, 5 decompositions, TLM and tile parts at
+resolutions, and all are reversible:
+
+* 16-bit signed samples with NLT type 3 and the RCT on four
+  components, 300 samples wide and 200, 32 (smooth and noise) and 8
+  lines high, and the same with 32-bit signed samples at 64, 32 and 8
+  lines;
+* one 16-bit signed component with NLT type 3, 64 wide and 32 or 8
+  high, smooth and constant.
+
+The manifest has the matrix layout. Every `.j2c` is committed, but only
+the decodes named in `COMMIT_RAW` (the 300x8 and 64-wide ones); the
+others, about 2 MB, are checked by hash, and all of them are left in
+`oracle/build/strips/`.
+
+### `tests/data/blocks/*.ojbk`
+
+These hold code-block decoder records. The byte layout and the coverage are
+in `tests/data/blocks/README.md`, and `INDEX.txt` describes every record.
+
+## Known issues
+
+These are found by the matrix and kept in it on purpose.
+
+* **Levels-0 minimum sample (OpenJPH encoder).** Affects
+  `levels0_noise_33x31` (1 sample), `blk4x1024_37x61` (2 samples) and
+  component 2 of `coc_lv0_rpcl` (1 sample).
+  * With 0 decompositions and the reversible path, a sample at the bottom
+    of the range comes back as 0 instead of −2^(B−1). This is the input
+    value 0 for unsigned data, after the DC shift.
+  * OpenJPH writes `epsilon = B − 1` in QCD for the only band. For example,
+    `levels0_noise_33x31` (B = 10) has exponent 9 with 1 guard bit, which
+    leaves 9 magnitude bits, so the value 2^(B−1) cannot be represented.
+  * The block dump shows the coded sample is 0. OpenJPEG 2.5.4 (through
+    Pillow) decodes these codestreams to the same values as `ojph_dec`.
+  * So the stored `.raw` is the correct decode of the codestream, and a
+    decoder port should match it.
+* **`nlt3_unsigned`.** NLT type 3 is meant for signed components. OpenJPH
+  accepts it on an unsigned one, and `ojph_dec` returns all zeros.
+  OpenJPEG, which ignores NLT, gives a constant mid-grey, and OpenJPH makes
+  no block-decoder calls for it. So the samples are lost on the encode
+  side: every code block is empty. The cause in OpenJPH's source was not
+  traced. The `.raw` still records what OpenJPH's decoder returns for an
+  all-empty unsigned component with NLT type 3, which is 0 rather than
+  mid-range.
+* **Refused cases** (no files are kept; the error text is in the manifest):
+  * `levels33_4x4`: OpenJPH allows at most 32 decompositions.
+  * `blk2x2_illegal` and `blk128x64_illegal`: incorrect code-block
+    dimensions.
+  * `rct1_planar_illegal`: the planar interface cannot be used with the
+    colour transform.
+  * `rct1_2comps`: the colour transform needs 3 or more components.
+  * `tile_off_illegal`: the tile offset must be smaller than the image
+    offset.
+  * `sub_2x2_planar0`: the error comes from `ojph_enc`, not OpenJPH.
+    OpenJPH's interleaved (non-planar) `exchange` steps through comp 0's
+    height for every component, so it cannot take subsampled components.
+    Use planar mode for them.
+  * `coc_levels_blocks` (LRCP) and `coc_levels_rlcp`: components with
+    different decomposition counts fail the OpenJPH assertion
+    `res_num <= num_decomps` in `tile_comp::write_precincts` under the
+    layer-first progressions. The same parameters work with RPCL, PCRL
+    and CPRL (`coc_levels_*`).
+* **No multi-pass code blocks.** The OpenJPH encoder writes only the
+  cleanup pass. See `tests/data/blocks/README.md`.

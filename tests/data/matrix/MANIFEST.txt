@@ -1,0 +1,169 @@
+# Parameter-matrix codestreams made with oracle/ojph_enc and decoded
+# with oracle/ojph_dec.  Columns:
+#   name | status | j2c bytes | raw bytes | raw_fnv1a64 | command
+# status: lossless = decoded .raw equals the encoder input exactly;
+#         lossy maxerr=N = irreversible, max |decoded - input|;
+#         MISMATCH = reversible but decoded != input (a bug);
+#         REFUSED = OpenJPH refused to encode (error text follows,
+#         no files kept); DECODE-FAILED = ojph_dec failed.
+# Commands are relative to tests/data/matrix; ojph_enc also gets
+# --raw-out <tmp> to dump its input for the comparison.
+prog_lrcp | lossless | 2173 | 11520 | 78dcd02a729d6da8 | ojph_enc -o prog_lrcp.j2c --size 40x24 --comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16 --prog LRCP --planar 0 --seed 11
+prog_rlcp | lossless | 2173 | 11520 | 78dcd02a729d6da8 | ojph_enc -o prog_rlcp.j2c --size 40x24 --comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16 --prog RLCP --planar 0 --seed 11
+prog_rpcl | lossless | 2173 | 11520 | 78dcd02a729d6da8 | ojph_enc -o prog_rpcl.j2c --size 40x24 --comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16 --prog RPCL --planar 0 --seed 11
+prog_pcrl | lossless | 2173 | 11520 | 78dcd02a729d6da8 | ojph_enc -o prog_pcrl.j2c --size 40x24 --comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16 --prog PCRL --planar 0 --seed 11
+prog_cprl | lossless | 2173 | 11520 | 78dcd02a729d6da8 | ojph_enc -o prog_cprl.j2c --size 40x24 --comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16 --prog CPRL --planar 0 --seed 11
+prog_rpcl_tiles | lossless | 3443 | 16200 | 7dba26a0ccd8772c | ojph_enc -o prog_rpcl_tiles.j2c --size 45x30 --comps 3 --levels 3 --block 8x8 --precincts 16x16 --prog RPCL --tile 24x16 --seed 12
+prog_pcrl_sub | lossless | 1231 | 5760 | a591e3cde4062b0e | ojph_enc -o prog_pcrl_sub.j2c --size 40x24 --comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16 --prog PCRL --sub 1x1,2x2,2x2 --seed 13
+levels0_32x32 | lossless | 1105 | 4096 | 27ca12a0dd9be91b | ojph_enc -o levels0_32x32.j2c --size 32x32 --levels 0 --depth 8 --seed 20
+levels0_noise_33x31 | MISMATCH sizes 4092/4092, 1 samples differ | 1530 | 4092 | 1a6b712236ee620e | ojph_enc -o levels0_noise_33x31.j2c --size 33x31 --levels 0 --depth 10 --pattern noise --seed 21
+levels1_32x32 | lossless | 810 | 4096 | 27ca12a0dd9be91b | ojph_enc -o levels1_32x32.j2c --size 32x32 --levels 1 --depth 8 --seed 20
+levels1_noise_33x31 | lossless | 1600 | 4092 | 00d9f8e8c8dd5574 | ojph_enc -o levels1_noise_33x31.j2c --size 33x31 --levels 1 --depth 10 --pattern noise --seed 21
+levels2_32x32 | lossless | 744 | 4096 | 27ca12a0dd9be91b | ojph_enc -o levels2_32x32.j2c --size 32x32 --levels 2 --depth 8 --seed 20
+levels2_noise_33x31 | lossless | 1626 | 4092 | 00d9f8e8c8dd5574 | ojph_enc -o levels2_noise_33x31.j2c --size 33x31 --levels 2 --depth 10 --pattern noise --seed 21
+levels5_32x32 | lossless | 775 | 4096 | 27ca12a0dd9be91b | ojph_enc -o levels5_32x32.j2c --size 32x32 --levels 5 --depth 8 --seed 20
+levels5_noise_33x31 | lossless | 1692 | 4092 | 00d9f8e8c8dd5574 | ojph_enc -o levels5_noise_33x31.j2c --size 33x31 --levels 5 --depth 10 --pattern noise --seed 21
+levels8_17x9 | lossless | 299 | 612 | e4a6e406d3f90b72 | ojph_enc -o levels8_17x9.j2c --size 17x9 --levels 8 --seed 22
+levels10_5x3 | lossless | 209 | 60 | 259333db78029a1f | ojph_enc -o levels10_5x3.j2c --size 5x3 --levels 10 --seed 23
+levels32_1x1 | lossless | 250 | 4 | 4d25767f9dce13f5 | ojph_enc -o levels32_1x1.j2c --size 1x1 --levels 32 --seed 24
+levels33_4x4 | REFUSED | | | | ojph_enc -o levels33_4x4.j2c --size 4x4 --levels 33 --seed 24 | ojph error 0x00050001 at ojph_params.cpp:170: maximum number of decompositions cannot exceed 32 / ojph_enc: OpenJPH exception: ojph error
+levels6_3x2_off | lossless | 160 | 24 | e2bff136d90ea753 | ojph_enc -o levels6_3x2_off.j2c --size 3x2 --img-off 5,3 --levels 6 --seed 25
+blk4x4_37x29 | lossless | 1067 | 4292 | f2f91e38c4c99b85 | ojph_enc -o blk4x4_37x29.j2c --size 37x29 --block 4x4 --levels 2 --seed 30
+blk4x4_noise16 | lossless | 1361 | 1920 | d2db9854824a71b0 | ojph_enc -o blk4x4_noise16.j2c --size 24x20 --block 4x4 --levels 1 --depth 16 --pattern noise --seed 31
+blk64x64_130x35 | lossless | 2735 | 18200 | 6ecdc5bcdbc3a6dc | ojph_enc -o blk64x64_130x35.j2c --size 130x35 --block 64x64 --levels 2 --seed 32
+blk128x32_130x35 | lossless | 5452 | 18200 | f05534ba6a3ca0b4 | ojph_enc -o blk128x32_130x35.j2c --size 130x35 --block 128x32 --levels 1 --depth 12 --seed 33
+blk32x128_35x130 | lossless | 5358 | 18200 | 802d30b4a7efc53c | ojph_enc -o blk32x128_35x130.j2c --size 35x130 --block 32x128 --levels 1 --depth 12 --seed 34
+blk1024x4_300x200 | lossless | 38581 | 240000 | e39d5a2caa52026a | ojph_enc -o blk1024x4_300x200.j2c --size 300x200 --block 1024x4 --levels 1 --depth 8 --seed 35
+blk4x1024_37x61 | MISMATCH sizes 9028/9028, 2 samples differ | 2402 | 9028 | dfc92562a2f66483 | ojph_enc -o blk4x1024_37x61.j2c --size 37x61 --block 4x1024 --levels 0 --depth 8 --seed 36
+blk8x16_noise_29x40 | lossless | 2151 | 4640 | 11d5d91305c549dd | ojph_enc -o blk8x16_noise_29x40.j2c --size 29x40 --block 8x16 --levels 1 --depth 12 --pattern noise --seed 37
+blk2x2_illegal | REFUSED | | | | ojph_enc -o blk2x2_illegal.j2c --size 8x8 --block 2x2 | ojph error 0x00050011 at ojph_params.cpp:184: incorrect code block dimensions / ojph_enc: OpenJPH exception: ojph error
+blk128x64_illegal | REFUSED | | | | ojph_enc -o blk128x64_illegal.j2c --size 8x8 --block 128x64 | ojph error 0x00050011 at ojph_params.cpp:184: incorrect code block dimensions / ojph_enc: OpenJPH exception: ojph error
+depth1u_noise | lossless | 286 | 1920 | 07e0afdd321713d4 | ojph_enc -o depth1u_noise.j2c --size 24x20 --depth 1 --signed 0 --levels 3 --pattern noise --seed 102
+depth1u_smooth | lossless | 260 | 1596 | d3a08e37f9986914 | ojph_enc -o depth1u_smooth.j2c --size 21x19 --depth 1 --signed 0 --levels 2 --block 16x16 --seed 202
+depth1s_noise | lossless | 276 | 1920 | c7b3cd81ac740851 | ojph_enc -o depth1s_noise.j2c --size 24x20 --depth 1 --signed 1 --levels 3 --pattern noise --seed 103
+depth1s_smooth | lossless | 251 | 1596 | f56ee00535f0a6c9 | ojph_enc -o depth1s_smooth.j2c --size 21x19 --depth 1 --signed 1 --levels 2 --block 16x16 --seed 203
+depth8u_noise | lossless | 756 | 1920 | aa6cfb65d3f11565 | ojph_enc -o depth8u_noise.j2c --size 24x20 --depth 8 --signed 0 --levels 3 --pattern noise --seed 116
+depth8u_smooth | lossless | 400 | 1596 | 465ac2f1314539bd | ojph_enc -o depth8u_smooth.j2c --size 21x19 --depth 8 --signed 0 --levels 2 --block 16x16 --seed 216
+depth8s_noise | lossless | 763 | 1920 | fb0b32b509e9ecb8 | ojph_enc -o depth8s_noise.j2c --size 24x20 --depth 8 --signed 1 --levels 3 --pattern noise --seed 117
+depth8s_smooth | lossless | 402 | 1596 | 4307da60ea5f06c2 | ojph_enc -o depth8s_smooth.j2c --size 21x19 --depth 8 --signed 1 --levels 2 --block 16x16 --seed 217
+depth12u_noise | lossless | 1007 | 1920 | 5054bf221dc62c31 | ojph_enc -o depth12u_noise.j2c --size 24x20 --depth 12 --signed 0 --levels 3 --pattern noise --seed 124
+depth12u_smooth | lossless | 624 | 1596 | 34aa79b452d8601c | ojph_enc -o depth12u_smooth.j2c --size 21x19 --depth 12 --signed 0 --levels 2 --block 16x16 --seed 224
+depth12s_noise | lossless | 999 | 1920 | 3e84fb5dfaa01c1a | ojph_enc -o depth12s_noise.j2c --size 24x20 --depth 12 --signed 1 --levels 3 --pattern noise --seed 125
+depth12s_smooth | lossless | 619 | 1596 | 1cbaf13dd382a29a | ojph_enc -o depth12s_smooth.j2c --size 21x19 --depth 12 --signed 1 --levels 2 --block 16x16 --seed 225
+depth16u_noise | lossless | 1251 | 1920 | dd1e2909adc28527 | ojph_enc -o depth16u_noise.j2c --size 24x20 --depth 16 --signed 0 --levels 3 --pattern noise --seed 132
+depth16u_smooth | lossless | 832 | 1596 | b86eac2a94194757 | ojph_enc -o depth16u_smooth.j2c --size 21x19 --depth 16 --signed 0 --levels 2 --block 16x16 --seed 232
+depth16s_noise | lossless | 1262 | 1920 | 693d3792fb778d50 | ojph_enc -o depth16s_noise.j2c --size 24x20 --depth 16 --signed 1 --levels 3 --pattern noise --seed 133
+depth16s_smooth | lossless | 832 | 1596 | c611c4024525b6e3 | ojph_enc -o depth16s_smooth.j2c --size 21x19 --depth 16 --signed 1 --levels 2 --block 16x16 --seed 233
+depth24u_noise | lossless | 1747 | 1920 | b699d4102df7e287 | ojph_enc -o depth24u_noise.j2c --size 24x20 --depth 24 --signed 0 --levels 3 --pattern noise --seed 148
+depth24u_smooth | lossless | 1241 | 1596 | 8554046b8f55bb50 | ojph_enc -o depth24u_smooth.j2c --size 21x19 --depth 24 --signed 0 --levels 2 --block 16x16 --seed 248
+depth24s_noise | lossless | 1750 | 1920 | f2b5072aa84bea1f | ojph_enc -o depth24s_noise.j2c --size 24x20 --depth 24 --signed 1 --levels 3 --pattern noise --seed 149
+depth24s_smooth | lossless | 1240 | 1596 | 781dbc53bd679fce | ojph_enc -o depth24s_smooth.j2c --size 21x19 --depth 24 --signed 1 --levels 2 --block 16x16 --seed 249
+depth28u_noise | lossless | 1994 | 1920 | 304404e59228cd8e | ojph_enc -o depth28u_noise.j2c --size 24x20 --depth 28 --signed 0 --levels 3 --pattern noise --seed 156
+depth28u_smooth | lossless | 1445 | 1596 | 94a05a4717a96f2b | ojph_enc -o depth28u_smooth.j2c --size 21x19 --depth 28 --signed 0 --levels 2 --block 16x16 --seed 256
+depth28s_noise | lossless | 1995 | 1920 | b420bfccf27e0cae | ojph_enc -o depth28s_noise.j2c --size 24x20 --depth 28 --signed 1 --levels 3 --pattern noise --seed 157
+depth28s_smooth | lossless | 1441 | 1596 | ffc81492fb6239e1 | ojph_enc -o depth28s_smooth.j2c --size 21x19 --depth 28 --signed 1 --levels 2 --block 16x16 --seed 257
+depth31u_noise | lossless | 2174 | 1920 | 53bab11af17d009b | ojph_enc -o depth31u_noise.j2c --size 24x20 --depth 31 --signed 0 --levels 3 --pattern noise --seed 162
+depth31u_smooth | lossless | 1596 | 1596 | 9bfa63fe0283bea2 | ojph_enc -o depth31u_smooth.j2c --size 21x19 --depth 31 --signed 0 --levels 2 --block 16x16 --seed 262
+depth31s_noise | lossless | 2174 | 1920 | 03c235d97ae2583d | ojph_enc -o depth31s_noise.j2c --size 24x20 --depth 31 --signed 1 --levels 3 --pattern noise --seed 163
+depth31s_smooth | lossless | 1594 | 1596 | 872328c2f04f98e1 | ojph_enc -o depth31s_smooth.j2c --size 21x19 --depth 31 --signed 1 --levels 2 --block 16x16 --seed 263
+depth32u_noise | lossless | 2248 | 1920 | eaedcdffc544bcfa | ojph_enc -o depth32u_noise.j2c --size 24x20 --depth 32 --signed 0 --levels 3 --pattern noise --seed 164
+depth32u_smooth | lossless | 1776 | 1596 | 8f9f5fa800581900 | ojph_enc -o depth32u_smooth.j2c --size 21x19 --depth 32 --signed 0 --levels 2 --block 16x16 --seed 264
+depth32s_noise | lossless | 2236 | 1920 | b2fc942f139f7930 | ojph_enc -o depth32s_noise.j2c --size 24x20 --depth 32 --signed 1 --levels 3 --pattern noise --seed 165
+depth32s_smooth | lossless | 1649 | 1596 | cdf4b2ef94c47b38 | ojph_enc -o depth32s_smooth.j2c --size 21x19 --depth 32 --signed 1 --levels 2 --block 16x16 --seed 265
+depth26s_noise_l5 | lossless | 1704 | 1600 | a8bfc8b8c8de30a2 | ojph_enc -o depth26s_noise_l5.j2c --size 20x20 --depth 26 --signed 1 --levels 5 --block 8x8 --pattern noise --seed 326
+depth27s_noise_l5 | lossless | 1752 | 1600 | 030800d0c7c4328a | ojph_enc -o depth27s_noise_l5.j2c --size 20x20 --depth 27 --signed 1 --levels 5 --block 8x8 --pattern noise --seed 327
+depth29s_noise_l5 | lossless | 1864 | 1600 | 46d9dd9afd5a8177 | ojph_enc -o depth29s_noise_l5.j2c --size 20x20 --depth 29 --signed 1 --levels 5 --block 8x8 --pattern noise --seed 329
+depth30s_noise_l5 | lossless | 1917 | 1600 | 6db538c38c9039b9 | ojph_enc -o depth30s_noise_l5.j2c --size 20x20 --depth 30 --signed 1 --levels 5 --block 8x8 --pattern noise --seed 330
+rct0_depth8u | lossless | 904 | 3876 | 6b7a106f60851147 | ojph_enc -o rct0_depth8u.j2c --size 19x17 --comps 3 --rct 0 --depth 8 --signed 0 --levels 2 --block 8x8 --pattern smooth --seed 408
+rct1_depth8u | lossless | 863 | 3876 | 6b7a106f60851147 | ojph_enc -o rct1_depth8u.j2c --size 19x17 --comps 3 --rct 1 --depth 8 --signed 0 --levels 2 --block 8x8 --pattern smooth --seed 408
+rct0_depth12u | lossless | 1454 | 3876 | 2f03d3b194d88cb9 | ojph_enc -o rct0_depth12u.j2c --size 19x17 --comps 3 --rct 0 --depth 12 --signed 0 --levels 2 --block 8x8 --pattern smooth --seed 412
+rct1_depth12u | lossless | 1455 | 3876 | 2f03d3b194d88cb9 | ojph_enc -o rct1_depth12u.j2c --size 19x17 --comps 3 --rct 1 --depth 12 --signed 0 --levels 2 --block 8x8 --pattern smooth --seed 412
+rct0_depth16s | lossless | 1976 | 3876 | 33f3a6a51b3cce93 | ojph_enc -o rct0_depth16s.j2c --size 19x17 --comps 3 --rct 0 --depth 16 --signed 1 --levels 2 --block 8x8 --pattern smooth --seed 416
+rct1_depth16s | lossless | 1965 | 3876 | 33f3a6a51b3cce93 | ojph_enc -o rct1_depth16s.j2c --size 19x17 --comps 3 --rct 1 --depth 16 --signed 1 --levels 2 --block 8x8 --pattern smooth --seed 416
+rct0_depth24u | lossless | 3508 | 3876 | e73a8ac40fbc7b62 | ojph_enc -o rct0_depth24u.j2c --size 19x17 --comps 3 --rct 0 --depth 24 --signed 0 --levels 2 --block 8x8 --pattern noise --seed 424
+rct1_depth24u | lossless | 3534 | 3876 | e73a8ac40fbc7b62 | ojph_enc -o rct1_depth24u.j2c --size 19x17 --comps 3 --rct 1 --depth 24 --signed 0 --levels 2 --block 8x8 --pattern noise --seed 424
+rct0_depth28s | lossless | 4023 | 3876 | 6a8e132b3bf5eb2f | ojph_enc -o rct0_depth28s.j2c --size 19x17 --comps 3 --rct 0 --depth 28 --signed 1 --levels 2 --block 8x8 --pattern noise --seed 428
+rct1_depth28s | lossless | 4030 | 3876 | 6a8e132b3bf5eb2f | ojph_enc -o rct1_depth28s.j2c --size 19x17 --comps 3 --rct 1 --depth 28 --signed 1 --levels 2 --block 8x8 --pattern noise --seed 428
+rct0_depth31u | lossless | 4380 | 3876 | 150619316d0c1126 | ojph_enc -o rct0_depth31u.j2c --size 19x17 --comps 3 --rct 0 --depth 31 --signed 0 --levels 2 --block 8x8 --pattern noise --seed 431
+rct1_depth31u | lossless | 4397 | 3876 | 150619316d0c1126 | ojph_enc -o rct1_depth31u.j2c --size 19x17 --comps 3 --rct 1 --depth 31 --signed 0 --levels 2 --block 8x8 --pattern noise --seed 431
+rct0_depth32s | lossless | 4510 | 3876 | 8f1c363fa84cbebc | ojph_enc -o rct0_depth32s.j2c --size 19x17 --comps 3 --rct 0 --depth 32 --signed 1 --levels 2 --block 8x8 --pattern noise --seed 432
+rct1_depth32s | lossless | 4529 | 3876 | 8f1c363fa84cbebc | ojph_enc -o rct1_depth32s.j2c --size 19x17 --comps 3 --rct 1 --depth 32 --signed 1 --levels 2 --block 8x8 --pattern noise --seed 432
+rct0_depth32u | lossless | 4532 | 3876 | f2635fbb5da1d83c | ojph_enc -o rct0_depth32u.j2c --size 19x17 --comps 3 --rct 0 --depth 32 --signed 0 --levels 2 --block 8x8 --pattern noise --seed 432
+rct1_depth32u | lossless | 4529 | 3876 | f2635fbb5da1d83c | ojph_enc -o rct1_depth32u.j2c --size 19x17 --comps 3 --rct 1 --depth 32 --signed 0 --levels 2 --block 8x8 --pattern noise --seed 432
+rct1_4comps | lossless | 1728 | 6624 | 44f5be81ebd7931c | ojph_enc -o rct1_4comps.j2c --size 23x18 --comps 4 --rct 1 --depth 10 --levels 2 --seed 450
+rct1_planar_illegal | REFUSED | | | | ojph_enc -o rct1_planar_illegal.j2c --size 8x8 --comps 3 --rct 1 --planar 1 | ojph error 0x00030021 at ojph_codestream_local.cpp:631: the planar interface option cannot be used when colour transform is employed / ojph_enc: OpenJPH exception: ojph error
+rct1_2comps | REFUSED | | | | ojph_enc -o rct1_2comps.j2c --size 8x8 --comps 2 --rct 1 | ojph error 0x00040011 at ojph_params_local.h:451: color transform can only be employed when the image has 3 or more color components / ojph_enc: OpenJPH exception: ojph error
+planar0_3comps | lossless | 1689 | 4968 | b6a6e86a8e01d9a9 | ojph_enc -o planar0_3comps.j2c --size 23x18 --comps 3 --planar 0 --depth 12 --levels 2 --seed 451
+comps5_planar | lossless | 574 | 2860 | 1291c4b52518cbba | ojph_enc -o comps5_planar.j2c --size 13x11 --comps 5 --depth 6 --levels 1 --seed 452
+nlt0_depth8s | lossless | 406 | 1584 | 48bde08248d997e5 | ojph_enc -o nlt0_depth8s.j2c --size 22x18 --depth 8 --signed 1 --levels 2 --block 16x16 --pattern smooth --seed 508
+nlt1_depth8s | lossless | 503 | 1584 | 48bde08248d997e5 | ojph_enc -o nlt1_depth8s.j2c --size 22x18 --depth 8 --signed 1 --levels 2 --block 16x16 --pattern smooth --nlt3 --seed 508
+nlt0_depth16s | lossless | 838 | 1584 | 8ca143e58b0612e3 | ojph_enc -o nlt0_depth16s.j2c --size 22x18 --depth 16 --signed 1 --levels 2 --block 16x16 --pattern smooth --seed 516
+nlt1_depth16s | lossless | 938 | 1584 | 8ca143e58b0612e3 | ojph_enc -o nlt1_depth16s.j2c --size 22x18 --depth 16 --signed 1 --levels 2 --block 16x16 --pattern smooth --nlt3 --seed 516
+nlt0_depth24s | lossless | 1462 | 1584 | f7b92b795ba773f9 | ojph_enc -o nlt0_depth24s.j2c --size 22x18 --depth 24 --signed 1 --levels 2 --block 16x16 --pattern noise --seed 524
+nlt1_depth24s | lossless | 1466 | 1584 | f7b92b795ba773f9 | ojph_enc -o nlt1_depth24s.j2c --size 22x18 --depth 24 --signed 1 --levels 2 --block 16x16 --pattern noise --nlt3 --seed 524
+nlt0_depth32s | lossless | 1868 | 1584 | b4e816fa60c16897 | ojph_enc -o nlt0_depth32s.j2c --size 22x18 --depth 32 --signed 1 --levels 2 --block 16x16 --pattern noise --seed 532
+nlt1_depth32s | lossless | 1873 | 1584 | b4e816fa60c16897 | ojph_enc -o nlt1_depth32s.j2c --size 22x18 --depth 32 --signed 1 --levels 2 --block 16x16 --pattern noise --nlt3 --seed 532
+nlt3_comp1_of3 | lossless | 2378 | 4752 | d694ac9599e4f435 | ojph_enc -o nlt3_comp1_of3.j2c --size 22x18 --comps 3 --depth 16 --signed 1 --nlt3-comps 1 --levels 2 --seed 540
+nlt3_rct | lossless | 2589 | 4752 | 5a8b3a7e39d03eea | ojph_enc -o nlt3_rct.j2c --size 22x18 --comps 3 --depth 16 --signed 1 --nlt3 --rct 1 --levels 2 --seed 541
+nlt3_unsigned | MISMATCH sizes 256/256, 64 samples differ | 145 | 256 | d80ac658736bb725 | ojph_enc -o nlt3_unsigned.j2c --size 8x8 --depth 16 --signed 0 --nlt3-comps 0 --seed 542
+nlt3_depth32s_l5 | lossless | 1337 | 1024 | f5261b4e1ed43176 | ojph_enc -o nlt3_depth32s_l5.j2c --size 16x16 --depth 32 --signed 1 --nlt3 --levels 5 --block 8x8 --pattern noise --seed 543
+tiles16_61x47 | lossless | 2384 | 11468 | 0eea88c18734d97e | ojph_enc -o tiles16_61x47.j2c --size 61x47 --tile 16x16 --levels 2 --block 8x8 --seed 600
+tiles_off_61x47 | lossless | 2459 | 11468 | 6d7cd83b0f266e5c | ojph_enc -o tiles_off_61x47.j2c --size 61x47 --img-off 5,3 --tile-off 2,1 --tile 32x20 --levels 3 --block 16x8 --seed 601
+tiles7x5_37x29 | lossless | 4162 | 4292 | 5e8c0dab592ae696 | ojph_enc -o tiles7x5_37x29.j2c --size 37x29 --tile 7x5 --levels 2 --block 4x4 --depth 12 --signed 1 --seed 602
+tile_larger_than_image | lossless | 516 | 2400 | e5d384899aa37646 | ojph_enc -o tile_larger_than_image.j2c --size 30x20 --tile 64x64 --levels 3 --seed 603
+imgoff_13x7_no_tiles | lossless | 955 | 4292 | 4aa746aa69c4416d | ojph_enc -o imgoff_13x7_no_tiles.j2c --size 37x29 --img-off 13,7 --levels 3 --block 8x8 --seed 604
+imgoff_odd_tiles_3comps | lossless | 5468 | 16236 | 40a63bfbe76fc7d3 | ojph_enc -o imgoff_odd_tiles_3comps.j2c --size 41x33 --img-off 7,9 --tile-off 3,4 --tile 16x24 --comps 3 --rct 1 --levels 2 --block 8x8 --depth 10 --seed 605
+tiles_1x17 | lossless | 235 | 68 | 10897f4613d2cf75 | ojph_enc -o tiles_1x17.j2c --size 1x17 --tile 1x5 --levels 2 --seed 606
+tiles_37x1 | lossless | 315 | 148 | 733b7ebd1da8dc4f | ojph_enc -o tiles_37x1.j2c --size 37x1 --tile 9x1 --levels 3 --seed 607
+tile_off_illegal | REFUSED | | | | ojph_enc -o tile_off_illegal.j2c --size 16x16 --img-off 2,2 --tile-off 5,5 --tile 8x8 | ojph error 0x00040002 at ojph_params_local.h:241: Tile offset has to be smaller than the image offset / ojph_enc: OpenJPH exception: ojph error
+tlm0_tpnone | lossless | 2987 | 14400 | df3054d5b087d507 | ojph_enc -o tlm0_tpnone.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 700
+tlm0_tpr | lossless | 3099 | 14400 | df3054d5b087d507 | ojph_enc -o tlm0_tpr.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 700 --tileparts R
+tlm0_tpc | lossless | 3435 | 14400 | df3054d5b087d507 | ojph_enc -o tlm0_tpc.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 700 --tileparts C
+tlm0_tprc | lossless | 3435 | 14400 | df3054d5b087d507 | ojph_enc -o tlm0_tprc.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 700 --tileparts RC
+tlm1_tpnone | lossless | 3017 | 14400 | df3054d5b087d507 | ojph_enc -o tlm1_tpnone.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 700 --tlm
+tlm1_tpr | lossless | 3177 | 14400 | df3054d5b087d507 | ojph_enc -o tlm1_tpr.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 700 --tlm --tileparts R
+tlm1_tpc | lossless | 3657 | 14400 | df3054d5b087d507 | ojph_enc -o tlm1_tpc.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 700 --tlm --tileparts C
+tlm1_tprc | lossless | 3657 | 14400 | df3054d5b087d507 | ojph_enc -o tlm1_tprc.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 700 --tlm --tileparts RC
+tlm_tpR_cprl | lossless | 3034 | 14400 | f947f0d7254c54f8 | ojph_enc -o tlm_tpR_cprl.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --prog CPRL --tlm --tileparts R --seed 701
+tlm_tpRC_rpcl_rct | lossless | 3781 | 14400 | 8d00a065e2e5747e | ojph_enc -o tlm_tpRC_rpcl_rct.j2c --size 40x30 --comps 3 --rct 1 --tile 24x16 --levels 2 --block 8x8 --precincts 8x8 --prog RPCL --tlm --tileparts RC --seed 702
+sub_2x1 | lossless | 1194 | 6144 | b53026f9d0db422c | ojph_enc -o sub_2x1.j2c --size 32x24 --comps 3 --sub 1x1,2x1,2x1 --levels 2 --block 8x8 --seed 800
+sub_2x2 | lossless | 966 | 4608 | 157522fca31813fb | ojph_enc -o sub_2x2.j2c --size 32x24 --comps 3 --sub 1x1,2x2,2x2 --levels 2 --block 8x8 --seed 801
+sub_2x2_odd_off | lossless | 1347 | 6308 | 0787281376b85b1e | ojph_enc -o sub_2x2_odd_off.j2c --size 37x29 --img-off 1,1 --comps 3 --sub 1x1,2x2,2x2 --levels 3 --block 8x8 --seed 802
+sub_3x2_tiles | lossless | 1403 | 5072 | f38bc01b7712ad03 | ojph_enc -o sub_3x2_tiles.j2c --size 37x29 --comps 2 --sub 1x1,3x2 --tile 16x16 --levels 2 --block 8x8 --seed 803
+sub_2x2_planar0 | REFUSED | | | | ojph_enc -o sub_2x2_planar0.j2c --size 32x24 --comps 3 --sub 1x1,2x2,2x2 --planar 0 --levels 2 --seed 804 | ojph_enc: exchange asked for an unexpected component/line
+sub_4x4_signed16 | lossless | 1237 | 2424 | ebb43f97af72fb60 | ojph_enc -o sub_4x4_signed16.j2c --size 33x17 --comps 2 --sub 1x1,4x4 --depth 16 --signed 1 --levels 1 --seed 805
+prec8x8_64x64 | lossless | 3541 | 16384 | f125650baadeb963 | ojph_enc -o prec8x8_64x64.j2c --size 64x64 --levels 3 --block 16x16 --precincts 8x8 --seed 900
+prec_mixed | lossless | 1854 | 10560 | 18739151f3ced700 | ojph_enc -o prec_mixed.j2c --size 60x44 --levels 3 --block 8x8 --precincts 4x4,8x8,16x16,32x32 --seed 901
+prec_lt_block | lossless | 1403 | 7680 | 802b542b221b2274 | ojph_enc -o prec_lt_block.j2c --size 48x40 --levels 2 --block 32x32 --precincts 16x16 --seed 902
+prec_1x1_res0 | lossless | 1236 | 1600 | afdceb5d0213cfb4 | ojph_enc -o prec_1x1_res0.j2c --size 20x20 --levels 2 --block 4x4 --precincts 1x1,2x2,4x4 --seed 903
+prec_nonsquare | lossless | 1461 | 6800 | d60998e76df4f92a | ojph_enc -o prec_nonsquare.j2c --size 50x34 --levels 2 --block 8x4 --precincts 32x8,16x32 --seed 904
+coc_levels_blocks | REFUSED | | | | ojph_enc -o coc_levels_blocks.j2c --size 33x27 --comps 3 --levels 3 --block 16x16 --coc 1:1:4x8 --coc 2:0:32x32 --seed 950 | ojph_enc: OpenJPH/src/core/codestream/ojph_tile_comp.cpp:119: void ojph::local::tile_comp::write_precincts(ojph::ui32, ojph::outfile_base*): Assertion `res_num <= num_decomps' failed.
+coc_lv0_rpcl | MISMATCH sizes 10692/10692, 1 samples differ | 2347 | 10692 | c320d1fa38819889 | ojph_enc -o coc_lv0_rpcl.j2c --size 33x27 --comps 3 --levels 3 --block 16x16 --coc 1:1:4x8 --coc 2:0:32x32 --prog RPCL --seed 950
+coc_levels_rpcl | lossless | 2022 | 10692 | 1b8f13d1e6275fd9 | ojph_enc -o coc_levels_rpcl.j2c --size 33x27 --comps 3 --levels 3 --block 16x16 --coc 1:1:4x8 --coc 2:2:32x32 --prog RPCL --seed 951
+coc_levels_pcrl | lossless | 2022 | 10692 | 1b8f13d1e6275fd9 | ojph_enc -o coc_levels_pcrl.j2c --size 33x27 --comps 3 --levels 3 --block 16x16 --coc 1:1:4x8 --coc 2:2:32x32 --prog PCRL --seed 951
+coc_levels_cprl | lossless | 2022 | 10692 | 1b8f13d1e6275fd9 | ojph_enc -o coc_levels_cprl.j2c --size 33x27 --comps 3 --levels 3 --block 16x16 --coc 1:1:4x8 --coc 2:2:32x32 --prog CPRL --seed 951
+coc_levels_rlcp | REFUSED | | | | ojph_enc -o coc_levels_rlcp.j2c --size 33x27 --comps 3 --levels 3 --block 16x16 --coc 1:1:4x8 --coc 2:2:32x32 --prog RLCP --seed 951 | ojph_enc: OpenJPH/src/core/codestream/ojph_tile_comp.cpp:119: void ojph::local::tile_comp::write_precincts(ojph::ui32, ojph::outfile_base*): Assertion `res_num <= num_decomps' failed.
+coc_blocks_only | lossless | 1951 | 10692 | aabd491f05645ad0 | ojph_enc -o coc_blocks_only.j2c --size 33x27 --comps 3 --levels 2 --block 16x16 --coc 1:2:4x8 --coc 2:2:32x32 --seed 952
+pat_smooth_u8 | lossless | 727 | 4096 | 1402f3451863a7f6 | ojph_enc -o pat_smooth_u8.j2c --size 32x32 --pattern smooth --levels 3 --seed 1000
+pat_smooth_s16 | lossless | 1108 | 2268 | 5974ff46aba22579 | ojph_enc -o pat_smooth_s16.j2c --size 27x21 --pattern smooth --depth 16 --signed 1 --levels 2 --seed 1001
+pat_smooth_u32 | lossless | 1213 | 1024 | fce89de999650e66 | ojph_enc -o pat_smooth_u32.j2c --size 16x16 --pattern smooth --depth 32 --levels 2 --block 8x8 --seed 1002
+pat_noise_u8 | lossless | 1373 | 4096 | b61f23fc3e8d824d | ojph_enc -o pat_noise_u8.j2c --size 32x32 --pattern noise --levels 3 --seed 1000
+pat_noise_s16 | lossless | 1428 | 2268 | bc24106a80504ee7 | ojph_enc -o pat_noise_s16.j2c --size 27x21 --pattern noise --depth 16 --signed 1 --levels 2 --seed 1001
+pat_noise_u32 | lossless | 1266 | 1024 | d2e19213a7bb273c | ojph_enc -o pat_noise_u32.j2c --size 16x16 --pattern noise --depth 32 --levels 2 --block 8x8 --seed 1002
+pat_const_u8 | lossless | 151 | 4096 | c8b150e6da846325 | ojph_enc -o pat_const_u8.j2c --size 32x32 --pattern const --levels 3 --seed 1000
+pat_const_s16 | lossless | 225 | 2268 | 8e333ad2746ed85d | ojph_enc -o pat_const_s16.j2c --size 27x21 --pattern const --depth 16 --signed 1 --levels 2 --seed 1001
+pat_const_u32 | lossless | 203 | 1024 | 3954288ce1883725 | ojph_enc -o pat_const_u32.j2c --size 16x16 --pattern const --depth 32 --levels 2 --block 8x8 --seed 1002
+pat_zero_u8 | lossless | 155 | 4096 | b93a0c83ce3b6325 | ojph_enc -o pat_zero_u8.j2c --size 32x32 --pattern zero --levels 3 --seed 1000
+pat_zero_s16 | lossless | 125 | 2268 | f099fb0c9a8ae0d5 | ojph_enc -o pat_zero_s16.j2c --size 27x21 --pattern zero --depth 16 --signed 1 --levels 2 --seed 1001
+pat_zero_u32 | lossless | 204 | 1024 | 51d88627df287325 | ojph_enc -o pat_zero_u32.j2c --size 16x16 --pattern zero --depth 32 --levels 2 --block 8x8 --seed 1002
+size_1x1 | lossless | 123 | 4 | ed202287f403d086 | ojph_enc -o size_1x1.j2c --size 1x1 --levels 0 --seed 1100
+size_1x1_l5_s12 | lossless | 145 | 4 | 14e38f7c18625c83 | ojph_enc -o size_1x1_l5_s12.j2c --size 1x1 --depth 12 --signed 1 --levels 5 --seed 1101
+size_1x17 | lossless | 163 | 68 | 8b8e117746a608b7 | ojph_enc -o size_1x17.j2c --size 1x17 --levels 3 --seed 1102
+size_37x1 | lossless | 179 | 148 | 8c3e98747fca7211 | ojph_enc -o size_37x1.j2c --size 37x1 --levels 3 --seed 1103
+size_61x47_3c | lossless | 5040 | 34404 | b7cadddd76afab37 | ojph_enc -o size_61x47_3c.j2c --size 61x47 --comps 3 --rct 1 --levels 4 --block 16x16 --seed 1104
+size_130x35 | lossless | 2587 | 18200 | 7cd92fa720ae850c | ojph_enc -o size_130x35.j2c --size 130x35 --levels 5 --seed 1105
+size_300x200_s16 | lossless | 94161 | 240000 | 015a1038c9990977 | ojph_enc -o size_300x200_s16.j2c --size 300x200 --depth 16 --signed 1 --nlt3 --levels 5 --block 64x64 --seed 1106
+irv_u8 | lossy maxerr=2 | 712 | 4096 | 2ae42f9c6326fbc4 | ojph_enc -o irv_u8.j2c --size 32x32 --irrev --levels 3 --seed 1200
+irv_rct_u12 | lossy maxerr=43 | 1142 | 9216 | 2493f4feac5b43ee | ojph_enc -o irv_rct_u12.j2c --size 32x24 --comps 3 --rct 1 --irrev --depth 12 --levels 3 --seed 1201
+irv_s16 | lossy maxerr=58 | 646 | 2268 | 36cb47953117e6df | ojph_enc -o irv_s16.j2c --size 27x21 --irrev --depth 16 --signed 1 --levels 2 --qstep 0.001 --seed 1202
+irv_u32 | lossy maxerr=17603750 | 318 | 1024 | 6fee33de0deb5d06 | ojph_enc -o irv_u32.j2c --size 16x16 --irrev --depth 32 --levels 2 --seed 1203

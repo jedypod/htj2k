@@ -1,0 +1,18 @@
+# Strip codestreams made with oracle/ojph_enc and decoded with
+# oracle/ojph_dec by oracle/gen_strips.py.  Columns:
+#   name | status | j2c bytes | raw bytes | raw_fnv1a64 | command
+# status: lossless = decoded .raw equals the encoder input exactly;
+#         lossy = irreversible.
+# Every .j2c is here; only some .raw files are (COMMIT_RAW in
+# gen_strips.py), all of them are in oracle/build/strips/.
+s16_rct_4c_300x200 | lossless | 383616 | 960000 | 399c42c3c3ca1fc4 | ojph_enc -o s16_rct_4c_300x200.j2c --size 300x200 --depth 16 --signed 1 --nlt3 --comps 4 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 6041
+s16_rct_4c_300x32 | lossless | 65387 | 153600 | 9b8b9f92451f47c8 | ojph_enc -o s16_rct_4c_300x32.j2c --size 300x32 --depth 16 --signed 1 --nlt3 --comps 4 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 6002
+s16_rct_4c_noise_300x32 | lossless | 84416 | 153600 | 1f93462fabedbdfb | ojph_enc -o s16_rct_4c_noise_300x32.j2c --size 300x32 --depth 16 --signed 1 --nlt3 --comps 4 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --pattern noise --seed 6043
+s16_rct_4c_300x8 | lossless | 18884 | 38400 | 6dade9d33a89a231 | ojph_enc -o s16_rct_4c_300x8.j2c --size 300x8 --depth 16 --signed 1 --nlt3 --comps 4 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 6004
+s32_rct_4c_300x64 | lossless | 281205 | 307200 | 3820f2dda60f0d95 | ojph_enc -o s32_rct_4c_300x64.j2c --size 300x64 --depth 32 --signed 1 --nlt3 --comps 4 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 6011
+s32_rct_4c_300x32 | lossless | 143549 | 153600 | c42d1db94fa3a908 | ojph_enc -o s32_rct_4c_300x32.j2c --size 300x32 --depth 32 --signed 1 --nlt3 --comps 4 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 6012
+s32_rct_4c_300x8 | lossless | 38207 | 38400 | bcb089a3c8aedc42 | ojph_enc -o s32_rct_4c_300x8.j2c --size 300x8 --depth 32 --signed 1 --nlt3 --comps 4 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 6014
+s16_1c_64x32 | lossless | 3879 | 8192 | 447e6579f398bdf5 | ojph_enc -o s16_1c_64x32.j2c --size 64x32 --depth 16 --signed 1 --nlt3 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 6021
+s16_1c_64x8 | lossless | 1332 | 2048 | ad1fc4e76c463dc4 | ojph_enc -o s16_1c_64x8.j2c --size 64x8 --depth 16 --signed 1 --nlt3 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 6022
+s16_1c_const_64x32 | lossless | 268 | 8192 | 55f8546a9d2e2325 | ojph_enc -o s16_1c_const_64x32.j2c --size 64x32 --depth 16 --signed 1 --nlt3 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --pattern const --seed 6023
+s16_1c_const_64x8 | lossless | 268 | 2048 | 93161f89bc836b25 | ojph_enc -o s16_1c_const_64x8.j2c --size 64x8 --depth 16 --signed 1 --nlt3 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --pattern const --seed 6024
