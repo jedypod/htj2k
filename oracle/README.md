@@ -365,7 +365,7 @@ These are found by the matrix and kept in it on purpose.
   components 1 and 2 without the inverse transform. `ojph_dec` used to
   choose planar whenever a component was subsampled, which decoded
   RCT images with a subsampled fourth component wrongly; it now decodes
-  interleaved for the colour transform. The crate's decoder behaves as
-  OpenJPH's here.
+  interleaved for the colour transform. The crate's decoder refuses
+  planar decoding of such a codestream with 0x00070037 instead.
 * **No multi-pass code blocks.** The OpenJPH encoder writes only the
   cleanup pass. See `tests/data/blocks/README.md`.
