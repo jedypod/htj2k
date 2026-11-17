@@ -84,7 +84,8 @@ The encoder differs as follows:
   * Precincts 1 sample wide or high above resolution 0. This is left
     when precincts are set before the decomposition count is raised.
     OpenJPH writes it, and then cannot decode it.
-  * A tile part longer than its 32-bit length field can hold.
+  * A tile part longer than its 32-bit length field can hold, or a
+    comment longer than a COM segment can hold.
   * Calls out of order, such as `exchange` before `write_headers` or
     `flush` before every line is exchanged.
 * A failed call leaves the output `Vec` as it was, and the encoder
