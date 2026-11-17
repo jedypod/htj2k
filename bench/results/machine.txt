@@ -1,0 +1,24 @@
+date: 2026-11-17T08:50:55Z
+commit: 466ef16 (run at f9d9b61, the same tree before a message-only rebase)
+cpu: AMD EPYC 7302P 16-Core Processor
+kernel: Linux 6.18.62_1
+rustc: rustc 1.99.0 (b940084d7 2026-09-28) (Void Linux)
+cargo profile: release (opt-level 3, no LTO, codegen-units 16)
+htj2k native: RUSTFLAGS=-C target-cpu=native
+perf: perf version 6.5.0
+--- OpenJPH generic
+compiler: g++ (GCC) 14.2.1 20250405
+cmake: cmake version 4.2.2
+cmake args: -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DOJPH_DISABLE_SIMD=ON
+library flags: -O3 -DNDEBUG -std=gnu++14 -fPIC -fexceptions -Wall -Wextra -Wconversion -Wunused-parameter
+library defines: -DOJPH_ALIGNED_ALLOC_EXISTS -DOJPH_DISABLE_SIMD -D_FILE_OFFSET_BITS=64
+harness flags: -O3 -DNDEBUG -std=c++14 -fexceptions -DOJPH_ALIGNED_ALLOC_EXISTS -DOJPH_DISABLE_SIMD -D_FILE_OFFSET_BITS=64
+library: oracle/build/bench/generic/src/core/libopenjph.a
+--- OpenJPH simd
+compiler: g++ (GCC) 14.2.1 20250405
+cmake: cmake version 4.2.2
+cmake args: -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF 
+library flags: -O3 -DNDEBUG -std=gnu++14 -fPIC -fexceptions -Wall -Wextra -Wconversion -Wunused-parameter
+library defines: -DOJPH_ALIGNED_ALLOC_EXISTS -D_FILE_OFFSET_BITS=64
+harness flags: -O3 -DNDEBUG -std=c++14 -fexceptions -DOJPH_ALIGNED_ALLOC_EXISTS -D_FILE_OFFSET_BITS=64
+library: oracle/build/bench/simd/src/core/libopenjph.a
