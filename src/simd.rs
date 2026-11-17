@@ -139,6 +139,14 @@ pub(crate) mod x86 {
         )
     }
 
+    /// Loads the first 8 elements of `s` (one `vmovups`).
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    pub(crate) fn load_f32(s: &[f32]) -> __m256 {
+        let s: &[f32; 8] = s[..8].try_into().unwrap();
+        _mm256_setr_ps(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7])
+    }
+
     /// The 8 lanes of `v` (one `vmovdqu` into the array).
     #[target_feature(enable = "avx2")]
     #[inline]

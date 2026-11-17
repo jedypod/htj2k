@@ -323,6 +323,83 @@ pub(super) fn irv_tx_from_cb32(sp: &[u32], dp: &mut [f32], _k_max: u32, delta: f
     }
 }
 
+crate::simd::avx2_dispatch! {
+    /// [`irv_tx_to_cb32`] with OpenJPH's AVX2 kernel
+    /// (`avx2_irv_tx_to_cb32`), where the CPU has AVX2 and the build can
+    /// reach it; `false` to run the loop instead.
+    pub(super) fn irv_tx_to_cb32_avx2(
+        sp: &[f32],
+        dp: &mut [u32],
+        delta_inv: f32,
+        count: u32,
+        max_val: &mut u32,
+    ) -> bool {
+        avx2 => {
+            avx2::irv_tx_to_cb32(sp, dp, delta_inv, count, max_val);
+            true
+        },
+        fallback => false,
+    }
+}
+
+/// The kernels written with intrinsics.
+#[cfg(all(
+    target_arch = "x86_64",
+    not(all(
+        target_feature = "avx2",
+        target_feature = "bmi1",
+        target_feature = "bmi2",
+        target_feature = "lzcnt",
+        target_feature = "popcnt"
+    ))
+))]
+mod avx2 {
+    use crate::simd::x86::*;
+
+    /// `avx2_irv_tx_to_cb32`, but with `cvttps2dq` where OpenJPH has
+    /// `cvtps2dq`: the generic kernel truncates (see
+    /// `codeblock_fun::irv_tx_to_cb32`), and `cvttps2dq` does exactly what
+    /// [`crate::transform::f32_to_i32_trunc`] does, `i32::MIN` for NaN and
+    /// out of range included. Rust's `as i32`, which saturates, does not
+    /// vectorise; the loop's bit-level replacement costs about 6
+    /// instructions a sample where this needs about 1.
+    #[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]
+    pub(super) fn irv_tx_to_cb32(
+        sp: &[f32],
+        dp: &mut [u32],
+        delta_inv: f32,
+        count: u32,
+        max_val: &mut u32,
+    ) {
+        let n = count as usize;
+        let (sp, dp) = (&sp[..n], &mut dp[..n]);
+        let d = _mm256_set1_ps(delta_inv);
+        let m0 = _mm256_set1_epi32(i32::MIN);
+        let mut tmax = _mm256_setzero_si256();
+        let mut s8 = sp.chunks_exact(8);
+        let mut d8 = dp.chunks_exact_mut(8);
+        for (s, d8) in (&mut s8).zip(&mut d8) {
+            let val = _mm256_cvttps_epi32(_mm256_mul_ps(load_f32(s), d));
+            let sign = _mm256_and_si256(val, m0);
+            let val = _mm256_abs_epi32(val);
+            tmax = _mm256_or_si256(tmax, val);
+            d8.copy_from_slice(&lanes_u32(_mm256_or_si256(val, sign)));
+        }
+        let mut m = *max_val;
+        for v in lanes_u32(tmax) {
+            m |= v;
+        }
+        for (d, &v) in d8.into_remainder().iter_mut().zip(s8.remainder()) {
+            let t = crate::transform::f32_to_i32_trunc(v * delta_inv);
+            let sign = if t >= 0 { 0u32 } else { 0x8000_0000u32 };
+            let val = t.unsigned_abs();
+            *d = sign | val;
+            m |= val;
+        }
+        *max_val = m;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

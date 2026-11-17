@@ -912,9 +912,16 @@ mod vectorised {
 
                 let delta_inv = [1.0, 0.5, 1e3, 1e-3, 65536.0, 3.0e9][k_max as usize % 6];
                 let floats: Vec<f32> = (0..n).map(|_| float(&mut rng, 4.0, 2.0)).collect();
+                let mv1 = mv_got;
                 irv_tx_to_cb32_scalar(&floats, &mut want, k_max, delta_inv, n as u32, &mut mv_want);
                 v::irv_tx_to_cb32(&floats, &mut got, k_max, delta_inv, n as u32, &mut mv_got);
                 assert_eq!((&want, mv_want), (&got, mv_got), "irv {n} {delta_inv}");
+                // the intrinsics kernel, where it runs
+                let mut mv_got = mv1;
+                got.fill(1);
+                if v::irv_tx_to_cb32_avx2(&floats, &mut got, delta_inv, n as u32, &mut mv_got) {
+                    assert_eq!((&want, mv_want), (&got, mv_got), "avx2 {n} {delta_inv}");
+                }
             }
         }
     }

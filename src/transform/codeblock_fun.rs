@@ -121,7 +121,9 @@ pub fn irv_tx_to_cb32(
     max_val: &mut u32,
 ) {
     #[cfg(feature = "simd")]
-    super::vectorised::irv_tx_to_cb32(sp, dp, k_max, delta_inv, count, max_val);
+    if !super::vectorised::irv_tx_to_cb32_avx2(sp, dp, delta_inv, count, max_val) {
+        super::vectorised::irv_tx_to_cb32(sp, dp, k_max, delta_inv, count, max_val);
+    }
     #[cfg(not(feature = "simd"))]
     irv_tx_to_cb32_scalar(sp, dp, k_max, delta_inv, count, max_val);
 }
