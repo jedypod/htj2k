@@ -49,7 +49,9 @@ It also refuses each of the 11 configurations OpenJPH refuses, with
 OpenJPH's error code where OpenJPH gives one. Its block encoder
 reproduces the coded bytes of every recorded call in
 `tests/data/encoder`. Random configurations, samples and call
-sequences never make it panic.
+sequences never make it panic, and what it encodes decodes to planes of
+the sizes SIZ gives; with samples in range, every reversible component
+decodes to exactly its input.
 
 ## Differences from OpenJPH
 

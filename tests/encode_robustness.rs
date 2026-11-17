@@ -8,15 +8,18 @@
 //! a codestream or with an error, and must not panic. Run it in a debug
 //! build too, so that arithmetic overflow counts as a failure.
 //!
-//! When the encoder accepts a configuration, its codestream must decode
-//! with the crate's decoder to images of the expected sizes. The samples
-//! are not compared: out-of-range input is not meant to round-trip, and
-//! the OpenJPH bugs listed in `oracle/README.md` are reproduced on
-//! purpose.
+//! `random_configurations_never_panic` gives samples that may be out of
+//! range. When the encoder accepts a configuration, the codestream must
+//! decode with the crate's decoder to planes of the sizes SIZ gives. The
+//! samples are not compared there, because out-of-range input is not
+//! meant to round-trip. `random_configurations_round_trip` gives the same
+//! configurations samples in range: every reversible component must then
+//! decode to exactly its input, and every plane must have the expected
+//! size.
 
 mod common;
 
-use common::decode::decode_to_raw;
+use common::decode::{decode_planes, decode_to_raw};
 use htj2k::codestream::Encoder;
 use htj2k::params::{nonlinearity, CommentExchange};
 use htj2k::types::{Point, Size};
@@ -199,9 +202,35 @@ fn random_encoder(rng: &mut Rng) -> (Encoder, String) {
     (enc, d)
 }
 
-/// Encodes one random configuration with random samples. Returns the
-/// codestream, or the code of the error that refused it.
-fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<Vec<u8>, u32> {
+/// What [`encode_random`] encoded.
+struct Encoded {
+    j2c: Vec<u8>,
+    /// Each component's plane size, from SIZ: `ceil(Xsiz/XRsiz) -
+    /// ceil(XOsiz/XRsiz)` by the same for y.
+    sizes: Vec<(usize, usize)>,
+    /// The samples given, per component (only when they are in range).
+    input: Vec<Vec<i32>>,
+    /// Whether each component is coded reversibly.
+    reversible: Vec<bool>,
+}
+
+/// The plane sizes SIZ gives, computed here rather than by the crate.
+fn expected_sizes(enc: &Encoder) -> Vec<(usize, usize)> {
+    let siz = enc.access_siz();
+    let (e, o) = (siz.get_image_extent(), siz.get_image_offset());
+    (0..siz.get_num_components())
+        .map(|c| {
+            let d = siz.get_downsampling(c);
+            let span = |hi: u32, lo: u32, s: u32| hi.div_ceil(s) as usize - lo.div_ceil(s) as usize;
+            (span(e.x, o.x, d.x), span(e.y, o.y, d.y))
+        })
+        .collect()
+}
+
+/// Encodes one random configuration with random samples: in range for
+/// each component's depth and signedness if `in_range`, else anything.
+/// Returns what was encoded, or the code of the error that refused it.
+fn encode_random(rng: &mut Rng, desc: &mut String, in_range: bool) -> Result<Encoded, u32> {
     let (mut enc, d) = random_encoder(rng);
     *desc = d;
     let mut out = b"xyz".to_vec();
@@ -209,21 +238,67 @@ fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<Vec<u8>, u32> {
         assert_eq!(out, b"xyz", "write_headers wrote and failed");
         return Err(e.code());
     }
-    // 0: in a 16-bit range, 1: any i32, 2: zero, 3: extremes only
+    let sizes = expected_sizes(&enc);
+    let nc = sizes.len() as u32;
+    let reversible: Vec<bool> = (0..nc)
+        .map(|c| enc.access_cod().is_reversible_comp(c))
+        .collect();
+    // The legal range of each component.
+    let ranges: Vec<(i64, i64)> = (0..nc)
+        .map(|c| {
+            let siz = enc.access_siz();
+            let b = siz.get_bit_depth(c);
+            if siz.is_signed(c) {
+                (-(1i64 << (b - 1)), (1i64 << (b - 1)) - 1)
+            } else {
+                (0, (1i64 << b) - 1)
+            }
+        })
+        .collect();
+    let consts: Vec<i64> = ranges
+        .iter()
+        .map(|&(lo, hi)| lo + (rng.next() % (hi - lo + 1) as u64) as i64)
+        .collect();
+    let mut input: Vec<Vec<i32>> = vec![Vec::new(); nc as usize];
+    // Out of range: 0 in a 16-bit range, 1 any i32, 2 zero, 3 extremes.
+    // In range: 0 uniform, 1 a gradient, 2 a constant, 3 the two ends.
     let mode = rng.below(4);
     let mut lines = 0;
     loop {
         match enc.exchange() {
-            Ok(Some((_, line))) => {
+            Ok(Some((c, line))) => {
                 lines += 1;
                 assert!(lines <= MAX_LINES, "too many lines");
-                for s in line.iter_mut() {
-                    *s = match mode {
-                        0 => (rng.next() as i16).into(),
-                        1 => rng.next() as i32,
-                        2 => 0,
-                        _ => [i32::MIN, i32::MAX, -1, 0][rng.below(4) as usize],
+                if !in_range {
+                    for s in line.iter_mut() {
+                        *s = match mode {
+                            0 => (rng.next() as i16).into(),
+                            1 => rng.next() as i32,
+                            2 => 0,
+                            _ => [i32::MIN, i32::MAX, -1, 0][rng.below(4) as usize],
+                        };
+                    }
+                    continue;
+                }
+                let c = c as usize;
+                let (w, h) = sizes[c];
+                assert!(line.len() >= w, "line shorter than the component");
+                let y = input[c].len() / w.max(1);
+                assert!(y < h, "too many lines of component {c}");
+                let (lo, hi) = ranges[c];
+                let span = (hi - lo + 1) as u64;
+                for (x, s) in line[..w].iter_mut().enumerate() {
+                    let v = match mode {
+                        0 => lo + (rng.next() % span) as i64,
+                        1 => {
+                            lo + ((x as u64 * 7 + y as u64 * 13) * (span / 61).max(1) % span) as i64
+                        }
+                        2 => consts[c],
+                        _ => [lo, hi][rng.below(2) as usize],
                     };
+                    // Unsigned 32-bit values go in as their bit pattern.
+                    *s = v as u32 as i32;
+                    input[c].push(*s);
                 }
             }
             Ok(None) => break,
@@ -232,7 +307,12 @@ fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<Vec<u8>, u32> {
     }
     let before = out.len();
     match enc.flush(&mut out) {
-        Ok(()) => Ok(out[3..].to_vec()),
+        Ok(()) => Ok(Encoded {
+            j2c: out[3..].to_vec(),
+            sizes,
+            input,
+            reversible,
+        }),
         Err(e) => {
             assert_eq!(out.len(), before, "flush wrote and failed");
             Err(e.code())
@@ -240,6 +320,28 @@ fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<Vec<u8>, u32> {
     }
 }
 
+/// Decodes `e` and checks its plane sizes, and, if `exact`, that each
+/// reversible component gives back its input.
+fn check_decode(e: &Encoded, exact: bool) -> Result<(), String> {
+    let planes = catch_unwind(|| decode_planes(&e.j2c))
+        .map_err(|_| "decoder panicked".to_string())?
+        .map_err(|err| format!("does not decode ({err})"))?;
+    let got: Vec<(usize, usize)> = planes.iter().map(|p| (p.width, p.height)).collect();
+    if got != e.sizes {
+        return Err(format!("planes {got:?}, expected {:?}", e.sizes));
+    }
+    if exact {
+        for (c, p) in planes.iter().enumerate() {
+            if e.reversible[c] && p.samples != e.input[c] {
+                let at = p.samples.iter().zip(&e.input[c]).position(|(a, b)| a != b);
+                return Err(format!("component {c} differs (first at {at:?})"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Random configurations with random, possibly out-of-range, samples.
 #[test]
 fn random_configurations_never_panic() {
     let iterations = if cfg!(debug_assertions) { 1500 } else { 6000 };
@@ -249,15 +351,15 @@ fn random_configurations_never_panic() {
     let mut problems = Vec::new();
     for i in 0..iterations {
         let mut desc = String::new();
-        match catch_unwind(AssertUnwindSafe(|| encode_random(&mut rng, &mut desc))) {
+        match catch_unwind(AssertUnwindSafe(|| {
+            encode_random(&mut rng, &mut desc, false)
+        })) {
             Err(_) => problems.push(format!("{i}: encoder panicked: {desc}")),
             Ok(Err(code)) => *refused.entry(code).or_default() += 1,
-            Ok(Ok(j2c)) => {
+            Ok(Ok(e)) => {
                 encoded += 1;
-                match catch_unwind(|| decode_to_raw(&j2c)) {
-                    Err(_) => problems.push(format!("{i}: decoder panicked: {desc}")),
-                    Ok(Err(e)) => problems.push(format!("{i}: does not decode ({e}): {desc}")),
-                    Ok(Ok(_)) => {}
+                if let Err(err) = check_decode(&e, false) {
+                    problems.push(format!("{i}: {err}: {desc}"));
                 }
             }
         }
@@ -270,6 +372,38 @@ fn random_configurations_never_panic() {
     for (code, n) in &refused {
         eprintln!("  refused with 0x{code:08X}: {n}");
     }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert!(encoded > iterations / 4, "too few configurations encoded");
+}
+
+/// The same random configurations with samples in range: every
+/// reversible component decodes to exactly its input.
+#[test]
+fn random_configurations_round_trip() {
+    let iterations = if cfg!(debug_assertions) { 1500 } else { 6000 };
+    let mut rng = Rng(0x005E_ED0F_2026);
+    let (mut encoded, mut exact, mut refused) = (0, 0, 0);
+    let mut problems = Vec::new();
+    for i in 0..iterations {
+        let mut desc = String::new();
+        match catch_unwind(AssertUnwindSafe(|| {
+            encode_random(&mut rng, &mut desc, true)
+        })) {
+            Err(_) => problems.push(format!("{i}: encoder panicked: {desc}")),
+            Ok(Err(_)) => refused += 1,
+            Ok(Ok(e)) => {
+                encoded += 1;
+                exact += e.reversible.iter().filter(|&&r| r).count();
+                if let Err(err) = check_decode(&e, true) {
+                    problems.push(format!("{i}: {err}: {desc}"));
+                }
+            }
+        }
+    }
+    eprintln!(
+        "{encoded} encoded ({exact} reversible components compared), {refused} refused, {} problems",
+        problems.len()
+    );
     assert!(problems.is_empty(), "{}", problems.join("\n"));
     assert!(encoded > iterations / 4, "too few configurations encoded");
 }
