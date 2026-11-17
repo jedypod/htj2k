@@ -28,12 +28,12 @@ kernels are not ported.
 Every module is tested against output of the C++ it is translated from.
 `oracle/` builds OpenJPH's generic code and regenerates the vectors in
 `tests/data`; see `oracle/README.md`. The decoder reproduces OpenJPH's
-output sample for sample on all 161 codestreams there, which include
+output sample for sample on all 171 codestreams there, which include
 16- and 32-bit signed samples under NLT type 3 in strips of four
 components with 128x32 blocks.
 
 The encoder reproduces OpenJPH's codestreams byte for byte:
-* all 150 that `ojph_enc` writes in the parameter matrix
+* all 160 that `ojph_enc` writes in the parameter matrix
   (`tests/data/matrix`), except the 5 reversible ones with no
   decompositions, which differ on purpose (see below) and decode
   losslessly with OpenJPH's decoder, as do 40 random configurations of
@@ -45,7 +45,7 @@ The encoder reproduces OpenJPH's codestreams byte for byte:
   from 8192x256 down to 8192x1 and 1x256 with 128x32 blocks, RPCL, TLM
   and tile parts at resolutions, reversible with NLT type 3 and the RCT.
 
-It also refuses each of the 9 configurations OpenJPH refuses, with
+It also refuses each of the 10 configurations OpenJPH refuses, with
 OpenJPH's error code where OpenJPH gives one. Its block encoder
 reproduces the coded bytes of every recorded call in
 `tests/data/encoder`. Random configurations, samples and call
@@ -87,6 +87,12 @@ The encoder differs as follows:
     decoder accepts, and that can wrap at 8 bits (0x0008000C here).
   * Interleaved exchange of components of different heights;
     OpenJPH's `exchange` cannot do it, and `ojph_enc` reports it.
+  * A component with no lines (subsampled more than the image is high)
+    followed by a component with lines (0x00080005). OpenJPH's planar
+    `exchange` asks for a line of it and then loops forever, and its
+    decoder loops forever on such a codestream. Components with no lines
+    after the last one with lines, or no lines at all, are encoded as
+    OpenJPH encodes them; `exchange` never asks for their lines.
   * Precincts 1 sample wide or high above resolution 0. This is left
     when precincts are set before the decomposition count is raised.
     OpenJPH writes it, and then cannot decode it.

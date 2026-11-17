@@ -242,6 +242,44 @@ def cases():
         "1", "--levels", "2", "--qstep", "0.001", "--seed", "1202")
     add("irv_u32", "--size", "16x16", "--irrev", "--depth", "32",
         "--levels", "2", "--seed", "1203")
+
+    # -- components with no lines (or no columns): subsampled more than
+    # the image is high, as a component subsampled 1x2 in a 1-line image.
+    # OpenJPH writes these when no component with lines follows; with one
+    # following, its exchange asks for a line it then cannot place.
+    zh = ["--size", "4x1", "--img-off", "0,1", "--planar", "1"]
+    add("zh_last", *zh, "--comps", "2", "--sub", "1x1,1x2", "--levels",
+        "1", "--seed", "1300")
+    add("zh_last_irv", *zh, "--comps", "2", "--sub", "1x1,1x2", "--levels",
+        "1", "--irrev", "--seed", "1301")
+    add("zh_two_rpcl_tpR", *zh, "--comps", "3", "--sub", "1x1,1x2,1x2",
+        "--levels", "2", "--prog", "RPCL", "--tlm", "--tileparts", "R",
+        "--seed", "1302")
+    add("zh_two_cprl_tpC", *zh, "--comps", "3", "--sub", "1x1,1x2,1x2",
+        "--levels", "2", "--prog", "CPRL", "--tlm", "--tileparts", "C",
+        "--seed", "1303")
+    add("zh_two_lrcp_tpRC", *zh, "--comps", "3", "--sub", "1x1,1x2,1x2",
+        "--levels", "2", "--prog", "LRCP", "--tlm", "--tileparts", "RC",
+        "--seed", "1304")
+    add("zh_two_pcrl", *zh, "--comps", "3", "--sub", "1x1,1x2,1x2",
+        "--levels", "2", "--prog", "PCRL", "--seed", "1305")
+    add("zh_all_interleaved", "--size", "4x1", "--img-off", "0,1",
+        "--comps", "2", "--sub", "1x2,1x2", "--planar", "0", "--levels",
+        "1", "--seed", "1306")
+    add("zh_tiles", "--size", "9x3", "--img-off", "0,1", "--comps", "2",
+        "--sub", "1x1,1x4", "--planar", "1", "--levels", "2", "--tile",
+        "4x2", "--seed", "1307")
+    add("zw_last", "--size", "1x4", "--img-off", "1,0", "--comps", "2",
+        "--sub", "1x1,2x1", "--planar", "1", "--levels", "1", "--seed",
+        "1308")
+    add("zh_s16_4c_8192x1", "--size", "8192x1", "--img-off", "0,33",
+        "--comps", "4", "--depth", "16", "--signed", "1", "--nlt3", "--sub",
+        "1x1,1x1,1x2,1x2", "--planar", "1", "--levels", "5", "--block",
+        "128x32", "--prog", "RPCL", "--tlm", "--tileparts", "R", "--seed",
+        "1309")
+    add("zh_middle", "--size", "8x1", "--img-off", "0,1", "--comps", "3",
+        "--sub", "1x1,1x2,1x1", "--planar", "1", "--levels", "2", "--seed",
+        "1310")
     return c
 
 

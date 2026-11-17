@@ -339,7 +339,12 @@ impl Encoder {
         }
         self.prepare()?;
         self.write_main_header(out, comments);
-        self.state = State::Headers;
+        // with no component that has lines, there is nothing to exchange
+        self.state = if self.cur_comp < self.num_comps {
+            State::Headers
+        } else {
+            State::Pushed
+        };
         Ok(())
     }
 
@@ -433,14 +438,25 @@ impl Encoder {
         for c in 0..num_comps {
             comp_size.push(Size::new(self.siz.get_width(c), self.siz.get_height(c)));
         }
-        for (c, s) in comp_size.iter().enumerate() {
-            if s.h == 0 {
+        // A component can have no lines (or no columns) when it is
+        // subsampled more than the image is high (or wide), as a
+        // component subsampled 1x2 in a one-line image. OpenJPH writes a
+        // valid codestream when no component with lines follows it, with
+        // empty packets, and exchange never asks for its lines. When one
+        // does follow, OpenJPH's planar exchange asks for a line of the
+        // empty component and loops forever on it, and its decoder loops
+        // forever on the codestream; so that is refused.
+        if let Some(last) = comp_size.iter().rposition(|s| s.h > 0) {
+            if let Some(c) = comp_size[..last].iter().position(|s| s.h == 0) {
                 return ojph_error!(
                     0x00080005,
-                    "component {} has no lines; it is subsampled more than the image is high",
-                    c
+                    "component {} has no lines but component {} has; OpenJPH can neither write nor read this (put components with no lines last)",
+                    c,
+                    last
                 );
             }
+        }
+        for (c, s) in comp_size.iter().enumerate() {
             if !planar && s.h != comp_size[0].h {
                 return ojph_error!(
                     0x00080006,
@@ -608,7 +624,8 @@ impl Encoder {
         self.tiles = tiles;
         self.lines = lines;
         self.budget = budget;
-        self.cur_comp = 0;
+        // the first component with lines; num_comps if there is none
+        self.cur_comp = self.next_comp_with_lines(0);
         self.cur_line = 0;
         self.cur_tile_row = 0;
         self.handed_out = false;
@@ -848,6 +865,15 @@ impl Encoder {
     }
 
     /// Moves on to the next line to ask for; true when there is none.
+    /// The first component from `from` on with at least one line, or
+    /// `num_comps`. In interleaved mode every component has as many
+    /// lines as component 0, so this is `from` or `num_comps`.
+    fn next_comp_with_lines(&self, from: u32) -> u32 {
+        (from..self.num_comps)
+            .find(|&c| self.comp_size[c as usize].h > 0)
+            .unwrap_or(self.num_comps)
+    }
+
     fn advance(&mut self) -> bool {
         if self.is_planar() {
             // process one component at a time
@@ -855,7 +881,9 @@ impl Encoder {
             if self.cur_line >= self.comp_size[self.cur_comp as usize].h {
                 self.cur_line = 0;
                 self.cur_tile_row = 0;
-                self.cur_comp += 1;
+                // OpenJPH asks for a line of a component with none, and
+                // then loops forever when it is pushed; skip it
+                self.cur_comp = self.next_comp_with_lines(self.cur_comp + 1);
                 if self.cur_comp >= self.num_comps {
                     return true;
                 }

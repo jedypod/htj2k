@@ -258,6 +258,11 @@ These are found by the matrix and kept in it on purpose.
     OpenJPH's interleaved (non-planar) `exchange` steps through comp 0's
     height for every component, so it cannot take subsampled components.
     Use planar mode for them.
+  * `zh_middle`: the error comes from `ojph_enc`. Component 1 has no
+    lines but component 2 has; OpenJPH's planar `exchange` asks for a
+    line of component 1, which it could not place (it would loop
+    forever). The `zh_*` and `zw_last` cases with empty components last
+    encode and decode normally.
   * `coc_levels_blocks` (LRCP) and `coc_levels_rlcp`: components with
     different decomposition counts fail the OpenJPH assertion
     `res_num <= num_decomps` in `tile_comp::write_precincts` under the

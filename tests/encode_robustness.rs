@@ -642,6 +642,56 @@ fn layer_first_needs_equal_decompositions() {
     assert_eq!(err.code(), 0x0008000C);
 }
 
+/// Components with no lines: exchange never asks for them and flush
+/// does not wait for them, when no component with lines follows (the
+/// matrix's `zh_*` cases check the bytes against OpenJPH). One followed
+/// by a component with lines is refused (0x00080005): OpenJPH's planar
+/// exchange and its decoder both loop forever on it.
+#[test]
+fn components_with_no_lines() {
+    // 8x1 at y offset 1: a component subsampled 2 in y has no lines
+    let encode = |subs: &[u32], planar: bool| -> htj2k::Result<(Vec<u32>, Vec<u8>)> {
+        let mut enc = Encoder::new();
+        let siz = enc.access_siz_mut()?;
+        siz.set_image_extent(Point::new(8, 2));
+        siz.set_image_offset(Point::new(0, 1));
+        siz.set_num_components(subs.len() as u32);
+        for (c, &dy) in subs.iter().enumerate() {
+            siz.set_component(c as u32, Point::new(1, dy), 8, false)?;
+        }
+        let cod = enc.access_cod_mut()?;
+        cod.set_reversible(true);
+        cod.set_num_decomposition(2)?;
+        enc.set_planar(planar)?;
+        let mut out = Vec::new();
+        enc.write_headers(&mut out, &[])?;
+        let mut order = Vec::new();
+        while let Some((c, line)) = enc.exchange()? {
+            order.push(c);
+            line.fill(10 * c as i32 + 1);
+        }
+        enc.flush(&mut out)?;
+        Ok((order, out))
+    };
+    let (order, out) = encode(&[1, 1, 2, 2], true).unwrap();
+    assert_eq!(order, [0, 1]);
+    let want: Vec<u8> = [1i32, 11]
+        .iter()
+        .flat_map(|v| std::iter::repeat_n(v.to_le_bytes(), 8).flatten())
+        .collect();
+    assert_eq!(decode_to_raw(&out).unwrap(), want);
+    // every component empty, planar or not: nothing to exchange
+    for planar in [false, true] {
+        let (order, out) = encode(&[2, 2], planar).unwrap();
+        assert!(order.is_empty());
+        assert!(decode_to_raw(&out).unwrap().is_empty());
+    }
+    for subs in [&[2, 1][..], &[1, 2, 1], &[2, 2, 1, 2]] {
+        let err = encode(subs, true).unwrap_err();
+        assert_eq!(err.code(), 0x00080005, "{subs:?}");
+    }
+}
+
 /// Without `set_planar`, the exchange follows OpenJPH's rule
 /// (interleaved, or planar with the colour transform), except that
 /// planar with the colour transform is refused as an explicit

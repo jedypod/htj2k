@@ -167,3 +167,14 @@ irv_u8 | lossy maxerr=2 | 712 | 4096 | 2ae42f9c6326fbc4 | ojph_enc -o irv_u8.j2c
 irv_rct_u12 | lossy maxerr=43 | 1142 | 9216 | 2493f4feac5b43ee | ojph_enc -o irv_rct_u12.j2c --size 32x24 --comps 3 --rct 1 --irrev --depth 12 --levels 3 --seed 1201
 irv_s16 | lossy maxerr=58 | 646 | 2268 | 36cb47953117e6df | ojph_enc -o irv_s16.j2c --size 27x21 --irrev --depth 16 --signed 1 --levels 2 --qstep 0.001 --seed 1202
 irv_u32 | lossy maxerr=17603750 | 318 | 1024 | 6fee33de0deb5d06 | ojph_enc -o irv_u32.j2c --size 16x16 --irrev --depth 32 --levels 2 --seed 1203
+zh_last | lossless | 138 | 16 | 39e9abea45752c2b | ojph_enc -o zh_last.j2c --size 4x1 --img-off 0,1 --planar 1 --comps 2 --sub 1x1,1x2 --levels 1 --seed 1300
+zh_last_irv | lossy maxerr=0 | 142 | 16 | 6f5f86027447c45e | ojph_enc -o zh_last_irv.j2c --size 4x1 --img-off 0,1 --planar 1 --comps 2 --sub 1x1,1x2 --levels 1 --irrev --seed 1301
+zh_two_rpcl_tpR | lossless | 197 | 16 | e2d58c6ee5a455a8 | ojph_enc -o zh_two_rpcl_tpR.j2c --size 4x1 --img-off 0,1 --planar 1 --comps 3 --sub 1x1,1x2,1x2 --levels 2 --prog RPCL --tlm --tileparts R --seed 1302
+zh_two_cprl_tpC | lossless | 197 | 16 | 2f7628622cc61fce | ojph_enc -o zh_two_cprl_tpC.j2c --size 4x1 --img-off 0,1 --planar 1 --comps 3 --sub 1x1,1x2,1x2 --levels 2 --prog CPRL --tlm --tileparts C --seed 1303
+zh_two_lrcp_tpRC | lossless | 316 | 16 | e53861354ef4411c | ojph_enc -o zh_two_lrcp_tpRC.j2c --size 4x1 --img-off 0,1 --planar 1 --comps 3 --sub 1x1,1x2,1x2 --levels 2 --prog LRCP --tlm --tileparts RC --seed 1304
+zh_two_pcrl | lossless | 144 | 16 | 201bc63dda933157 | ojph_enc -o zh_two_pcrl.j2c --size 4x1 --img-off 0,1 --planar 1 --comps 3 --sub 1x1,1x2,1x2 --levels 2 --prog PCRL --seed 1305
+zh_all_interleaved | lossless | 122 | 0 | cbf29ce484222325 | ojph_enc -o zh_all_interleaved.j2c --size 4x1 --img-off 0,1 --comps 2 --sub 1x2,1x2 --planar 0 --levels 1 --seed 1306
+zh_tiles | lossless | 323 | 108 | 4702c7560cdf50db | ojph_enc -o zh_tiles.j2c --size 9x3 --img-off 0,1 --comps 2 --sub 1x1,1x4 --planar 1 --levels 2 --tile 4x2 --seed 1307
+zw_last | lossless | 139 | 16 | 25f25c26a620142b | ojph_enc -o zw_last.j2c --size 1x4 --img-off 1,0 --comps 2 --sub 1x1,2x1 --planar 1 --levels 1 --seed 1308
+zh_s16_4c_8192x1 | lossless | 41964 | 65536 | a7325635ee95f6f6 | ojph_enc -o zh_s16_4c_8192x1.j2c --size 8192x1 --img-off 0,33 --comps 4 --depth 16 --signed 1 --nlt3 --sub 1x1,1x1,1x2,1x2 --planar 1 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R --seed 1309
+zh_middle | REFUSED | | | | ojph_enc -o zh_middle.j2c --size 8x1 --img-off 0,1 --comps 3 --sub 1x1,1x2,1x1 --planar 1 --levels 2 --seed 1310 | ojph_enc: exchange asked for an unexpected component/line

@@ -95,7 +95,7 @@ fn codestreams() -> Vec<(String, Vec<u8>)> {
             all.push((name, std::fs::read(&path).unwrap()));
         }
     }
-    assert!(all.len() >= 160, "only {} codestreams found", all.len());
+    assert!(all.len() >= 170, "only {} codestreams found", all.len());
     all
 }
 
