@@ -279,9 +279,16 @@ impl Encoder {
         self.need_tlm
     }
 
-    /// Limits the memory the encoder may allocate for its tiles and the
-    /// coded data it holds until [`flush`](Self::flush). OpenJPH has no
-    /// such limit. The default is 4 GiB.
+    /// Limits the memory the encoder may allocate for its tiles, the
+    /// lines it exchanges and the coded data it holds until
+    /// [`flush`](Self::flush). OpenJPH has no such limit. The default is
+    /// 4 GiB.
+    ///
+    /// It is not a hard cap: the TLM table (8 bytes per tile part, at
+    /// most about 22 MB), the tag-tree and packet-header scratch of
+    /// `flush`, the spare capacity of the growing coded-data vector (up
+    /// to as much again as is counted) and the caller's output are not
+    /// counted.
     pub fn set_memory_limit(&mut self, bytes: u64) -> Result<()> {
         self.check_setup()?;
         self.memory_limit = bytes;

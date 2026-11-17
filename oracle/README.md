@@ -290,5 +290,13 @@ These are found by the matrix and kept in it on purpose.
     index", and so does the crate's decoder. With more components the
     two counts can also wrap at 8 bits. The crate's encoder refuses
     this configuration with 0x0008000C rather than write it.
+* **Planar decoding with the colour transform (OpenJPH decoder).**
+  OpenJPH's decoder accepts `set_planar(true)` for a codestream that
+  uses the colour transform, and its planar `pull` then returns
+  components 1 and 2 without the inverse transform. `ojph_dec` used to
+  choose planar whenever a component was subsampled, which decoded
+  RCT images with a subsampled fourth component wrongly; it now decodes
+  interleaved for the colour transform. The crate's decoder behaves as
+  OpenJPH's here.
 * **No multi-pass code blocks.** The OpenJPH encoder writes only the
   cleanup pass. See `tests/data/blocks/README.md`.

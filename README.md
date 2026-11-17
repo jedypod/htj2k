@@ -136,11 +136,25 @@ The encoder differs as follows:
   refuses that with 0x00030021, the error OpenJPH gives for an explicit
   `set_planar(true)`. Call `set_planar(false)` to use the colour
   transform.
-* `set_memory_limit` bounds the memory for the tiles and the coded data
-  held until `flush`. The default is 4 GiB, and an image needing more
-  is refused by `write_headers`. As in the decoder, the limit is
-  checked before each allocation. A caller who raises it past what the
-  system can supply gets the allocator's failure, which aborts.
+* `set_memory_limit` bounds the memory for the tiles (their structures,
+  line buffers and code-block buffers), the lines exchanged with the
+  caller, and the coded bytes held until `flush`. The default is 4 GiB.
+  An image whose tiles need more is refused by `write_headers`, and
+  coded data beyond it by `exchange`. As in the decoder, the limit is
+  checked before each allocation. It is not a hard cap on what the
+  encoder allocates. It does not count:
+  * the TLM table, 8 bytes per tile part, allocated by `write_headers`
+    before the limit applies (at most about 22 MB, for the 2,795,776
+    tile parts that TLM segments can index);
+  * the scratch space for the tag trees and the header of the packet
+    `flush` is writing (a few bytes per code block of one precinct);
+  * the spare capacity of growing vectors: the coded bytes are kept in
+    one `Vec<u8>`, which can briefly hold up to twice what is counted
+    while it grows;
+  * the caller's output `Vec`, and small fixed-size buffers.
+
+  A caller who raises the limit past what the system can supply gets
+  the allocator's failure, which aborts.
 * The first COM segment reads `htj2k Ver <crate version>.` by default.
   `set_version_comment` replaces it, or removes it with `None`. Passing
   `"OpenJPH Ver 0.33.0."` gives OpenJPH's bytes exactly.
