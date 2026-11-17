@@ -181,15 +181,26 @@ fn split_widths(width: usize, even: bool) -> (usize, usize) {
 
 /// Deinterleaves `src` (logical samples) into the low- and high-pass
 /// buffers `ld` and `hd` (logical samples), the first sample of `src` going
-/// to `hd` when `!even`.
+/// to `hd` when `!even`. The callers pass buffers of exactly the lengths
+/// [`split_widths`] gives.
+///
+/// One pass over the pairs of `src` fills both buffers, and the last
+/// sample of an odd-length `src` goes to the first buffer.
 #[inline(always)]
 fn deinterleave<T: Copy>(src: &[T], ld: &mut [T], hd: &mut [T], even: bool) {
     let (first, second) = if even { (ld, hd) } else { (hd, ld) };
-    for (d, c) in first.iter_mut().zip(src.chunks(2)) {
-        *d = c[0];
+    let n = (src.len() / 2).min(first.len()).min(second.len());
+    let (pairs, rest) = src.split_at(2 * n);
+    for ((c, a), b) in pairs
+        .chunks_exact(2)
+        .zip(&mut first[..n])
+        .zip(&mut second[..n])
+    {
+        *a = c[0];
+        *b = c[1];
     }
-    for (d, c) in second.iter_mut().zip(src.chunks_exact(2)) {
-        *d = c[1];
+    if let (Some(d), Some(&v)) = (first.get_mut(n), rest.first()) {
+        *d = v;
     }
 }
 
@@ -198,11 +209,14 @@ fn deinterleave<T: Copy>(src: &[T], ld: &mut [T], hd: &mut [T], even: bool) {
 #[inline(always)]
 fn interleave<T: Copy>(dst: &mut [T], ls: &[T], hs: &[T], even: bool) {
     let (first, second) = if even { (ls, hs) } else { (hs, ls) };
-    for (c, &v) in dst.chunks_mut(2).zip(first.iter()) {
-        c[0] = v;
+    let n = (dst.len() / 2).min(first.len()).min(second.len());
+    let (pairs, rest) = dst.split_at_mut(2 * n);
+    for ((c, &a), &b) in pairs.chunks_exact_mut(2).zip(&first[..n]).zip(&second[..n]) {
+        c[0] = a;
+        c[1] = b;
     }
-    for (c, &v) in dst.chunks_exact_mut(2).zip(second.iter()) {
-        c[1] = v;
+    if let (Some(d), Some(&v)) = (rest.first_mut(), first.get(n)) {
+        *d = v;
     }
 }
 
