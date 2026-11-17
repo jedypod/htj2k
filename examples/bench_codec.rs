@@ -10,6 +10,7 @@
 //! cargo run --release --example bench_codec -- check    <ojph_enc options>
 //! cargo run --release --example bench_codec -- enc N    <ojph_enc options>
 //! cargo run --release --example bench_codec -- dec N    <ojph_enc options>
+//! cargo run --release --example bench_codec -- dump     <ojph_enc options>
 //! ```
 //!
 //! The options are `oracle/ojph_enc`'s, without `-o`: the image is the
@@ -27,7 +28,8 @@
 //! The output is one line of `key=value` pairs, as the C++ harness
 //! prints: the size and FNV-1a-64 of the codestream (`check`, `enc`) and
 //! of the decoded samples in `ojph_dec`'s `.raw` layout (`check`, `dec`),
-//! from the last iteration. The timing is left to `perf stat`; run N and
+//! from the last iteration. `dump` writes the decode itself, in the
+//! `.raw` layout, to standard output. The timing is left to `perf stat`; run N and
 //! 2N iterations and take the difference to remove the set-up.
 
 #[path = "../tests/common/mod.rs"]
@@ -39,7 +41,7 @@ use common::drive;
 use common::synth::EncArgs;
 use htj2k::codestream::Codestream;
 
-const USAGE: &str = "usage: bench_codec check|enc N|dec N [ojph_enc options, without -o]";
+const USAGE: &str = "usage: bench_codec check|dump|enc N|dec N [ojph_enc options, without -o]";
 
 fn die(msg: &str) -> ! {
     eprintln!("bench_codec: {msg}");
@@ -145,7 +147,7 @@ fn raw_summary(p: &Planes) -> String {
 fn main() {
     let words: Vec<String> = std::env::args().skip(1).collect();
     let (mode, iters, rest) = match words.first().map(String::as_str) {
-        Some("check") => ("check", 1u64, &words[1..]),
+        Some(m @ ("check" | "dump")) => (m, 1u64, &words[1..]),
         Some(m @ ("enc" | "dec")) => {
             let n = words
                 .get(1)
@@ -185,6 +187,19 @@ fn main() {
         let mut p = Planes::default();
         for _ in 0..iters {
             decode(&j2c, &mut p).unwrap_or_else(|e| fail(e));
+        }
+        if mode == "dump" {
+            use std::io::Write;
+            let mut raw = Vec::new();
+            for d in &p.data {
+                for v in d {
+                    raw.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+            std::io::stdout()
+                .write_all(&raw)
+                .unwrap_or_else(|e| die(&format!("cannot write the decode: {e}")));
+            return;
         }
         if mode == "check" {
             format!("{} {}", j2c_summary(&j2c), raw_summary(&p))

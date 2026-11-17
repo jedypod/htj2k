@@ -5,6 +5,8 @@
 //   bench_codec check    [ojph_enc options]   encode once, decode once
 //   bench_codec enc N    [ojph_enc options]   N encodes
 //   bench_codec dec N    [ojph_enc options]   N decodes
+//   bench_codec dump     [ojph_enc options]   the decode, .raw layout,
+//                                             to stdout
 //
 // The options are ojph_enc's (enc_setup.h), without -o: the image is the
 // one ojph_enc synthesises and the encoder gets the same calls.  The
@@ -170,7 +172,7 @@ void print_raw(const Planes& p) {
 }
 
 const char* const USAGE =
-  "usage: bench_codec check|enc N|dec N [ojph_enc options, without -o]";
+  "usage: bench_codec check|dump|enc N|dec N [ojph_enc options, without -o]";
 
 }  // namespace
 
@@ -185,7 +187,7 @@ int main(int argc, char** argv) {
     iters = strtol(argv[2], nullptr, 10);
     if (iters < 1) die("bad iteration count %s", argv[2]);
     first = 3;
-  } else if (mode != "check") {
+  } else if (mode != "check" && mode != "dump") {
     usage(USAGE);
     return 2;
   }
@@ -211,6 +213,15 @@ int main(int argc, char** argv) {
       out.close();
       Planes p;
       for (long k = 0; k < iters; ++k) decode(j2c.data(), j2c.size(), p);
+      if (mode == "dump") {
+        for (const auto& d : p.data)
+          for (uint32_t v : d) {
+            const uint8_t b[4] = {(uint8_t)v, (uint8_t)(v >> 8),
+                                  (uint8_t)(v >> 16), (uint8_t)(v >> 24)};
+            fwrite(b, 1, 4, stdout);
+          }
+        return 0;
+      }
       print_raw(p);
     }
     printf("\n");
