@@ -7,7 +7,7 @@
 //! field that decoding changes is put back, whether the codestream was
 //! decoded in full, in part, or failed half way.
 
-use super::Codestream;
+use super::{Codestream, DecoderMemory};
 use std::path::Path;
 
 /// Every codestream of `tests/data/matrix` and `tests/data/strips`.
@@ -42,10 +42,10 @@ pub(crate) fn broken_copies(data: &[u8]) -> [(&'static str, Vec<u8>); 2] {
 
 /// The tree of `cs` with every sample buffer zeroed, as text.
 fn tree_text(cs: &mut Codestream) -> String {
-    for tile in cs.tiles.iter_mut() {
+    for tile in cs.mem.tiles.iter_mut() {
         tile.fill_buffers(0);
     }
-    format!("{:?}", cs.tiles)
+    format!("{:?}", cs.mem.tiles)
 }
 
 /// A decoder of `data` after `create`, which may have failed after
@@ -81,7 +81,7 @@ fn used_then_reset(data: &[u8], resilient: bool, lines: usize) -> Option<String>
             _ => break,
         }
     }
-    for tile in cs.tiles.iter_mut() {
+    for tile in cs.mem.tiles.iter_mut() {
         tile.reset();
     }
     Some(tree_text(&mut cs))
@@ -110,4 +110,79 @@ fn reset_restores_the_tree_create_builds() {
         checked += 1;
     }
     assert!(checked > 200, "only {checked} codestreams");
+}
+
+/// What decoding gives: every line pulled, with its component, and the
+/// error code that stopped it, if one did.
+#[derive(Debug, PartialEq)]
+struct Decoded {
+    lines: Vec<(u32, Vec<i32>)>,
+    error: Option<u32>,
+}
+
+/// Decodes `data` with `cs`, resiliently or not.
+fn decode<'a>(cs: &mut Codestream<'a>, data: &'a [u8], resilient: bool) -> Decoded {
+    let mut lines = Vec::new();
+    let mut run = || -> crate::Result<()> {
+        if resilient {
+            cs.enable_resilience()?;
+        }
+        cs.read_headers(data)?;
+        cs.create()?;
+        while let Some((c, line)) = cs.pull()? {
+            lines.push((c, line.i32()[..line.size].to_vec()));
+        }
+        Ok(())
+    };
+    let error = run().err().map(|e| e.code());
+    Decoded { lines, error }
+}
+
+/// Fills every buffer `mem` keeps with the bit pattern `bits`.
+fn poison(mem: &mut DecoderMemory, bits: u32) {
+    for tile in mem.tiles.iter_mut() {
+        tile.fill_buffers(bits);
+    }
+    for line in mem.lines.iter_mut() {
+        line.fill_bits(bits);
+    }
+}
+
+/// Decodes `next` with the memory left by decoding `first`, after
+/// poisoning it, and requires what a new decoder gives. Returns whether
+/// the memory's tiles were reused rather than built again.
+fn check_poisoned(name: &str, first: &[u8], next: &[u8], resilient: bool, bits: u32) -> bool {
+    let want = decode(&mut Codestream::new(), next, resilient);
+    let mut cs = Codestream::new();
+    decode(&mut cs, first, resilient);
+    let mut mem = cs.into_memory();
+    poison(&mut mem, bits);
+    let before = mem.tiles.as_ptr();
+    let mut cs = Codestream::with_memory(mem);
+    let got = decode(&mut cs, next, resilient);
+    assert!(
+        got == want,
+        "{name}: a reused decoder differs from a new one (resilient {resilient}, poison {bits:08x})"
+    );
+    !cs.mem.tiles.is_empty() && cs.mem.tiles.as_ptr() == before
+}
+
+/// No sample of a kept buffer is read before it is written: decoders
+/// whose every kept buffer is filled with garbage first return exactly
+/// what new decoders do, after decoding the same codestream, a cut or
+/// damaged copy of it, or the other way round.
+#[test]
+fn poisoned_memory_decodes_as_new() {
+    for (name, data) in test_codestreams() {
+        for bits in [0xA5A5_A5A5, 0xFFFF_FFFF, 0x7FC0_0001] {
+            let reused = check_poisoned(&name, &data, &data, false, bits);
+            assert!(reused, "{name}: the tiles were not reused");
+        }
+        for (_, broken) in broken_copies(&data) {
+            for resilient in [false, true] {
+                check_poisoned(&name, &broken, &data, resilient, 0xA5A5_A5A5);
+                check_poisoned(&name, &data, &broken, resilient, 0xA5A5_A5A5);
+            }
+        }
+    }
 }

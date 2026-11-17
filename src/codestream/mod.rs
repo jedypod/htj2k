@@ -24,7 +24,7 @@ mod tile;
 mod tile_comp;
 mod write;
 
-pub use codestream::Codestream;
+pub use codestream::{Codestream, DecoderMemory};
 pub use write::Encoder;
 
 use crate::error::ojph_error;
@@ -53,12 +53,18 @@ pub(crate) struct Build<'a> {
 /// budget before it is allocated.
 #[derive(Debug)]
 pub(crate) struct Budget {
+    limit: u64,
     left: u64,
 }
 
 impl Budget {
     pub(crate) fn new(limit: u64) -> Self {
-        Budget { left: limit }
+        Budget { limit, left: limit }
+    }
+
+    /// The bytes accounted for so far.
+    pub(crate) fn taken(&self) -> u64 {
+        self.limit - self.left
     }
 
     /// Accounts for `bytes` bytes, or fails if the limit would be passed.

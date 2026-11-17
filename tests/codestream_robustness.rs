@@ -10,10 +10,15 @@
 //! bits flipped and with bytes overwritten, decoded with and without
 //! resilience. Run it in a debug build, so that arithmetic overflow and
 //! `debug_assert!` count as failures too.
+//!
+//! Each input is decoded twice: by a new decoder, and by one that reuses
+//! the memory of every decode before it (`Codestream::with_memory`). The
+//! two must return the same lines and the same error.
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
-use htj2k::codestream::Codestream;
+use htj2k::codestream::{Codestream, DecoderMemory};
 
 /// Enough for every test image, and little enough that a damaged SIZ
 /// asking for a huge image is turned away quickly.
@@ -40,42 +45,63 @@ impl Rng {
     }
 }
 
-/// Decodes as far as the codestream allows. Returns the number of lines
-/// pulled; errors are expected and ignored.
-fn decode(j2c: &[u8], resilient: bool, skipped: u32, planar: Option<bool>) -> usize {
-    let mut cs = Codestream::new();
-    if resilient {
-        cs.enable_resilience().unwrap();
-    }
-    cs.set_memory_limit(MEMORY_LIMIT);
-    if cs.read_headers(j2c).is_err() {
-        return 0;
-    }
-    if skipped > 0 && cs.restrict_input_resolution(skipped, skipped).is_err() {
-        return 0;
-    }
-    if let Some(planar) = planar {
-        cs.set_planar(planar);
-    }
-    if cs.create().is_err() {
-        return 0;
-    }
-    let siz = cs.access_siz();
-    let total: u64 = (0..siz.get_num_components())
-        .map(|c| u64::from(siz.get_recon_height(c)))
-        .sum();
-    let mut lines = 0;
-    while lines < MAX_PULLS {
-        match cs.pull() {
-            Ok(Some(_)) => lines += 1,
-            _ => break,
+/// What a decode gave: the number of lines pulled, a hash of them, and
+/// the error code that stopped it, if one did.
+#[derive(Debug, PartialEq)]
+struct Outcome {
+    lines: usize,
+    hash: u64,
+    error: Option<u32>,
+}
+
+/// Decodes as far as the codestream allows, with `cs`. Errors are
+/// expected, and recorded.
+fn decode<'a>(
+    mut cs: Codestream<'a>,
+    j2c: &'a [u8],
+    resilient: bool,
+    skipped: u32,
+    planar: Option<bool>,
+) -> (Outcome, DecoderMemory) {
+    let mut out = Outcome {
+        lines: 0,
+        hash: 0xcbf2_9ce4_8422_2325,
+        error: None,
+    };
+    let mut run = |out: &mut Outcome| -> htj2k::Result<()> {
+        if resilient {
+            cs.enable_resilience().unwrap();
         }
-        assert!(
-            lines as u64 <= total,
-            "pull returned more lines than the image has"
-        );
-    }
-    lines
+        cs.set_memory_limit(MEMORY_LIMIT);
+        cs.read_headers(j2c)?;
+        if skipped > 0 {
+            cs.restrict_input_resolution(skipped, skipped)?;
+        }
+        if let Some(planar) = planar {
+            cs.set_planar(planar);
+        }
+        cs.create()?;
+        let siz = cs.access_siz();
+        let total: u64 = (0..siz.get_num_components())
+            .map(|c| u64::from(siz.get_recon_height(c)))
+            .sum();
+        while out.lines < MAX_PULLS {
+            let Some((c, line)) = cs.pull()? else {
+                break;
+            };
+            out.lines += 1;
+            for &v in std::iter::once(&(c as i32)).chain(&line.i32()[..line.size]) {
+                out.hash = (out.hash ^ v as u32 as u64).wrapping_mul(0x100_0000_01b3);
+            }
+            assert!(
+                out.lines as u64 <= total,
+                "pull returned more lines than the image has"
+            );
+        }
+        Ok(())
+    };
+    out.error = run(&mut out).err().map(|e| e.code());
+    (out, cs.into_memory())
 }
 
 fn codestreams() -> Vec<(String, Vec<u8>)> {
@@ -100,7 +126,9 @@ fn codestreams() -> Vec<(String, Vec<u8>)> {
 }
 
 /// Runs `decode` on every mutation `mutate` makes of every codestream,
-/// `rounds` times each, and reports the mutations that panic.
+/// `rounds` times each, with a new decoder and with one that reuses the
+/// memory of all the decodes before, and reports the mutations that
+/// panic or on which the two differ.
 fn check(rounds: usize, mutate: impl Fn(&mut Rng, &[u8]) -> Vec<u8>) {
     // HTJ2K_ROBUSTNESS_ROUNDS multiplies the number of rounds, for a longer
     // run than the default.
@@ -111,6 +139,7 @@ fn check(rounds: usize, mutate: impl Fn(&mut Rng, &[u8]) -> Vec<u8>) {
     let rounds = rounds * scale;
     let mut failures = Vec::new();
     let mut runs = 0;
+    let mut memory = DecoderMemory::new();
     for (index, (name, j2c)) in codestreams().iter().enumerate() {
         let mut rng = Rng(index as u64);
         // large streams take longer to decode, so they get fewer rounds
@@ -129,17 +158,35 @@ fn check(rounds: usize, mutate: impl Fn(&mut Rng, &[u8]) -> Vec<u8>) {
             };
             let planar = [None, Some(false), Some(true)][rng.below(3)];
             runs += 1;
-            let result = std::panic::catch_unwind(|| decode(&bytes, resilient, skipped, planar));
-            if result.is_err() {
-                failures.push(format!(
-                    "{name} round {round} (resilient {resilient}, skipped {skipped}, planar {planar:?})"
-                ));
+            let what = format!(
+                "{name} round {round} (resilient {resilient}, skipped {skipped}, planar {planar:?})"
+            );
+            let fresh =
+                catch_unwind(|| decode(Codestream::new(), &bytes, resilient, skipped, planar));
+            let mem = std::mem::take(&mut memory);
+            let reused = catch_unwind(AssertUnwindSafe(|| {
+                decode(
+                    Codestream::with_memory(mem),
+                    &bytes,
+                    resilient,
+                    skipped,
+                    planar,
+                )
+            }));
+            match (fresh, reused) {
+                (Ok((fresh, _)), Ok((reused, mem))) => {
+                    memory = mem;
+                    if fresh != reused {
+                        failures.push(format!("{what}: reused {reused:?}, new {fresh:?}"));
+                    }
+                }
+                _ => failures.push(format!("{what}: panicked")),
             }
         }
     }
     assert!(
         failures.is_empty(),
-        "{} of {runs} runs panicked:\n{}",
+        "{} of {runs} runs failed:\n{}",
         failures.len(),
         failures.join("\n")
     );

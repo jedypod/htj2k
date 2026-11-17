@@ -24,6 +24,85 @@ use crate::Result;
 /// The default for [`Codestream::set_memory_limit`]: 4 GiB.
 const DEFAULT_MEMORY_LIMIT: u64 = 1 << 32;
 
+/// The memory of a decoder, kept from one codestream to the next.
+///
+/// [`Codestream::into_memory`] takes it out of a decoder, and
+/// [`Codestream::with_memory`] starts a new decoder with it, which may
+/// borrow a different input. A decoder started this way behaves exactly
+/// as one from [`Codestream::new`], but when the codestream's main
+/// header gives the same image, tile and coding parameters as the last
+/// one decoded with this memory, [`Codestream::create`] resets the
+/// decoder's buffers instead of allocating them again.
+///
+/// It holds the tiles, with their line and code-block buffers, the lines
+/// handed out by [`Codestream::pull`] and some scratch space, as the
+/// last codestream needed them. Dropping it frees them.
+#[derive(Debug, Default)]
+pub struct DecoderMemory {
+    tiles: Vec<Tile>,
+    /// The lines handed out by `pull`, one per component.
+    lines: Vec<LineBuf>,
+    /// The number of lines and the width of each component.
+    recon_comp_size: Vec<Size>,
+    /// Holds the tag trees while packet headers are read.
+    precinct_scratch: Vec<u8>,
+    /// What the tiles and lines were built from, if they were built
+    /// whole; `None` after a failed build.
+    built_for: Option<Box<TreeParams>>,
+    /// What building them took from the memory limit.
+    charge: u64,
+}
+
+impl DecoderMemory {
+    /// Empty memory, which allocates nothing until it is used.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+/// The parameters the decoder's tree is built from: every field of
+/// [`Build`].
+#[derive(Debug, PartialEq)]
+struct TreeParams {
+    siz: ParamSiz,
+    cod: ParamCod,
+    qcd: ParamQcd,
+    dfs: Option<ParamDfs>,
+    nlt: ParamNlt,
+    skipped_res_for_read: u32,
+    skipped_res_for_recon: u32,
+    resilient: bool,
+}
+
+impl TreeParams {
+    fn new(b: &Build) -> Self {
+        TreeParams {
+            siz: b.siz.clone(),
+            cod: b.cod.clone(),
+            qcd: b.qcd.clone(),
+            dfs: b.dfs.cloned(),
+            nlt: b.nlt.clone(),
+            skipped_res_for_read: b.skipped_res_for_read,
+            skipped_res_for_recon: b.skipped_res_for_recon,
+            resilient: b.resilient,
+        }
+    }
+
+    /// Whether a tree built from `b` would be the tree built from these.
+    /// Parameters that compare unequal, such as a NaN step, never match,
+    /// which only costs a rebuild.
+    fn matches(&self, b: &Build) -> bool {
+        self.skipped_res_for_read == b.skipped_res_for_read
+            && self.skipped_res_for_recon == b.skipped_res_for_recon
+            && self.resilient == b.resilient
+            && self.siz == *b.siz
+            && self.cod == *b.cod
+            && self.qcd == *b.qcd
+            && self.dfs.as_ref() == b.dfs
+            && self.nlt == *b.nlt
+    }
+}
+
 /// An HTJ2K codestream being decoded from memory.
 ///
 /// The calls follow OpenJPH's `ojph::codestream`:
@@ -37,10 +116,14 @@ const DEFAULT_MEMORY_LIMIT: u64 = 1 << 32;
 ///    [`set_memory_limit`](Self::set_memory_limit);
 /// 4. [`create`](Self::create), which parses every tile part;
 /// 5. [`pull`](Self::pull), once per line of every component.
+///
+/// To decode a sequence of codestreams without allocating the decoder's
+/// buffers for each, take them out with [`into_memory`](Self::into_memory)
+/// and start the next decoder with [`with_memory`](Self::with_memory), or
+/// call [`reset`](Self::reset) when the inputs share one lifetime.
 #[derive(Debug)]
 pub struct Codestream<'a> {
     infile: Option<MemInfile<'a>>,
-    precinct_scratch: Vec<u8>,
 
     cur_line: u32,
     cur_comp: u32,
@@ -53,12 +136,9 @@ pub struct Codestream<'a> {
     created: bool,
 
     num_tiles: Size,
-    tiles: Vec<Tile>,
-    /// The lines handed out by `pull`, one per component.
-    lines: Vec<LineBuf>,
     num_comps: u32,
-    /// The number of lines and the width of each component.
-    recon_comp_size: Vec<Size>,
+    /// The tiles, the lines handed out by `pull`, and scratch space.
+    mem: DecoderMemory,
     planar: bool,
 
     siz: ParamSiz,
@@ -79,9 +159,15 @@ impl Default for Codestream<'_> {
 
 impl<'a> Codestream<'a> {
     pub fn new() -> Self {
+        Self::with_memory(DecoderMemory::new())
+    }
+
+    /// A decoder in the state [`new`](Self::new) gives, which reuses the
+    /// buffers in `memory` where the next codestream can use them. Its
+    /// settings are the defaults, whatever decoder `memory` came from.
+    pub fn with_memory(memory: DecoderMemory) -> Self {
         Codestream {
             infile: None,
-            precinct_scratch: Vec::new(),
             cur_line: 0,
             cur_comp: 0,
             cur_tile_row: 0,
@@ -91,10 +177,8 @@ impl<'a> Codestream<'a> {
             memory_limit: DEFAULT_MEMORY_LIMIT,
             created: false,
             num_tiles: Size::default(),
-            tiles: Vec::new(),
-            lines: Vec::new(),
             num_comps: 0,
-            recon_comp_size: Vec::new(),
+            mem: memory,
             planar: false,
             siz: ParamSiz::default(),
             cod: ParamCod::default(),
@@ -104,6 +188,25 @@ impl<'a> Codestream<'a> {
             dfs: ParamDfs::default(),
             atk: ParamAtk::default(),
         }
+    }
+
+    /// Ends this decoder and returns its buffers, for
+    /// [`with_memory`](Self::with_memory). It can be called at any point,
+    /// after an error too.
+    pub fn into_memory(self) -> DecoderMemory {
+        self.mem
+    }
+
+    /// Returns the decoder to the state [`new`](Self::new) gives, settings
+    /// included (the memory limit and resilience among them), but keeps
+    /// its buffers for the next codestream, as
+    /// `*self = Codestream::with_memory(self.into_memory())` would. The
+    /// next input must live as long as the last; to decode inputs that do
+    /// not, use [`into_memory`](Self::into_memory) and
+    /// [`with_memory`](Self::with_memory).
+    pub fn reset(&mut self) {
+        let mem = std::mem::take(&mut self.mem);
+        *self = Self::with_memory(mem);
     }
 
     /// The SIZ marker segment: image, tile and component sizes.
@@ -141,7 +244,10 @@ impl<'a> Codestream<'a> {
 
     /// Limits the memory that [`create`](Self::create) may allocate for
     /// buffers whose size comes from the codestream. OpenJPH has no such
-    /// limit.
+    /// limit. Buffers kept from an earlier codestream (see
+    /// [`with_memory`](Self::with_memory)) count as if they were
+    /// allocated again, so the limit accepts and refuses the same
+    /// codestreams either way.
     pub fn set_memory_limit(&mut self, bytes: u64) {
         self.memory_limit = bytes;
     }
@@ -294,6 +400,10 @@ impl<'a> Codestream<'a> {
             return ojph_error!(0x00030012, "the number of tiles cannot be 0");
         }
         self.num_tiles = num_tiles;
+        self.cur_comp = 0;
+        self.cur_line = 0;
+        self.cur_tile_row = 0;
+        self.num_comps = self.siz.get_num_components();
 
         let mut budget = Budget::new(self.memory_limit);
         let build = Build {
@@ -310,6 +420,29 @@ impl<'a> Codestream<'a> {
             skipped_res_for_recon: self.skipped_res_for_recon,
             resilient: self.resilient,
         };
+        let mem = &mut self.mem;
+
+        // The tree of the last codestream, if it was built from the same
+        // parameters, is the tree this one needs. It is charged what it
+        // took to build, so the limit decides as it would for a new one.
+        if let Some(built_for) = &mem.built_for {
+            if built_for.matches(&build) {
+                budget.take(mem.charge)?;
+                for tile in mem.tiles.iter_mut() {
+                    tile.reset();
+                }
+                for line in mem.lines.iter_mut() {
+                    line.i32_full_mut().fill(0);
+                }
+                return Ok(());
+            }
+        }
+        // Otherwise the old tree is freed before the new one is built, so
+        // the two are never held together.
+        mem.built_for = None;
+        mem.tiles = Vec::new();
+        mem.lines = Vec::new();
+        mem.recon_comp_size = Vec::new();
 
         budget.take(num_tiles.area() * std::mem::size_of::<Tile>() as u64)?;
         let mut tiles = Vec::with_capacity(num_tiles.area() as usize);
@@ -340,7 +473,7 @@ impl<'a> Codestream<'a> {
 
         // These lines are used by the codestream to exchange data with the
         // external world.
-        let num_comps = sz.get_num_components();
+        let num_comps = self.num_comps;
         let mut lines = Vec::with_capacity(num_comps as usize);
         let mut recon_comp_size = Vec::with_capacity(num_comps as usize);
         for i in 0..num_comps {
@@ -349,13 +482,11 @@ impl<'a> Codestream<'a> {
             lines.push(budget.line_i32(cw as usize, 0)?);
         }
 
-        self.tiles = tiles;
-        self.num_comps = num_comps;
-        self.lines = lines;
-        self.recon_comp_size = recon_comp_size;
-        self.cur_comp = 0;
-        self.cur_line = 0;
-        self.cur_tile_row = 0;
+        mem.tiles = tiles;
+        mem.lines = lines;
+        mem.recon_comp_size = recon_comp_size;
+        mem.charge = budget.taken();
+        mem.built_for = Some(Box::new(TreeParams::new(&build)));
         Ok(())
     }
 
@@ -429,9 +560,9 @@ impl<'a> Codestream<'a> {
                         )?
                     };
                     if sod_found {
-                        self.tiles[usize::from(sot.get_tile_index())].parse_tile_header(
+                        self.mem.tiles[usize::from(sot.get_tile_index())].parse_tile_header(
                             &sot,
-                            &mut self.precinct_scratch,
+                            &mut self.mem.precinct_scratch,
                             infile,
                             tile_start_location,
                         )?;
@@ -465,7 +596,7 @@ impl<'a> Codestream<'a> {
         if self.cur_comp >= self.num_comps {
             return Ok(None);
         }
-        if !self.planar && self.cur_line >= self.recon_comp_size[0].h {
+        if !self.planar && self.cur_line >= self.mem.recon_comp_size[0].h {
             return Ok(None);
         }
         let Some(infile) = self.infile.as_ref() else {
@@ -474,12 +605,12 @@ impl<'a> Codestream<'a> {
         let data = infile.data();
 
         let cur_comp = self.cur_comp;
-        let line = &mut self.lines[cur_comp as usize];
+        let line = &mut self.mem.lines[cur_comp as usize];
         let mut failures = 0;
         loop {
             let mut success = true;
             let row = self.cur_tile_row as usize * self.num_tiles.w as usize;
-            for tile in &mut self.tiles[row..row + self.num_tiles.w as usize] {
+            for tile in &mut self.mem.tiles[row..row + self.num_tiles.w as usize] {
                 if !tile.pull(line, cur_comp, data)? {
                     success = false;
                     break;
@@ -508,7 +639,7 @@ impl<'a> Codestream<'a> {
         if self.planar {
             // process one component at a time
             self.cur_line += 1;
-            if self.cur_line >= self.recon_comp_size[cur_comp as usize].h {
+            if self.cur_line >= self.mem.recon_comp_size[cur_comp as usize].h {
                 self.cur_line = 0;
                 self.cur_tile_row = 0;
                 self.cur_comp += 1;
@@ -522,7 +653,7 @@ impl<'a> Codestream<'a> {
             }
         }
 
-        Ok(Some((comp_num, &self.lines[comp_num as usize])))
+        Ok(Some((comp_num, &self.mem.lines[comp_num as usize])))
     }
 }
 
