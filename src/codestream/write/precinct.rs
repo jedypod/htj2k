@@ -18,8 +18,11 @@ pub(crate) struct Precinct {
     /// Which code blocks of each subband are in this precinct.
     pub cb_idxs: [Rect; 4],
     /// The packet header, once `prepare_precinct` has found something to
-    /// code; `None` for an empty packet. (OpenJPH's `coded` list.)
-    coded: Option<Vec<u8>>,
+    /// code (OpenJPH's `coded` list). The vector keeps its capacity from
+    /// one codestream to the next.
+    header: Vec<u8>,
+    /// False for an empty packet, which has no header.
+    has_header: bool,
 }
 
 /// `bit_write_buf` and its `bb_*` functions: packet header bits, with a
@@ -33,10 +36,10 @@ struct BitWriteBuf {
 }
 
 impl BitWriteBuf {
-    /// `bb_init`
-    fn new() -> Self {
+    /// `bb_init`, writing into `buf`, which must be empty.
+    fn new(buf: Vec<u8>) -> Self {
         BitWriteBuf {
-            buf: Vec::new(),
+            buf,
             avail_bits: 8,
             tmp: 0,
         }
@@ -88,22 +91,25 @@ impl BitWriteBuf {
 /// is a rectangle of its nodes plus one row and one byte, filled the
 /// same way, which is exactly the part of OpenJPH's level that such
 /// reads reach, so the values read are the same.
+///
+/// A tree over up to 2^32 blocks a side has at most 33 levels plus the
+/// one above the root.
 struct TagTree {
-    off: Vec<usize>,
-    width: Vec<usize>,
+    off: [usize; 34],
+    width: [usize; 34],
 }
 
 impl TagTree {
     /// The layout, and the number of bytes one tree takes.
     fn new(num_levels: u32, w: u32, h: u32) -> (Self, usize) {
-        let mut off = Vec::with_capacity(num_levels as usize + 1);
-        let mut width = Vec::with_capacity(num_levels as usize + 1);
+        let mut off = [0; 34];
+        let mut width = [0; 34];
         let mut total = 0usize;
         for lev in 0..=num_levels {
             let lw = level_size(w, lev);
             let lh = level_size(h, lev);
-            off.push(total);
-            width.push(lw);
+            off[lev as usize] = total;
+            width[lev as usize] = lw;
             total += if lev < num_levels {
                 lw * (lh + 1) + 1
             } else {
@@ -167,7 +173,8 @@ const MMSB_FLAGS: usize = 3;
 impl Precinct {
     /// Forgets the packet header, as `new` leaves the precinct.
     pub(crate) fn reset(&mut self) {
-        self.coded = None;
+        self.header.clear();
+        self.has_header = false;
     }
 
     /// Codes the packet header, and returns the size of the packet: the
@@ -178,6 +185,9 @@ impl Precinct {
         bands: &[Subband; 4],
         scratch: &mut Vec<u8>,
     ) -> Result<u64> {
+        let mut header = std::mem::take(&mut self.header);
+        header.clear();
+        self.has_header = false;
         let mut bb: Option<BitWriteBuf> = None;
         let mut cb_bytes = 0u64;
         let mut num_skipped_subbands = 0u32;
@@ -258,7 +268,7 @@ impl Precinct {
             }
             // now we are in a position to code
             let bb = bb.get_or_insert_with(|| {
-                let mut bb = BitWriteBuf::new();
+                let mut bb = BitWriteBuf::new(std::mem::take(&mut header));
                 // store non empty packet
                 bb.put_bit(1);
                 // if the first one or two subbands are empty (has
@@ -350,13 +360,12 @@ impl Precinct {
 
         match bb {
             Some(bb) => {
-                let header = bb.terminate();
-                let total = cb_bytes + header.len() as u64;
-                self.coded = Some(header);
-                Ok(total)
+                self.header = bb.terminate();
+                self.has_header = true;
+                Ok(cb_bytes + self.header.len() as u64)
             }
             None => {
-                self.coded = None;
+                self.header = header;
                 Ok(1) // 1 for empty packet
             }
         }
@@ -364,12 +373,12 @@ impl Precinct {
 
     /// Appends the packet: the header, then the code blocks' bytes.
     pub(crate) fn write(&self, bands: &[Subband; 4], out: &mut Vec<u8>) -> Result<()> {
-        let Some(header) = &self.coded else {
+        if !self.has_header {
             // empty packet
             out.push(0x00);
             return Ok(());
-        };
-        out.extend_from_slice(header);
+        }
+        out.extend_from_slice(&self.header);
         for (band, cb) in bands.iter().zip(self.cb_idxs.iter()) {
             if band.empty {
                 continue;

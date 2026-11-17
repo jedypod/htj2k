@@ -846,7 +846,6 @@ impl Encoder {
         for tile in self.tiles.iter_mut() {
             tile.prepare_for_flush(&mut self.precinct_scratch)?;
         }
-        self.precinct_scratch = Vec::new();
         if self.need_tlm {
             // write tlm
             for tile in &self.tiles {
