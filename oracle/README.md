@@ -67,12 +67,30 @@ without CMake. It never modifies the reference tree.
 * **`ojph_enc -o out.j2c [options]`** synthesises a deterministic image and
   writes a raw codestream (`.j2c`, no JP2/JPH boxes). Run `ojph_enc --help`
   for the options. They cover the size, components, depth (1 to 32) and
-  signedness (also per component, `--comp-fmt 16:1,32:1,32:0`), `--irrev` (9/7), `--qstep`, `--rct`, `--levels`, `--block`,
-  `--precincts`, `--coc` (per-component levels and block size), `--prog`,
-  `--tile`, `--tile-off`, `--img-off`, `--tlm`, `--tileparts R|C|RC`,
-  `--nlt3` and `--nlt3-comps`, `--sub`, `--planar`, `--seed` and
+  signedness (also per component, `--comp-fmt 16:1,32:1,32:0`),
+  `--irrev` (9/7), `--qstep`, `--qstep-comp C:F` (a per-component step,
+  QCC), `--qfactor Q`, `--rct`, `--levels`, `--block`, `--precincts`,
+  `--coc` (per-component levels and block size), `--rev-comps` and
+  `--irrev-comps` (per-component reversibility), `--prog`, `--tile`,
+  `--tile-off`, `--img-off`, `--tlm`, `--tileparts R|C|RC`, `--nlt3` and
+  `--nlt3-comps`, `--nlt4 C:N`, `--comment TEXT` (an extra COM segment,
+  after the version comment), `--sub`, `--planar`, `--seed` and
   `--pattern smooth|noise|const|zero`. `--raw-out FILE` also writes the
   input samples in the `.raw` layout below.
+  * The calls follow the options: `set_reversible(c, ...)` for
+    `--rev-comps`/`--irrev-comps` after the COC options;
+    `set_qfactor(Q)` if `--qfactor` is given, otherwise
+    `set_irrev_quant(qstep)` if any component is irreversible; then
+    `set_irrev_quant(c, F)` for each `--qstep-comp`.
+  * `--nlt4 C:N` calls the LUT form of `set_nonlinear_transform` for
+    component C with NLT type 4 (binary complement followed by a LUT):
+    the decoded depth and signedness and `pt_val` are the component's
+    own, `d_min` is 0, `d_max` 0xFFFFFFFF, and the encoder uses the
+    decoder's LUT (`approx_encoding_nlt` false). The LUT has N points
+    rising from 0 to M = 2^B - 1 for a component of depth B:
+    `lut[i] = floor(M * i * (i + N - 1) / (2 * (N - 1)^2))`. OpenJPH
+    requires it to be strictly increasing, so N can be at most about
+    M/2 + 1, and the component to be irreversible.
   * The random numbers come from splitmix64 seeded with `--seed`. For each
     component, the tool draws the constant value, then a gradient phase,
     then one value per sample in raster order.

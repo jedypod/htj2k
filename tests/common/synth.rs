@@ -56,12 +56,19 @@ pub struct EncArgs {
     pub is_signed: bool,
     pub reversible: bool,
     pub qstep: f32,
+    /// `--qstep-comp C:F`, in order.
+    pub qstep_comps: Vec<(u32, f32)>,
+    /// `--qfactor Q`
+    pub qfactor: Option<f32>,
     pub rct: bool,
     pub levels: u32,
     pub bw: u32,
     pub bh: u32,
     pub precincts: Vec<(u32, u32)>,
     pub cocs: Vec<Coc>,
+    /// `--rev-comps` and `--irrev-comps`.
+    pub rev_comps: Vec<u32>,
+    pub irrev_comps: Vec<u32>,
     pub prog: String,
     pub tile: Option<(u32, u32)>,
     pub tile_off: (u32, u32),
@@ -71,6 +78,10 @@ pub struct EncArgs {
     pub tp_comp: bool,
     pub nlt_all: bool,
     pub nlt_comps: Vec<u32>,
+    /// `--nlt4 C:N`: component and number of LUT points, in order.
+    pub nlt4: Vec<(u32, u32)>,
+    /// `--comment TEXT`, in order.
+    pub comments: Vec<String>,
     /// One `(dx, dy)` per component, padded with `(1, 1)`.
     pub sub: Vec<(u32, u32)>,
     /// `--comp-fmt`: one `(depth, signed)` per component, padded with
@@ -134,12 +145,16 @@ impl EncArgs {
             is_signed: false,
             reversible: true,
             qstep: 1.0 / 256.0,
+            qstep_comps: Vec::new(),
+            qfactor: None,
             rct: false,
             levels: 5,
             bw: 64,
             bh: 64,
             precincts: Vec::new(),
             cocs: Vec::new(),
+            rev_comps: Vec::new(),
+            irrev_comps: Vec::new(),
             prog: "LRCP".into(),
             tile: None,
             tile_off: (0, 0),
@@ -149,6 +164,8 @@ impl EncArgs {
             tp_comp: false,
             nlt_all: false,
             nlt_comps: Vec::new(),
+            nlt4: Vec::new(),
+            comments: Vec::new(),
             sub: Vec::new(),
             fmt: Vec::new(),
             planar: false,
@@ -177,6 +194,31 @@ impl EncArgs {
                 "--irrev" => a.reversible = false,
                 // (float)atof(...)
                 "--qstep" => a.qstep = val()?.parse::<f64>().unwrap_or(0.0) as f32,
+                "--qstep-comp" => {
+                    let v = val()?;
+                    let (c, f) = v.split_once(':').ok_or("bad --qstep-comp")?;
+                    a.qstep_comps
+                        .push((atoi(c) as u32, f.parse::<f64>().unwrap_or(0.0) as f32));
+                }
+                "--qfactor" => a.qfactor = Some(val()?.parse::<f64>().unwrap_or(0.0) as f32),
+                "--rev-comps" => {
+                    for p in val()?.split(',') {
+                        a.rev_comps.push(atoi(p) as u32);
+                    }
+                }
+                "--irrev-comps" => {
+                    for p in val()?.split(',') {
+                        a.irrev_comps.push(atoi(p) as u32);
+                    }
+                }
+                "--nlt4" => {
+                    let (c, n) = parse_pair(val()?, ':').map_err(|_| "bad --nlt4")?;
+                    if !(2..=8192).contains(&n) {
+                        return Err("--nlt4 needs 2..8192 points".into());
+                    }
+                    a.nlt4.push((c, n));
+                }
+                "--comment" => a.comments.push(val()?.to_string()),
                 "--rct" => a.rct = atoi(val()?) != 0,
                 "--levels" => a.levels = atoi(val()?) as u32,
                 "--block" => (a.bw, a.bh) = parse_pair(val()?, 'x')?,
@@ -249,6 +291,9 @@ impl EncArgs {
         if a.fmt.iter().any(|&(b, _)| !(1..=32).contains(&b)) {
             return Err("depth must be 1..32".into());
         }
+        if a.nlt4.iter().any(|&(c, _)| c >= a.num_comps) {
+            return Err("--nlt4 names a missing component".into());
+        }
         let subsampled = a.sub[..a.num_comps as usize]
             .iter()
             .any(|&(x, y)| x != 1 || y != 1);
@@ -304,6 +349,18 @@ impl EncArgs {
     /// The bit depth and signedness of component `c`.
     pub fn format(&self, c: u32) -> (u32, bool) {
         self.fmt[c as usize]
+    }
+
+    /// The LUT `--nlt4 C:N` gives component `c`: `n` points rising from
+    /// 0 to `M = 2^B - 1` for depth `B`,
+    /// `lut[i] = floor(M * i * (i + n - 1) / (2 * (n - 1)^2))`, as in
+    /// `ojph_enc.cpp`.
+    pub fn nlt4_lut(&self, c: u32, n: u32) -> Vec<u32> {
+        let m = (1u64 << self.format(c).0) - 1;
+        let d = u64::from(n - 1);
+        (0..u64::from(n))
+            .map(|i| (m * i * (i + d) / (2 * d * d)) as u32)
+            .collect()
     }
 
     /// The legal sample range of component `c`, `lo..=hi`.

@@ -57,12 +57,17 @@ void usage() {
 "                     overriding --depth/--signed (missing = those)\n"
 "  --irrev            irreversible 9/7 (default reversible 5/3)\n"
 "  --qstep F          irreversible base quantisation step (default 1/256)\n"
+"  --qstep-comp C:F   irreversible quantisation step of component C (QCC);\n"
+"                     repeatable\n"
+"  --qfactor Q        Qfactor 1..100 instead of the base step\n"
 "  --rct 0|1          colour transform (needs >= 3 comps), default 0\n"
 "  --levels N         decompositions, default 5\n"
 "  --block WxH        code-block size, default 64x64\n"
 "  --precincts LIST   comma list of WxH, index 0 = lowest resolution;\n"
 "                     the last entry repeats for higher resolutions\n"
 "  --coc C:LEVELS:WxH per-component override (COC); repeatable\n"
+"  --rev-comps LIST   comma list of components made reversible (COC)\n"
+"  --irrev-comps LIST comma list of components made irreversible (COC)\n"
 "  --prog ORDER       LRCP|RLCP|RPCL|PCRL|CPRL, default LRCP\n"
 "  --tile WxH         tile size (default: one tile covering the image)\n"
 "  --tile-off X,Y     tile grid offset (XTOsiz,YTOsiz), default 0,0\n"
@@ -71,6 +76,10 @@ void usage() {
 "  --tileparts R|C|RC tile-part divisions at resolutions and/or components\n"
 "  --nlt3             NLT type 3 on every signed component\n"
 "  --nlt3-comps LIST  NLT type 3 on the listed (signed) components\n"
+"  --nlt4 C:N         NLT type 4 on component C, with an N-point LUT\n"
+"                     (2..8192; formula in oracle/README.md); repeatable\n"
+"  --comment TEXT     a COM segment with TEXT, after the version comment;\n"
+"                     repeatable\n"
 "  --sub LIST         comma list of DXxDY per component (missing = 1x1)\n"
 "  --planar 0|1       planar exchange order (default: 0 with --rct 1,\n"
 "                     else 1 if subsampled or comps==1, else 0)\n"
@@ -99,6 +108,19 @@ std::vector<std::string> split(const std::string& s, char sep) {
 uint32_t div_ceil(uint32_t a, uint32_t b) { return (uint32_t)(((uint64_t)a + b - 1) / b); }
 
 struct Coc { uint32_t comp, levels, bw, bh; };
+struct Nlt4 { uint32_t comp, points; };
+
+// The LUT of --nlt4: N points rising from 0 to M = 2^B - 1 for a
+// component of depth B,
+//   lut[i] = floor(M * i * (i + N - 1) / (2 * (N - 1)^2)),
+// a strictly increasing quadratic (its slope at 0 is half the mean).
+// The products stay below 2^63 for B <= 32 and N <= 8192.
+std::vector<uint64_t> nlt4_lut(uint32_t depth, uint32_t n) {
+  const uint64_t m = ((uint64_t)1 << depth) - 1, d = (uint64_t)(n - 1);
+  std::vector<uint64_t> lut(n);
+  for (uint64_t i = 0; i < n; ++i) lut[i] = m * i * (i + d) / (2 * d * d);
+  return lut;
+}
 
 }  // namespace
 
@@ -108,6 +130,12 @@ int main(int argc, char** argv) {
   uint32_t width = 64, height = 64, num_comps = 1, depth = 8;
   bool is_signed = false, reversible = true, rct = false;
   float qstep = 1.0f / 256.0f;
+  bool have_qfactor = false;
+  float qfactor = 0.0f;
+  std::vector<std::pair<uint32_t, float>> qstep_comps;
+  std::vector<uint32_t> rev_comps, irrev_comps;
+  std::vector<Nlt4> nlt4s;
+  std::vector<std::string> comments;
   uint32_t levels = 5, bw = 64, bh = 64;
   std::vector<ojph::size> precincts;
   std::vector<Coc> cocs;
@@ -138,6 +166,27 @@ int main(int argc, char** argv) {
     else if (a == "--signed") is_signed = atoi(val()) != 0;
     else if (a == "--irrev") reversible = false;
     else if (a == "--qstep") qstep = (float)atof(val());
+    else if (a == "--qstep-comp") {
+      std::string v = val();
+      size_t colon = v.find(':');
+      if (colon == std::string::npos) die("bad --qstep-comp");
+      qstep_comps.push_back({(uint32_t)atoi(v.substr(0, colon).c_str()),
+                             (float)atof(v.c_str() + colon + 1)});
+    }
+    else if (a == "--qfactor") { have_qfactor = true; qfactor = (float)atof(val()); }
+    else if (a == "--rev-comps") {
+      for (auto& p : split(val(), ',')) rev_comps.push_back((uint32_t)atoi(p.c_str()));
+    }
+    else if (a == "--irrev-comps") {
+      for (auto& p : split(val(), ',')) irrev_comps.push_back((uint32_t)atoi(p.c_str()));
+    }
+    else if (a == "--nlt4") {
+      Nlt4 n;
+      if (sscanf(val(), "%u:%u", &n.comp, &n.points) != 2) die("bad --nlt4");
+      if (n.points < 2 || n.points > 8192) die("--nlt4 needs 2..8192 points");
+      nlt4s.push_back(n);
+    }
+    else if (a == "--comment") comments.push_back(val());
     else if (a == "--rct") rct = atoi(val()) != 0;
     else if (a == "--levels") levels = (uint32_t)atoi(val());
     else if (a == "--block") { if (!parse_wh(val(), bw, bh)) die("bad --block"); }
@@ -197,6 +246,8 @@ int main(int argc, char** argv) {
   while (fmt.size() < num_comps) fmt.push_back({depth, is_signed});
   for (uint32_t c = 0; c < num_comps; ++c)
     if (fmt[c].first < 1 || fmt[c].first > 32) die("depth must be 1..32");
+  for (const Nlt4& n : nlt4s)
+    if (n.comp >= num_comps) die("--nlt4 names a missing component");
   bool subsampled = false;
   for (uint32_t c = 0; c < num_comps; ++c)
     if (sub[c].first != 1 || sub[c].second != 1) subsampled = true;
@@ -286,7 +337,12 @@ int main(int argc, char** argv) {
       cod.set_block_dims(c.comp, c.bw, c.bh);
       cod.set_reversible(c.comp, reversible);
     }
-    if (!reversible) cs.access_qcd().set_irrev_quant(qstep);
+    for (uint32_t c : rev_comps) cod.set_reversible(c, true);
+    for (uint32_t c : irrev_comps) cod.set_reversible(c, false);
+    ojph::param_qcd qcd = cs.access_qcd();
+    if (have_qfactor) qcd.set_qfactor(qfactor);
+    else if (!reversible || !irrev_comps.empty()) qcd.set_irrev_quant(qstep);
+    for (const auto& q : qstep_comps) qcd.set_irrev_quant(q.first, q.second);
 
     ojph::param_nlt nlt = cs.access_nlt();
     for (uint32_t c = 0; c < num_comps; ++c) {
@@ -297,6 +353,25 @@ int main(int argc, char** argv) {
         nlt.set_nonlinear_transform(
           c, ojph::param_nlt::nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_NLT);
     }
+    // Each LUT entry takes 1, 2 or 4 bytes, as pt_val (the depth) needs.
+    std::vector<std::vector<uint8_t>> luts;
+    luts.reserve(nlt4s.size());
+    for (const Nlt4& n : nlt4s) {
+      const uint32_t cdepth = fmt[n.comp].first;
+      const size_t bpp = cdepth <= 8 ? 1 : (cdepth <= 16 ? 2 : 4);
+      std::vector<uint64_t> lut = nlt4_lut(cdepth, n.points);
+      std::vector<uint8_t> pts(lut.size() * bpp);
+      for (size_t i = 0; i < lut.size(); ++i) {
+        if (bpp == 1) pts[i] = (uint8_t)lut[i];
+        else if (bpp == 2) { uint16_t v = (uint16_t)lut[i]; memcpy(&pts[i * 2], &v, 2); }
+        else { uint32_t v = (uint32_t)lut[i]; memcpy(&pts[i * 4], &v, 4); }
+      }
+      luts.push_back(pts);
+      nlt.set_nonlinear_transform(
+        n.comp, (ojph::ui8)cdepth, fmt[n.comp].second, 0u, 0xFFFFFFFFu,
+        (ojph::ui8)cdepth, (ojph::ui16)n.points, (void*)luts.back().data(),
+        ojph::param_nlt::nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_PLUS_LUT);
+    }
 
     cs.set_planar(planar != 0);
     if (tlm) cs.request_tlm_marker(true);
@@ -304,7 +379,11 @@ int main(int argc, char** argv) {
 
     ojph::j2c_outfile out;
     out.open(out_path);
-    cs.write_headers(&out);
+    std::vector<ojph::comment_exchange> coms(comments.size());
+    for (size_t i = 0; i < comments.size(); ++i)
+      coms[i].set_string(comments[i].c_str());
+    cs.write_headers(&out, coms.empty() ? NULL : coms.data(),
+                     (ojph::ui32)coms.size());
 
     uint64_t total_lines = 0;
     for (uint32_t c = 0; c < num_comps; ++c) total_lines += ch[c];

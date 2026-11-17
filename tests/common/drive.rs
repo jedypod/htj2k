@@ -52,9 +52,23 @@ pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
             cod.set_block_dims_comp(c.comp, c.bw, c.bh)?;
             cod.set_reversible_comp(c.comp, a.reversible);
         }
+        for &c in &a.rev_comps {
+            cod.set_reversible_comp(c, true);
+        }
+        for &c in &a.irrev_comps {
+            cod.set_reversible_comp(c, false);
+        }
     }
-    if !a.reversible {
-        cs.access_qcd_mut()?.set_irrev_quant(a.qstep);
+    {
+        let qcd = cs.access_qcd_mut()?;
+        if let Some(q) = a.qfactor {
+            qcd.set_qfactor(q)?;
+        } else if !a.reversible || !a.irrev_comps.is_empty() {
+            qcd.set_irrev_quant(a.qstep);
+        }
+        for &(c, step) in &a.qstep_comps {
+            qcd.set_irrev_quant_comp(c, step);
+        }
     }
     for c in 0..a.num_comps {
         let want = (a.nlt_all && a.format(c).1) || a.nlt_comps.contains(&c);
@@ -62,6 +76,23 @@ pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
             cs.access_nlt_mut()?
                 .set_nonlinear_transform(c, nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_NLT)?;
         }
+    }
+    for &(c, n) in &a.nlt4 {
+        let (depth, signed) = a.format(c);
+        let lut = a.nlt4_lut(c, n);
+        cs.access_nlt_mut()?.set_nonlinear_transform_lut(
+            c,
+            depth as u8,
+            signed,
+            0,
+            0xFFFF_FFFF,
+            depth as u8,
+            n as u16,
+            &lut,
+            nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_PLUS_LUT,
+            false,
+            0,
+        )?;
     }
     cs.set_planar(a.planar)?;
     if a.tlm {
@@ -73,10 +104,22 @@ pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
     Ok(cs)
 }
 
+/// The `--comment` segments, for `write_headers`.
+pub fn comments(a: &EncArgs) -> htj2k::Result<Vec<CommentExchange>> {
+    a.comments
+        .iter()
+        .map(|t| {
+            let mut com = CommentExchange::new();
+            com.set_string(t)?;
+            Ok(com)
+        })
+        .collect()
+}
+
 /// `configure` and `write_headers` into `out`.
 pub fn headers(a: &EncArgs, out: &mut Vec<u8>) -> htj2k::Result<Encoder> {
     let mut cs = configure(a)?;
-    cs.write_headers(out, &[] as &[CommentExchange])?;
+    cs.write_headers(out, &comments(a)?)?;
     Ok(cs)
 }
 
