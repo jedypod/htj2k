@@ -278,6 +278,17 @@ impl Encoder {
         }
         // A failure leaves parameters half finalised; do not allow a retry.
         self.state = State::Failed;
+        // CommentExchange::set_string checks the length it had before,
+        // as OpenJPH does, so it can hold 65532 to 65535 bytes; Lcom
+        // would wrap and the header would be corrupt.
+        if let Some(i) = comments.iter().position(|c| c.len() > 65531) {
+            return ojph_error!(
+                0x0008000A,
+                "comment {} is {} bytes long; a COM marker segment holds at most 65531",
+                i,
+                comments[i].len()
+            );
+        }
         self.prepare()?;
         self.write_main_header(out, comments);
         self.state = State::Headers;

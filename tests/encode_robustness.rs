@@ -413,6 +413,30 @@ fn small_encoder() -> Encoder {
     enc
 }
 
+/// Caller comments are written after the version comment. One too long
+/// for a COM segment is refused. `set_string`, like OpenJPH, checks the
+/// previous length, so it accepts one.
+#[test]
+fn comments() {
+    let mut ok = CommentExchange::new();
+    ok.set_string("hello").unwrap();
+    let mut enc = small_encoder();
+    enc.set_version_comment(None);
+    let mut out = Vec::new();
+    enc.write_headers(&mut out, std::slice::from_ref(&ok))
+        .unwrap();
+    let com = [0xFF, 0x64, 0, 9, 0, 1, b'h', b'e', b'l', b'l', b'o'];
+    assert!(out.ends_with(&com));
+
+    let mut long = CommentExchange::new();
+    long.set_string(&"x".repeat(65534)).unwrap();
+    let mut enc = small_encoder();
+    let mut out = b"keep".to_vec();
+    let err = enc.write_headers(&mut out, &[ok, long]).unwrap_err();
+    assert_eq!(err.code(), 0x0008000A);
+    assert_eq!(out, b"keep");
+}
+
 /// Calls in the wrong order are errors, and the output is left alone.
 #[test]
 fn misuse_is_an_error() {
