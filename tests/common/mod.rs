@@ -7,5 +7,6 @@
 
 #![allow(dead_code)]
 
+pub mod decode;
 pub mod drive;
 pub mod synth;

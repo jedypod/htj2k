@@ -13,7 +13,9 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use htj2k::codestream::Codestream;
+mod common;
+
+use common::decode::decode_to_raw;
 
 fn data_dir(sub: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -28,49 +30,6 @@ fn fnv1a64(data: &[u8]) -> u64 {
         h = h.wrapping_mul(0x0000_0100_0000_01B3);
     }
     h
-}
-
-/// Decodes a codestream the way `ojph_dec` does, to its `.raw` layout:
-/// the components one after the other, each sample as 4 little-endian
-/// bytes.
-fn decode(j2c: &[u8]) -> Result<Vec<u8>, String> {
-    let mut cs = Codestream::new();
-    cs.read_headers(j2c)
-        .map_err(|e| format!("read_headers: {e}"))?;
-    let siz = cs.access_siz();
-    let nc = siz.get_num_components();
-    let mut w = Vec::new();
-    let mut h = Vec::new();
-    let mut subsampled = false;
-    for c in 0..nc {
-        w.push(siz.get_recon_width(c) as usize);
-        h.push(siz.get_recon_height(c) as usize);
-        let d = siz.get_downsampling(c);
-        subsampled |= d.x != 1 || d.y != 1;
-    }
-    let planar = subsampled || !cs.access_cod().is_employing_color_transform();
-    cs.set_planar(planar);
-    cs.create().map_err(|e| format!("create: {e}"))?;
-
-    let mut planes: Vec<Vec<u8>> = (0..nc as usize).map(|c| vec![0; w[c] * h[c] * 4]).collect();
-    let mut row = vec![0usize; nc as usize];
-    let total: usize = h.iter().sum();
-    for n in 0..total {
-        let (c, line) = cs
-            .pull()
-            .map_err(|e| format!("pull {n}: {e}"))?
-            .ok_or_else(|| format!("pull {n}: no more lines"))?;
-        let c = c as usize;
-        if c >= nc as usize || row[c] >= h[c] {
-            return Err(format!("pull {n}: unexpected line of component {c}"));
-        }
-        let dst = &mut planes[c][row[c] * w[c] * 4..][..w[c] * 4];
-        for (bytes, v) in dst.chunks_exact_mut(4).zip(&line.i32()[..w[c]]) {
-            bytes.copy_from_slice(&v.to_le_bytes());
-        }
-        row[c] += 1;
-    }
-    Ok(planes.concat())
 }
 
 /// Checks every codestream listed in the manifest of `sub`, whose hash is
@@ -92,7 +51,7 @@ fn check_dir(sub: &str, hash_col: usize) {
         let want_hash = u64::from_str_radix(cols[hash_col], 16).expect("hash");
         let j2c = std::fs::read(dir.join(format!("{name}.j2c"))).expect("codestream");
         count += 1;
-        let got = match std::panic::catch_unwind(|| decode(&j2c)) {
+        let got = match std::panic::catch_unwind(|| decode_to_raw(&j2c)) {
             Ok(Ok(got)) => got,
             Ok(Err(e)) => {
                 writeln!(failures, "{name}: {e}").unwrap();
