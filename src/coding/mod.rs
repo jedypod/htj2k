@@ -22,6 +22,8 @@
 
 mod decoder32;
 mod decoder64;
+#[cfg(feature = "simd")]
+mod decoder_avx2;
 mod encoder;
 #[cfg(feature = "simd")]
 mod encoder_avx2;
@@ -131,6 +133,29 @@ pub(crate) trait RowPair<T> {
     /// Stores the sample of column `x` in the first (`row == 0`) or the
     /// second row.
     fn put(&mut self, row: usize, x: usize, val: T);
+
+    /// Stores `vals` from column `x` of the first or the second row.
+    // for the AVX2 kernels
+    #[cfg(all(
+        feature = "simd",
+        target_arch = "x86_64",
+        not(all(
+            target_feature = "avx2",
+            target_feature = "bmi1",
+            target_feature = "bmi2",
+            target_feature = "lzcnt",
+            target_feature = "popcnt"
+        ))
+    ))]
+    #[inline(always)]
+    fn put_run(&mut self, row: usize, x: usize, vals: &[T])
+    where
+        T: Copy,
+    {
+        for (i, &v) in vals.iter().enumerate() {
+            self.put(row, x + i, v);
+        }
+    }
 }
 
 /// Two rows wholly inside `decoded_data`, each exactly the block's width
@@ -145,6 +170,24 @@ impl<T: Copy> RowPair<T> for Rows<'_, T> {
         } else {
             self.1[x] = val;
         }
+    }
+
+    // for the AVX2 kernels
+    #[cfg(all(
+        feature = "simd",
+        target_arch = "x86_64",
+        not(all(
+            target_feature = "avx2",
+            target_feature = "bmi1",
+            target_feature = "bmi2",
+            target_feature = "lzcnt",
+            target_feature = "popcnt"
+        ))
+    ))]
+    #[inline(always)]
+    fn put_run(&mut self, row: usize, x: usize, vals: &[T]) {
+        let r = if row == 0 { &mut *self.0 } else { &mut *self.1 };
+        r[x..x + vals.len()].copy_from_slice(vals);
     }
 }
 

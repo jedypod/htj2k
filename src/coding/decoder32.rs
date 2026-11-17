@@ -63,9 +63,43 @@ fn magsgn_sample(ms: &mut Frwd<'_, 0xFF>, inf: u32, bit: u32, u_q: u32, p: u32) 
 /// with OpenJPH's layout if those side effects matter.
 ///
 /// Scratch memory (about 10.5 kB, the same arrays the C++ keeps on its
-/// stack) lives on the stack; nothing is allocated on the heap.
+/// stack) lives on the stack; nothing is allocated on the heap. With the
+/// `simd` feature, on a CPU that runs its kernels, the MagSgn step also
+/// takes up to about 45 kB of stack: a copy of the MagSgn segment
+/// without its stuffing bits (at most 40 kB, by the segment's size) and
+/// two arrays of 2 kB.
 #[allow(clippy::too_many_arguments)]
 pub fn decode_codeblock32(
+    coded_data: &[u8],
+    decoded_data: &mut [u32],
+    missing_msbs: u32,
+    num_passes: u32,
+    lengths1: u32,
+    lengths2: u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    stripe_causal: bool,
+) -> bool {
+    decode::<{ cfg!(feature = "simd") }>(
+        coded_data,
+        decoded_data,
+        missing_msbs,
+        num_passes,
+        lengths1,
+        lengths2,
+        width,
+        height,
+        stride,
+        stripe_causal,
+    )
+}
+
+/// [`decode_codeblock32`], with the `simd` feature's kernels where `SIMD`
+/// (so that the tests can compare them with the scalar code).
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub(super) fn decode<const SIMD: bool>(
     coded_data: &[u8],
     decoded_data: &mut [u32],
     missing_msbs: u32,
@@ -130,19 +164,43 @@ pub fn decode_codeblock32(
         layout.sstr,
     );
 
-    if !decode_magsgn32(
-        &scratch,
-        coded_data,
-        decoded_data,
-        lcup,
-        scup,
-        width,
-        height,
-        stride,
-        p,
-        mmsbp2,
-        layout,
-    ) {
+    #[cfg(feature = "simd")]
+    let simd = if SIMD {
+        magsgn32_simd(
+            &scratch,
+            coded_data,
+            decoded_data,
+            lcup,
+            scup,
+            width,
+            height,
+            stride,
+            p,
+            mmsbp2,
+            layout.sstr,
+        )
+    } else {
+        None
+    };
+    #[cfg(not(feature = "simd"))]
+    let simd = None;
+    let ok = match simd {
+        Some(ok) => ok,
+        None => decode_magsgn32(
+            &scratch,
+            coded_data,
+            decoded_data,
+            lcup,
+            scup,
+            width,
+            height,
+            stride,
+            p,
+            mmsbp2,
+            layout,
+        ),
+    };
+    if !ok {
         return false;
     }
 
@@ -440,6 +498,31 @@ fn decode_magsgn32(
         y += 2;
     }
     true
+}
+
+#[cfg(feature = "simd")]
+crate::simd::avx2_dispatch! {
+    /// The AVX2 MagSgn step, where the CPU has AVX2; `None` to run the
+    /// scalar one.
+    #[allow(clippy::too_many_arguments)]
+    fn magsgn32_simd(
+        scratch: &[u16; SCRATCH_LEN],
+        data: &[u8],
+        dec: &mut [u32],
+        lcup: i32,
+        scup: i32,
+        width: u32,
+        height: u32,
+        stride: u32,
+        p: u32,
+        mmsbp2: u32,
+        sstr: usize,
+    ) -> Option<bool> {
+        avx2 => super::decoder_avx2::decode_magsgn32(
+            scratch, data, dec, lcup, scup, width, height, stride, p, mmsbp2, sstr,
+        ),
+        fallback => None,
+    }
 }
 
 /// Significance propagation pass.
