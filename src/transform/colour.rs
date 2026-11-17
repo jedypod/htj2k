@@ -136,9 +136,16 @@ fn binary_complement(v: i32, bias: u32) -> i32 {
 /// `(ui32)floorf(x)`. For the values the kernels produce (non-negative,
 /// below 2^32) this is exact; out of range, Rust saturates (and maps NaN
 /// to 0) where the C++ is undefined.
+///
+/// The cast alone gives the same result for every `f32`: it truncates
+/// toward zero, which is the floor for `x >= 0`, and for `x < 0` both the
+/// truncation and the floor saturate to 0. Without the `floor`, the
+/// x86-64 baseline (which has no rounding instruction) does not call
+/// libm's `floorf` once per sample. `tests::floor_u32_is_floor` checks
+/// all 2^32 bit patterns.
 #[inline(always)]
 fn floor_u32(x: f32) -> u32 {
-    x.floor() as u32
+    x as u32
 }
 
 // ---------------------------------------------------------------------------
@@ -824,5 +831,23 @@ pub fn ict_backward(
         g[i] = y[i] - GAMMA_CR2G * cr[i] - GAMMA_CB2G * cb[i];
         r[i] = y[i] + GAMMA_CR2R * cr[i];
         b[i] = y[i] + GAMMA_CB2B * cb[i];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::floor_u32;
+
+    /// `floor_u32` against `x.floor() as u32` for every `f32` bit
+    /// pattern, NaNs and infinities included. Ignored by default; run it
+    /// with `cargo test --release --lib floor_u32_is_floor -- --ignored`
+    /// (about 20 seconds).
+    #[test]
+    #[ignore]
+    fn floor_u32_is_floor() {
+        for bits in 0..=u32::MAX {
+            let x = f32::from_bits(bits);
+            assert_eq!(floor_u32(x), x.floor() as u32, "{bits:#010x}");
+        }
     }
 }
