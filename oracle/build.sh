@@ -8,7 +8,11 @@
 #     ojph_decode_codeblock32 / ojph_decode_codeblock64;
 #   * the two generic block decoders are compiled with their entry points
 #     renamed to *_real; oracle/block_dump.cpp supplies the original names as
-#     dumping wrappers (active only when $OJPH_BLOCK_DUMP is set).
+#     dumping wrappers (active only when $OJPH_BLOCK_DUMP is set);
+#   * likewise the two generic block encoders, with oracle/enc_block_dump.cpp
+#     as the wrappers (active only when $OJPH_ENC_BLOCK_DUMP is set).
+# Besides ojph_enc and ojph_dec it builds enc_blocks_synth, which calls the
+# block encoders directly with synthetic code blocks.
 # Asserts stay enabled (no -DNDEBUG).
 #
 # Environment: OJPH_SRC (default: ../../reference/OpenJPH),
@@ -45,6 +49,7 @@ MK=$OUT/Makefile
     case "$s" in
       coding/ojph_block_decoder32.cpp) extra="-Dojph_decode_codeblock32=ojph_decode_codeblock32_real" ;;
       coding/ojph_block_decoder64.cpp) extra="-Dojph_decode_codeblock64=ojph_decode_codeblock64_real" ;;
+      coding/ojph_block_encoder.cpp) extra="-Dojph_encode_codeblock32=ojph_encode_codeblock32_real -Dojph_encode_codeblock64=ojph_encode_codeblock64_real" ;;
       *) extra="" ;;
     esac
     case "$s" in
@@ -53,12 +58,14 @@ MK=$OUT/Makefile
     esac
   done
   printf 'obj/block_dump.o: %s\n\t%s %s -c $< -o $@\n' "$HERE/block_dump.cpp" "$CXX" "$CXXFLAGS"
-  printf 'libojph_oracle.a: $(OBJS) obj/block_dump.o\n\trm -f $@ && ar rcs $@ $^\n'
+  printf 'obj/enc_block_dump.o: %s\n\t%s %s -c $< -o $@\n' "$HERE/enc_block_dump.cpp" "$CXX" "$CXXFLAGS"
+  printf 'libojph_oracle.a: $(OBJS) obj/block_dump.o obj/enc_block_dump.o\n\trm -f $@ && ar rcs $@ $^\n'
   printf 'ojph_enc: %s libojph_oracle.a\n\t%s %s $< libojph_oracle.a -o $@ -lpthread\n' "$HERE/ojph_enc.cpp" "$CXX" "$CXXFLAGS"
   printf 'ojph_dec: %s libojph_oracle.a\n\t%s %s $< libojph_oracle.a -o $@ -lpthread\n' "$HERE/ojph_dec.cpp" "$CXX" "$CXXFLAGS"
-  printf 'all: ojph_enc ojph_dec\n'
+  printf 'enc_blocks_synth: %s libojph_oracle.a\n\t%s %s $< libojph_oracle.a -o $@ -lpthread\n' "$HERE/enc_blocks_synth.cpp" "$CXX" "$CXXFLAGS"
+  printf 'all: ojph_enc ojph_dec enc_blocks_synth\n'
   printf '.DEFAULT_GOAL := all\n'
 } > "$MK"
 
 make -s -C "$OUT" -j"$JOBS"
-echo "built $OUT/ojph_enc $OUT/ojph_dec"
+echo "built $OUT/ojph_enc $OUT/ojph_dec $OUT/enc_blocks_synth"

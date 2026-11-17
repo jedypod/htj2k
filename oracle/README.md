@@ -11,14 +11,16 @@ oracle/regen.sh
 ```
 
 This builds the tools into `oracle/build/`, which git ignores, and then
-regenerates `tests/data/matrix`, `tests/data/strips` and `tests/data/blocks`.
+regenerates `tests/data/matrix`, `tests/data/strips`, `tests/data/blocks`
+and `tests/data/encoder`.
 It needs g++ (C++14), gcc, make and python3, and takes a few seconds. The
 output is deterministic: two runs produce byte-identical files.
 
 You can also run the steps one at a time: `oracle/build.sh`, then
-`python3 oracle/gen_matrix.py`, `python3 oracle/gen_strips.py` and
-`python3 oracle/gen_blocks.py`. `gen_blocks.py` reads the output of the
-other two.
+`python3 oracle/gen_matrix.py`, `python3 oracle/gen_strips.py`,
+`python3 oracle/gen_blocks.py` and `python3 oracle/gen_enc_blocks.py`.
+`gen_blocks.py` reads the output of the first two; `gen_enc_blocks.py`
+needs only the build.
 
 `gen_matrix.py` exits 1 whenever a reversible case fails to round-trip. In
 0.33.0 that always happens, because of the encoder issues listed under
@@ -47,6 +49,15 @@ without CMake. It never modifies the reference tree.
   `block_dump.cpp` supplies the original names as wrappers. Each wrapper
   appends a record to `$OJPH_BLOCK_DUMP` when that variable is set, and
   otherwise does nothing.
+* The block encoders are instrumented the same way.
+  `coding/ojph_block_encoder.cpp` is compiled with
+  `-Dojph_encode_codeblockNN=ojph_encode_codeblockNN_real` (both widths),
+  and `enc_block_dump.cpp` supplies the original names as wrappers, which
+  append to `$OJPH_ENC_BLOCK_DUMP` when it is set. A separate variable
+  keeps encoder and decoder records apart.
+* The Makefile does not track compiler flags. If an object was built
+  before its flags changed (for example a build from before the encoder
+  was instrumented), delete `oracle/build/obj/` first.
 
 ## Tools
 
@@ -74,6 +85,13 @@ without CMake. It never modifies the reference tree.
     integer lines, because OpenJPH rounds and clamps internally. `ojph_dec`
     dumps those lines, and it would stop with an error if a float line came
     back.
+
+* **`enc_blocks_synth`** calls the two block encoders directly, through the
+  dumping wrappers, with synthetic code blocks: all-zero blocks, every
+  supported `missing_msbs`, edge sizes and blocks large enough to fill the
+  encoder's buffers. It installs an error handler that passes OpenJPH's
+  error code to the wrapper. Run it with `$OJPH_ENC_BLOCK_DUMP` set;
+  `gen_enc_blocks.py` does.
 
 ## File formats
 
@@ -137,6 +155,12 @@ others, about 2 MB, are checked by hash, and all of them are left in
 
 These hold code-block decoder records. The byte layout and the coverage are
 in `tests/data/blocks/README.md`, and `INDEX.txt` describes every record.
+
+### `tests/data/encoder/*.ojbe`
+
+These hold code-block encoder records: the input samples and the coded
+bytes, or the error raised. The byte layout and the coverage are in
+`tests/data/encoder/README.md`, and `INDEX.txt` describes every record.
 
 ## Known issues
 
