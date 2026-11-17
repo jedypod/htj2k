@@ -134,6 +134,14 @@ impl Subband {
 
         let mut cb_size = Size::new(0, tby1.min(y_lower_bound.saturating_add(nominal.h)) - tby0);
         band.cur_cb_height = cb_size.h as i32;
+        // The tallest row of blocks: the first, the last, or any between,
+        // which are of nominal height. The blocks keep their buffers from
+        // row to row, so this is the height they are allocated for.
+        let max_height = match band.num_blocks.h {
+            0 | 1 => cb_size.h,
+            2 => cb_size.h.max(tby1 - (y_lower_bound + nominal.h)),
+            _ => nominal.h,
+        };
         let mut line_offset = 0;
         budget.take(band.num_blocks.w as u64 * std::mem::size_of::<Codeblock>() as u64)?;
         band.blocks = Vec::with_capacity(band.num_blocks.w as usize);
@@ -143,8 +151,8 @@ impl Subband {
             cb_size.w = (cbx1 - cbx0) as u32;
             band.blocks.push(Codeblock::new(
                 budget,
-                nominal,
                 cb_size,
+                max_height,
                 k_max,
                 line_offset,
                 precision,

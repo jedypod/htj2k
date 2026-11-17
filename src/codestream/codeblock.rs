@@ -61,11 +61,14 @@ pub(crate) struct Codeblock {
 }
 
 impl Codeblock {
+    /// A block `cb_size.w` samples wide, whose buffer holds rows of up to
+    /// `max_height` samples: the tallest the block is in any row of
+    /// blocks of its subband.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         budget: &mut Budget,
-        nominal: Size,
         cb_size: Size,
+        max_height: u32,
         k_max: u32,
         line_offset: u32,
         precision: u32,
@@ -74,11 +77,21 @@ impl Codeblock {
         resilient: bool,
         stripe_causal: bool,
     ) -> Result<Self> {
-        // OpenJPH rounds the stride up to its SIMD alignment, 64 bytes, in
-        // units of 32-bit samples.
+        // OpenJPH sizes the buffer for the nominal block, whatever the
+        // block's actual size, with the stride rounded up to its SIMD
+        // alignment of 64 bytes (16 32-bit samples) and the height to a
+        // whole number of quad rows. A block never changes width, and is
+        // never taller than `max_height`, so the buffer is sized for
+        // those here instead; at subband edges and in small or short
+        // images that is much less. The output is the same: the block
+        // decoders write every sample of the block, and what they write
+        // past its last row lands outside the buffer and is dropped
+        // (see `coding::put`). The stride keeps its rounding, so writes
+        // past the last column of a row (at most to the next multiple of
+        // 8) stay in that row's padding.
         let f = 64 / 4 - 1;
-        let stride = (nominal.w + f) & !f;
-        let buf_size = stride * ((nominal.h + 1) & !1);
+        let stride = (cb_size.w + f) & !f;
+        let buf_size = stride * max_height;
         let buf = if precision <= 32 {
             CbBuf::B32(budget.alloc(buf_size as usize)?)
         } else {
