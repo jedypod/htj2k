@@ -11,16 +11,17 @@ oracle/regen.sh
 ```
 
 This builds the tools into `oracle/build/`, which git ignores, and then
-regenerates `tests/data/matrix`, `tests/data/strips`, `tests/data/blocks`
-and `tests/data/encoder`.
-It needs g++ (C++14), gcc, make and python3, and takes a few seconds. The
+regenerates `tests/data/matrix`, `tests/data/strips`, `tests/data/blocks`,
+`tests/data/encoder` and `tests/data/profile`.
+It needs g++ (C++14), gcc, make and python3, and takes under a minute. The
 output is deterministic: two runs produce byte-identical files.
 
 You can also run the steps one at a time: `oracle/build.sh`, then
 `python3 oracle/gen_matrix.py`, `python3 oracle/gen_strips.py`,
-`python3 oracle/gen_blocks.py` and `python3 oracle/gen_enc_blocks.py`.
-`gen_blocks.py` reads the output of the first two; `gen_enc_blocks.py`
-needs only the build.
+`python3 oracle/gen_blocks.py`, `python3 oracle/gen_enc_blocks.py` and
+`python3 oracle/gen_profile.py`. `gen_blocks.py` reads the output of
+the first two; `gen_enc_blocks.py` and `gen_profile.py` need only the
+build.
 
 `gen_matrix.py` exits 1 whenever a reversible case fails to round-trip. In
 0.33.0 that always happens, because of the encoder issues listed under
@@ -150,6 +151,33 @@ The manifest has the matrix layout. Every `.j2c` is committed, but only
 the decodes named in `COMMIT_RAW` (the 300x8 and 64-wide ones); the
 others, about 2 MB, are checked by hash, and all of them are left in
 `oracle/build/strips/`.
+
+### `tests/data/profile/MANIFEST.txt`
+
+`gen_profile.py` encodes 24 images with `ojph_enc` and decodes them
+with `ojph_dec`:
+
+* `wide_*`: one tile, RPCL, 128x32 code blocks, 5 decompositions, TLM
+  and tile parts at resolutions, at sizes from 8192x256 down to 8192x1
+  and 1x256, with 1, 3 or 4 components of 16-bit signed and 32-bit
+  signed samples (both with NLT type 3) and 32-bit unsigned samples;
+  reversible, with the RCT on three or four components, and planar with
+  subsampled chroma (`--sub 1x1,2x2,2x2`). A few short or small images
+  use fewer levels.
+
+The codestreams total about 54 MB, so only sizes and hashes are
+committed:
+
+```
+name | status | j2c bytes | j2c_fnv1a64 | header bytes | header_fnv1a64 | raw bytes | raw_fnv1a64 | command
+```
+
+`status` is `lossless`: the decode equals the encoder input. The header
+is the main header, up to the first SOT, so a test can tell a parameter
+difference from one in the coded data. The raw is `ojph_dec`'s decode.
+The codestreams, decodes and encoder inputs are left in
+`oracle/build/profile/`, where the encoder test looks for the
+codestream to report the first byte that differs.
 
 ### `tests/data/blocks/*.ojbk`
 
