@@ -211,13 +211,40 @@ impl Mel {
 // VLC
 // ---------------------------------------------------------------------------
 
+/// How far below `VLC_SIZE` the VLC writer stops deferring (see [`Vlc`]).
+/// One call adds at most 32 bits to at most 31 pending, and 63 bits make
+/// at most 9 bytes.
+const VLC_SLACK: usize = 16;
+
+/// Whether any of the low 3 bytes of `v` is above 0x8F, that is, has its
+/// top bit and one of the next three set.
+#[inline(always)]
+fn has_byte_above_8f_in_3(v: u32) -> bool {
+    let top = v & 0x0080_8080;
+    let mid = ((v & 0x0070_7070) + 0x0070_7070) & 0x0080_8080;
+    top & mid != 0
+}
+
 /// `vlc_struct`. The C++ writes backwards from the last byte of its
 /// buffer, `buf[-pos]`; here that byte is `buf[VLC_SIZE - 1 - pos]`.
+///
+/// The C++ fills a byte bit group by bit group and writes it when
+/// complete. A byte after one above 0x8F holds 7 bits if those are all
+/// ones (it is written as 0x7F), and 8 otherwise. Here, as for [`Ms`],
+/// while at least [`VLC_SLACK`] bytes are free the bits gather in `acc`
+/// (`used_bits` of them, fewer than 32 between calls) and are written
+/// once 32 are pending: 4 bytes at once if the last byte written was not
+/// above 0x8F and none of the first 3 is (so all 4 hold 8 bits), else
+/// byte by byte by the rule above. Nearer the end, a call writes the
+/// complete bytes pending and runs the C++'s loop, so the buffer-full
+/// error comes from the same call. `last_greater_than_8f` is that of the
+/// last byte written; the C++ clears it once the next byte has 7 bits that
+/// are not all ones, which [`Self::flush_bytes`] does too.
 struct Vlc {
     buf: [u8; VLC_SIZE],
     pos: usize,
     used_bits: i32,
-    tmp: i32,
+    acc: u64,
     last_greater_than_8f: bool,
 }
 
@@ -230,34 +257,101 @@ impl Vlc {
             buf,
             pos: 1, // locations will be all -pos
             used_bits: 4,
-            tmp: 0xF,
+            acc: 0xF,
             last_greater_than_8f: true,
+        }
+    }
+
+    /// Writes the next byte: 7 bits of `acc` if the last byte was above
+    /// 0x8F and they are all ones, else 8. `acc` must hold 8 bits, or 7
+    /// in the first case.
+    #[inline(always)]
+    fn emit_byte(&mut self) {
+        let seven = self.last_greater_than_8f && self.acc & 0x7F == 0x7F;
+        let n = 8 - seven as i32;
+        let byte = (self.acc & ((1u64 << n) - 1)) as u8;
+        self.buf[VLC_SIZE - 1 - self.pos] = byte;
+        self.pos += 1;
+        self.acc >>= n;
+        self.used_bits -= n;
+        self.last_greater_than_8f = byte > 0x8F;
+    }
+
+    /// Adds `len` (1 to 32) bits of `cwd`, and writes bytes once 32 or
+    /// more are pending.
+    #[inline(always)]
+    fn put(&mut self, cwd: u64, len: i32) {
+        self.acc |= (cwd & ((1u64 << len) - 1)) << self.used_bits;
+        self.used_bits += len;
+        if self.used_bits >= 32 {
+            let low = self.acc as u32;
+            if !self.last_greater_than_8f && !has_byte_above_8f_in_3(low) {
+                let at = VLC_SIZE - self.pos - 4;
+                self.buf[at..at + 4].copy_from_slice(&low.to_be_bytes());
+                self.pos += 4;
+                self.acc >>= 32;
+                self.used_bits -= 32;
+                self.last_greater_than_8f = low >> 24 > 0x8F;
+            } else {
+                while self.used_bits >= 8 {
+                    self.emit_byte();
+                }
+            }
+        }
+    }
+
+    /// Writes the complete bytes pending in `acc`, leaving the state the
+    /// C++'s would have.
+    #[inline(always)]
+    fn flush_bytes(&mut self) {
+        while self.used_bits >= 8
+            || (self.used_bits == 7 && self.last_greater_than_8f && self.acc & 0x7F == 0x7F)
+        {
+            self.emit_byte();
+        }
+        if self.used_bits == 7 && self.last_greater_than_8f {
+            // 7 bits that are not all ones: the byte takes an 8th
+            self.last_greater_than_8f = false;
         }
     }
 
     /// `vlc_encode`.
     #[inline(always)]
-    fn encode(&mut self, mut cwd: i32, mut cwd_len: i32) -> Result<()> {
+    fn encode(&mut self, cwd: i32, cwd_len: i32) -> Result<()> {
+        if cwd_len <= 0 {
+            return Ok(());
+        }
+        if cwd_len > 32 || self.pos + VLC_SLACK > VLC_SIZE {
+            return self.encode_near_end(cwd, cwd_len);
+        }
+        self.put(cwd as u32 as u64, cwd_len);
+        Ok(())
+    }
+
+    /// `vlc_encode` as the C++ writes it, for the end of the buffer.
+    #[inline(never)]
+    fn encode_near_end(&mut self, mut cwd: i32, mut cwd_len: i32) -> Result<()> {
+        self.flush_bytes();
         while cwd_len > 0 {
             if self.pos >= VLC_SIZE {
                 return ojph_error!(0x00020002, "vlc encoder's buffer is full");
             }
             let mut avail_bits = 8 - self.last_greater_than_8f as i32 - self.used_bits;
             let t = avail_bits.min(cwd_len);
-            self.tmp |= (cwd & ((1 << t) - 1)) << self.used_bits;
+            self.acc |= ((cwd & ((1 << t) - 1)) as u64) << self.used_bits;
             self.used_bits += t;
             avail_bits -= t;
             cwd_len -= t;
             cwd >>= t;
             if avail_bits == 0 {
-                if self.last_greater_than_8f && self.tmp != 0x7F {
+                if self.last_greater_than_8f && self.acc != 0x7F {
                     self.last_greater_than_8f = false;
                     continue; // one empty bit remaining
                 }
-                self.buf[VLC_SIZE - 1 - self.pos] = self.tmp as u8;
+                self.buf[VLC_SIZE - 1 - self.pos] = self.acc as u8;
                 self.pos += 1;
-                self.last_greater_than_8f = self.tmp > 0x8F;
-                self.tmp = 0;
+                self.last_greater_than_8f = self.acc > 0x8F;
+                self.acc = 0;
                 self.used_bits = 0;
             }
         }
@@ -277,6 +371,8 @@ fn terminate_mel_vlc(mel: &mut Mel, vlc: &mut Vlc) -> Result<()> {
         mel.emit_bit(1)?;
     }
 
+    vlc.flush_bytes();
+    let vlc_tmp = vlc.acc as i32; // at most 7 bits
     mel.tmp <<= mel.remaining_bits;
     let mel_mask = (0xFF << mel.remaining_bits) & 0xFF;
     let vlc_mask = 0xFF >> (8 - vlc.used_bits);
@@ -287,8 +383,8 @@ fn terminate_mel_vlc(mel: &mut Mel, vlc: &mut Vlc) -> Result<()> {
     if mel.pos >= MEL_SIZE {
         return ojph_error!(0x00020003, "mel encoder's buffer is full");
     }
-    let fuse = mel.tmp | vlc.tmp;
-    if (((fuse ^ mel.tmp) & mel_mask) | ((fuse ^ vlc.tmp) & vlc_mask)) == 0
+    let fuse = mel.tmp | vlc_tmp;
+    if (((fuse ^ mel.tmp) & mel_mask) | ((fuse ^ vlc_tmp) & vlc_mask)) == 0
         && fuse != 0xFF
         && vlc.pos > 1
     {
@@ -300,7 +396,7 @@ fn terminate_mel_vlc(mel: &mut Mel, vlc: &mut Vlc) -> Result<()> {
         }
         mel.buf[mel.pos] = mel.tmp as u8; // mel.tmp cannot be 0xFF
         mel.pos += 1;
-        vlc.buf[VLC_SIZE - 1 - vlc.pos] = vlc.tmp as u8;
+        vlc.buf[VLC_SIZE - 1 - vlc.pos] = vlc_tmp as u8;
         vlc.pos += 1;
     }
     Ok(())
@@ -1145,6 +1241,105 @@ mod tests {
                 let a = ms.terminate().map_err(|e| e.code());
                 assert_eq!(a, rm.terminate(), "round {round}");
                 assert_eq!(&ms.buf[..ms.pos], &rm.buf[..], "round {round}");
+            }
+        }
+    }
+
+    /// The VLC writer as the C++ has it, one byte at a time (in writing
+    /// order; the real buffer is filled backwards).
+    struct RefVlc {
+        buf: Vec<u8>,
+        used_bits: i32,
+        tmp: i32,
+        last_greater_than_8f: bool,
+    }
+
+    impl RefVlc {
+        fn encode(&mut self, mut cwd: i32, mut cwd_len: i32) -> std::result::Result<(), u32> {
+            while cwd_len > 0 {
+                if self.buf.len() >= VLC_SIZE {
+                    return Err(0x00020002);
+                }
+                let mut avail_bits = 8 - self.last_greater_than_8f as i32 - self.used_bits;
+                let t = avail_bits.min(cwd_len);
+                self.tmp |= (cwd & ((1 << t) - 1)) << self.used_bits;
+                self.used_bits += t;
+                avail_bits -= t;
+                cwd_len -= t;
+                cwd >>= t;
+                if avail_bits == 0 {
+                    if self.last_greater_than_8f && self.tmp != 0x7F {
+                        self.last_greater_than_8f = false;
+                        continue;
+                    }
+                    self.buf.push(self.tmp as u8);
+                    self.last_greater_than_8f = self.tmp > 0x8F;
+                    self.tmp = 0;
+                    self.used_bits = 0;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// `Vlc` against `RefVlc` on random codewords, from 0 to 40 bits but
+    /// mostly up to 8 as the encoder writes them, many all ones or with
+    /// their top bits set (for bytes above 0x8F and 0x7F, and so
+    /// stuffing), up to and past the end of the buffer: every call must
+    /// succeed or fail alike, and the bytes written and the state
+    /// `terminate_mel_vlc` reads must be the same.
+    #[test]
+    fn vlc_matches_byte_writer() {
+        let mut seed = 0x766cu64;
+        for round in 0..3000usize {
+            let mut vlc = Vlc::new();
+            let mut rv = RefVlc {
+                buf: vec![0xFF],
+                used_bits: 4,
+                tmp: 0xF,
+                last_greater_than_8f: true,
+            };
+            let style = mix(&mut seed) % 4;
+            let calls = mix(&mut seed) % 6000;
+            let mut failed = false;
+            for _ in 0..calls {
+                let r = mix(&mut seed);
+                let len = match r % 16 {
+                    0 => (r >> 8) % 41,
+                    _ => (r >> 8) % 9,
+                } as i32;
+                let cwd = match (r >> 16) % 4 {
+                    k if k < style => -1,
+                    3 => ((r >> 24) as i32) | !0x7F,
+                    _ => (r >> 24) as i32,
+                };
+                let a = vlc.encode(cwd, len).map_err(|e| e.code());
+                let b = rv.encode(cwd, len);
+                assert_eq!(a, b, "round {round}");
+                if a.is_err() {
+                    failed = true;
+                    break;
+                }
+            }
+            if !failed {
+                vlc.flush_bytes();
+                assert_eq!(vlc.used_bits, rv.used_bits, "round {round}");
+                assert_eq!(vlc.acc as i32, rv.tmp, "round {round}");
+                assert_eq!(
+                    vlc.last_greater_than_8f, rv.last_greater_than_8f,
+                    "round {round}"
+                );
+            }
+            let written: Vec<u8> = vlc.buf[VLC_SIZE - vlc.pos..]
+                .iter()
+                .rev()
+                .copied()
+                .collect();
+            if failed {
+                // the bytes written before the failing call
+                assert!(rv.buf.starts_with(&written) || written.starts_with(&rv.buf));
+            } else {
+                assert_eq!(written, rv.buf, "round {round}");
             }
         }
     }
