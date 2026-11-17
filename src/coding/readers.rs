@@ -39,7 +39,7 @@ fn load_le_u32(data: &[u8], pos: usize) -> u32 {
 /// `(x - 0x01..01) & !x & 0x80..80` on `!v`, which is exact for whether
 /// some byte is zero.
 #[inline(always)]
-fn has_ff_byte(v: u32) -> bool {
+pub(crate) fn has_ff_byte(v: u32) -> bool {
     let x = !v;
     x.wrapping_sub(0x0101_0101) & !x & 0x8080_8080 != 0
 }

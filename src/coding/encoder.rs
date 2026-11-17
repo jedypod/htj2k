@@ -13,6 +13,7 @@
 //! common code line by line, and the [`Sample`] trait carries those
 //! differences. Like OpenJPH, the encoder writes only the cleanup pass.
 
+use super::readers::has_ff_byte;
 use super::tables::{VlcSrc, TBL0, TBL1};
 use crate::error::{ojph_error, Result};
 
@@ -309,14 +310,30 @@ fn terminate_mel_vlc(mel: &mut Mel, vlc: &mut Vlc) -> Result<()> {
 // MagSgn
 // ---------------------------------------------------------------------------
 
+/// How far below `buf_size` the MagSgn writer stops deferring (see
+/// [`Ms`]). One call adds at most 64 bits to at most 31 pending, and 95
+/// bits make at most 13 bytes, so with 16 bytes free no call can reach
+/// the end of the buffer.
+const MS_SLACK: usize = 16;
+
 /// `ms_struct`; `buf_size` is the encoder's `ms_size`, at most `MS_CAP`.
+///
+/// The C++ writes a byte as soon as it is complete. Here, while at least
+/// [`MS_SLACK`] bytes of the buffer are free, the bits gather in `acc`
+/// (`used_bits` of them, fewer than 32 between calls) and go out 32 at
+/// a time: as 4 bytes at once when the writer is not stuffing
+/// (`max_bits == 8`) and none of the 4 is 0xFF, else byte by byte by the
+/// C++'s rule (a byte after 0xFF holds 7 bits). That gives the C++'s
+/// bytes, and no call can fill the buffer. Nearer the end, every call
+/// first writes the complete bytes still pending and then runs the C++'s
+/// loop, so the buffer-full error comes from the same call as in the C++.
 struct Ms {
     buf: [u8; MS_CAP],
     pos: usize,
     buf_size: usize,
     max_bits: i32,
     used_bits: i32,
-    tmp: u32,
+    acc: u64,
 }
 
 impl Ms {
@@ -328,29 +345,88 @@ impl Ms {
             buf_size,
             max_bits: 8,
             used_bits: 0,
-            tmp: 0,
+            acc: 0,
+        }
+    }
+
+    /// Writes the next byte, `max_bits` bits of `acc`, which must hold
+    /// them.
+    #[inline(always)]
+    fn emit_byte(&mut self) {
+        let byte = (self.acc & ((1u64 << self.max_bits) - 1)) as u8;
+        self.buf[self.pos] = byte;
+        self.pos += 1;
+        self.acc >>= self.max_bits;
+        self.used_bits -= self.max_bits;
+        self.max_bits = if byte == 0xFF { 7 } else { 8 };
+    }
+
+    /// Adds `len` (at most 32) bits of `cwd`, which has no others, and
+    /// writes bytes while 32 bits or more are pending.
+    #[inline(always)]
+    fn put(&mut self, cwd: u64, len: i32) {
+        self.acc |= cwd << self.used_bits;
+        self.used_bits += len;
+        if self.used_bits >= 32 {
+            let low = self.acc as u32;
+            if self.max_bits == 8 && !has_ff_byte(low) {
+                self.buf[self.pos..self.pos + 4].copy_from_slice(&low.to_le_bytes());
+                self.pos += 4;
+                self.acc >>= 32;
+                self.used_bits -= 32;
+            } else {
+                while self.used_bits >= 32 {
+                    self.emit_byte();
+                }
+            }
+        }
+    }
+
+    /// Writes the complete bytes pending in `acc`, leaving the state the
+    /// C++'s would have.
+    #[inline(always)]
+    fn flush_bytes(&mut self) {
+        while self.used_bits >= self.max_bits {
+            self.emit_byte();
         }
     }
 
     /// `ms_encode` and `ms_encode64` (identical but for the type of
-    /// `cwd`; `cwd` here holds either).
+    /// `cwd`; `cwd` here holds either). `cwd` has no bits above
+    /// `cwd_len`, which is below 64.
     #[inline(always)]
-    fn encode(&mut self, mut cwd: u64, mut cwd_len: i32) -> Result<()> {
+    fn encode(&mut self, cwd: u64, cwd_len: i32) -> Result<()> {
+        debug_assert!(cwd_len < 64 && cwd >> cwd_len.max(0) == 0);
+        if cwd_len <= 0 {
+            return Ok(());
+        }
+        if self.pos + MS_SLACK > self.buf_size {
+            return self.encode_near_end(cwd, cwd_len);
+        }
+        if cwd_len > 32 {
+            self.put(cwd & 0xFFFF_FFFF, 32);
+            self.put(cwd >> 32, cwd_len - 32);
+        } else {
+            self.put(cwd, cwd_len);
+        }
+        Ok(())
+    }
+
+    /// `ms_encode` as the C++ writes it, for the end of the buffer.
+    #[inline(never)]
+    fn encode_near_end(&mut self, mut cwd: u64, mut cwd_len: i32) -> Result<()> {
+        self.flush_bytes();
         while cwd_len > 0 {
             if self.pos >= self.buf_size {
                 return ojph_error!(0x00020005, "magnitude sign encoder's buffer is full");
             }
             let t = (self.max_bits - self.used_bits).min(cwd_len);
-            self.tmp |= ((cwd & ((1u64 << t) - 1)) << self.used_bits) as u32;
+            self.acc |= (cwd & ((1u64 << t) - 1)) << self.used_bits;
             self.used_bits += t;
             cwd >>= t;
             cwd_len -= t;
             if self.used_bits >= self.max_bits {
-                self.buf[self.pos] = self.tmp as u8;
-                self.pos += 1;
-                self.max_bits = if self.tmp == 0xFF { 7 } else { 8 };
-                self.tmp = 0;
-                self.used_bits = 0;
+                self.emit_byte();
             }
         }
         Ok(())
@@ -358,15 +434,16 @@ impl Ms {
 
     /// `ms_terminate`.
     fn terminate(&mut self) -> Result<()> {
+        self.flush_bytes();
         if self.used_bits != 0 {
             let t = self.max_bits - self.used_bits; // unused bits
-            self.tmp |= (0xFF & ((1u32 << t) - 1)) << self.used_bits;
+            let tmp = self.acc as u32 | (0xFF & ((1u32 << t) - 1)) << self.used_bits;
             self.used_bits += t;
-            if self.tmp != 0xFF {
+            if tmp != 0xFF {
                 if self.pos >= self.buf_size {
                     return ojph_error!(0x00020006, "magnitude sign encoder's buffer is full");
                 }
-                self.buf[self.pos] = self.tmp as u8;
+                self.buf[self.pos] = tmp as u8;
                 self.pos += 1;
             }
         } else if self.max_bits == 7 {
@@ -961,4 +1038,114 @@ pub fn encode_codeblock64(
     coded: &mut Vec<u8>,
 ) -> Result<u32> {
     encode(buf, missing_msbs, num_passes, width, height, stride, coded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The MagSgn writer as the C++ has it, one byte at a time.
+    struct RefMs {
+        buf: Vec<u8>,
+        buf_size: usize,
+        max_bits: i32,
+        used_bits: i32,
+        tmp: u32,
+    }
+
+    impl RefMs {
+        fn encode(&mut self, mut cwd: u64, mut cwd_len: i32) -> std::result::Result<(), u32> {
+            while cwd_len > 0 {
+                if self.buf.len() >= self.buf_size {
+                    return Err(0x00020005);
+                }
+                let t = (self.max_bits - self.used_bits).min(cwd_len);
+                self.tmp |= ((cwd & ((1u64 << t) - 1)) << self.used_bits) as u32;
+                self.used_bits += t;
+                cwd >>= t;
+                cwd_len -= t;
+                if self.used_bits >= self.max_bits {
+                    self.buf.push(self.tmp as u8);
+                    self.max_bits = if self.tmp == 0xFF { 7 } else { 8 };
+                    self.tmp = 0;
+                    self.used_bits = 0;
+                }
+            }
+            Ok(())
+        }
+
+        fn terminate(&mut self) -> std::result::Result<(), u32> {
+            if self.used_bits != 0 {
+                let t = self.max_bits - self.used_bits;
+                self.tmp |= (0xFF & ((1u32 << t) - 1)) << self.used_bits;
+                if self.tmp != 0xFF {
+                    if self.buf.len() >= self.buf_size {
+                        return Err(0x00020006);
+                    }
+                    self.buf.push(self.tmp as u8);
+                }
+            } else if self.max_bits == 7 {
+                self.buf.pop();
+            }
+            Ok(())
+        }
+    }
+
+    /// splitmix64
+    fn mix(z: &mut u64) -> u64 {
+        *z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut x = *z;
+        x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        x ^ (x >> 31)
+    }
+
+    /// `Ms` against `RefMs` on random codewords, many of them all ones
+    /// (for 0xFF bytes, and so stuffing), into buffers of 0 to 80 bytes
+    /// and full-size ones: every call must succeed or fail alike, and the
+    /// bytes written must be the same.
+    #[test]
+    fn ms_matches_byte_writer() {
+        let mut seed = 0x6d73u64;
+        for round in 0..20_000usize {
+            let buf_size = if round % 50 == 0 { MS_CAP } else { round % 81 };
+            let mut ms = Ms::new(buf_size);
+            let mut rm = RefMs {
+                buf: Vec::new(),
+                buf_size,
+                max_bits: 8,
+                used_bits: 0,
+                tmp: 0,
+            };
+            let ones = mix(&mut seed) % 4;
+            let calls = mix(&mut seed) % 400;
+            let mut failed = false;
+            for _ in 0..calls {
+                let r = mix(&mut seed);
+                let len = match r % 4 {
+                    0 => (r >> 8) % 64,
+                    1 => (r >> 8) % 9,
+                    _ => (r >> 8) % 33,
+                } as i32;
+                let mask = if len == 0 { 0 } else { u64::MAX >> (64 - len) };
+                let cwd = if (r >> 16) % 4 < ones {
+                    mask
+                } else {
+                    mix(&mut seed) & mask
+                };
+                let a = ms.encode(cwd, len).map_err(|e| e.code());
+                let b = rm.encode(cwd, len);
+                assert_eq!(a, b, "round {round}");
+                if a.is_err() {
+                    failed = true;
+                    break;
+                }
+            }
+            if !failed {
+                let a = ms.terminate().map_err(|e| e.code());
+                assert_eq!(a, rm.terminate(), "round {round}");
+                assert_eq!(&ms.buf[..ms.pos], &rm.buf[..], "round {round}");
+            }
+        }
+    }
 }
