@@ -10,6 +10,7 @@
 
 mod common;
 
+use common::decode::decode_to_raw;
 use common::drive;
 use common::synth::{parse_matrix_manifest, EncArgs, MatrixCase};
 use std::path::{Path, PathBuf};
@@ -118,4 +119,44 @@ fn refused_cases_return_errors() {
         checked += 1;
     }
     assert_eq!(checked, 9);
+}
+
+/// Gate 5: our decoder gives back the input of every lossless case from
+/// our codestream, and every lossy case to within OpenJPH's error. The
+/// MISMATCH cases, which OpenJPH's decoder does not round-trip either,
+/// are left out.
+#[test]
+fn decoder_round_trips_encoder_output() {
+    let mut lossless = 0;
+    let mut lossy = 0;
+    for case in cases().iter().filter(|c| c.is_lossless() || c.is_lossy()) {
+        let args = EncArgs::parse_command(&case.command).unwrap();
+        let img = args.synthesise();
+        let mut out = Vec::new();
+        drive::encode(&args, &mut out).unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        let got = decode_to_raw(&out).unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        let want = EncArgs::to_raw(&img);
+        assert_eq!(got.len(), want.len(), "{}: decoded size", case.name);
+        if case.is_lossless() {
+            assert!(got == want, "{}: decoded image differs", case.name);
+            lossless += 1;
+        } else {
+            let maxerr: i64 = case
+                .status
+                .rsplit('=')
+                .next()
+                .and_then(|n| n.trim().parse().ok())
+                .unwrap();
+            let sample = |b: &[u8]| i64::from(i32::from_le_bytes(b.try_into().unwrap()));
+            let worst = got
+                .chunks_exact(4)
+                .zip(want.chunks_exact(4))
+                .map(|(g, w)| (sample(g) - sample(w)).abs())
+                .max()
+                .unwrap_or(0);
+            assert!(worst <= maxerr, "{}: error {worst} > {maxerr}", case.name);
+            lossy += 1;
+        }
+    }
+    assert_eq!((lossless, lossy), (143, 4));
 }
