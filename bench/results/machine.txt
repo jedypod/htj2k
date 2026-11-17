@@ -1,10 +1,11 @@
-date: 2026-11-17T17:38:07Z
-commit: 2d3b32c
+date: 2026-11-17T22:12:43Z
+commit: 114370c
 cpu: AMD EPYC 7302P 16-Core Processor
 kernel: Linux 6.18.62_1
 rustc: rustc 1.99.0 (b940084d7 2026-09-28) (Void Linux)
 cargo profile: release (opt-level 3, no LTO, codegen-units 16)
-htj2k native: RUSTFLAGS=-C target-cpu=native
+htj2k native: -C target-cpu=native (through a cargo --config file)
+htj2k simd: --features simd (run-time AVX2 dispatch)
 perf: perf version 6.5.0
 --- OpenJPH generic
 compiler: g++ (GCC) 14.2.1 20250405
@@ -17,7 +18,7 @@ library: oracle/build/bench/generic/src/core/libopenjph.a
 --- OpenJPH simd
 compiler: g++ (GCC) 14.2.1 20250405
 cmake: cmake version 4.2.2
-cmake args: -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF 
+cmake args: -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 library flags: -O3 -DNDEBUG -std=gnu++14 -fPIC -fexceptions -Wall -Wextra -Wconversion -Wunused-parameter
 library defines: -DOJPH_ALIGNED_ALLOC_EXISTS -D_FILE_OFFSET_BITS=64
 harness flags: -O3 -DNDEBUG -std=c++14 -fexceptions -DOJPH_ALIGNED_ALLOC_EXISTS -D_FILE_OFFSET_BITS=64
