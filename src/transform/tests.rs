@@ -1129,23 +1129,50 @@ mod vectorised {
                         "to_float3 {bit_depth} {n}"
                     );
                     // floats to integers
-                    let vals: Vec<f32> = (0..n).map(|_| float(&mut rng, 0.7, 4096.0)).collect();
+                    // with halves (after scaling) and the limits
+                    let unit = (1u64 << bit_depth) as f32;
+                    let vals: Vec<f32> = (0..n)
+                        .map(|_| match rng.next() % 4 {
+                            0 => (rng.signed(bit_depth.min(24) + 1) as f32 + 0.5) / unit,
+                            1 => [
+                                -0.5f32,
+                                0.5,
+                                -0.5 - 1.0 / unit,
+                                0.5 - 1.0 / unit,
+                                0.5 - 0.5 / unit,
+                            ][(rng.next() % 5) as usize],
+                            _ => float(&mut rng, 0.7, 4096.0),
+                        })
+                        .collect();
                     let src = f32_line(&vals);
                     let dst = rand_line(&mut rng, 0, n + 4, 8);
-                    let (mut a, mut b) = (dst.clone(), dst.clone());
-                    irv_convert_to_integer_nlt0or3::<false>(
-                        &src, &mut a, off, bit_depth, signed, w,
-                    );
-                    v::irv_convert_to_integer_nlt0or3::<false>(
-                        &src, &mut b, off, bit_depth, signed, w,
-                    );
-                    assert_eq!(a, b, "to_integer {bit_depth} {signed} {n}");
-                    let (mut a, mut b) = (dst.clone(), dst);
-                    irv_convert_to_integer_nlt0or3::<true>(&src, &mut a, off, bit_depth, signed, w);
-                    v::irv_convert_to_integer_nlt0or3::<true>(
-                        &src, &mut b, off, bit_depth, signed, w,
-                    );
-                    assert_eq!(a, b, "to_integer3 {bit_depth} {signed} {n}");
+                    for nlt3 in [false, true] {
+                        let (mut a, mut b, mut c) = (dst.clone(), dst.clone(), dst.clone());
+                        if nlt3 {
+                            irv_convert_to_integer_nlt0or3::<true>(
+                                &src, &mut a, off, bit_depth, signed, w,
+                            );
+                            v::irv_convert_to_integer_nlt0or3::<true>(
+                                &src, &mut b, off, bit_depth, signed, w,
+                            );
+                        } else {
+                            irv_convert_to_integer_nlt0or3::<false>(
+                                &src, &mut a, off, bit_depth, signed, w,
+                            );
+                            v::irv_convert_to_integer_nlt0or3::<false>(
+                                &src, &mut b, off, bit_depth, signed, w,
+                            );
+                        }
+                        let what = format!("to_integer nlt3 {nlt3} {bit_depth} {signed} {n}");
+                        assert_eq!(a, b, "{what}");
+                        if v::irv_convert_to_integer_avx2(
+                            &src, &mut c, off, bit_depth, signed, w, nlt3,
+                        ) {
+                            assert_eq!(a, c, "avx2 {what}");
+                        } else {
+                            assert!(!crate::simd::active(), "{what}: the AVX2 kernel declined");
+                        }
+                    }
                 }
             }
             // colour transforms

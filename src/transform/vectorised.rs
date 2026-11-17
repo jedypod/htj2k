@@ -402,6 +402,91 @@ mod avx2 {
         }
         *max_val = m;
     }
+
+    /// `local_avx2_irv_convert_to_integer`, but rounding as the generic
+    /// kernel does where OpenJPH has `cvtps2dq`, which rounds half to
+    /// even: `ojph_round` adds ±0.5 by the sign and truncates, here with
+    /// `cvttps2dq`. That differs from [`super::round_i32`] only where the
+    /// sum reaches 2^31 or beyond (`i32::MIN` instead of `i32::MAX`); the
+    /// upper limit replaces all those samples, since `fl_up_lim` is at
+    /// most 2^31. The limits are selects with the scalar comparisons
+    /// (ordered, so NaN takes the upper limit, as in the loop).
+    #[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]
+    pub(super) fn irv_convert_to_integer<const NLT_TYPE3: bool>(
+        sp: &[f32],
+        dp: &mut [i32],
+        bit_depth: u32,
+        is_signed: bool,
+    ) {
+        let lim = super::ToInteger::new(bit_depth);
+        let mul = _mm256_set1_ps(lim.mul);
+        let fl_up_lim = _mm256_set1_ps(lim.fl_up_lim);
+        let fl_low_lim = _mm256_set1_ps(lim.fl_low_lim);
+        let s32_up_lim = _mm256_set1_epi32(lim.s32_up_lim);
+        let s32_low_lim = _mm256_set1_epi32(lim.s32_low_lim);
+        let (zero_ps, half_ps, neg_half_ps) = (
+            _mm256_setzero_ps(),
+            _mm256_set1_ps(0.5),
+            _mm256_set1_ps(-0.5),
+        );
+        let limited = |s: &[f32]| {
+            let t = _mm256_mul_ps(load_f32(s), mul);
+            let r = _mm256_blendv_ps(
+                neg_half_ps,
+                half_ps,
+                _mm256_cmp_ps::<_CMP_GE_OQ>(t, zero_ps),
+            );
+            let v = _mm256_cvttps_epi32(_mm256_add_ps(t, r));
+            let ge = _mm256_castps_si256(_mm256_cmp_ps::<_CMP_GE_OQ>(t, fl_low_lim));
+            let v = _mm256_blendv_epi8(s32_low_lim, v, ge);
+            let lt = _mm256_castps_si256(_mm256_cmp_ps::<_CMP_LT_OQ>(t, fl_up_lim));
+            _mm256_blendv_epi8(s32_up_lim, v, lt)
+        };
+        let mut s8 = sp.chunks_exact(8);
+        let mut d8 = dp.chunks_exact_mut(8);
+        if is_signed {
+            let bias = super::nlt_bias(bit_depth);
+            let neg_bias = _mm256_set1_epi32((bias as i32).wrapping_neg());
+            let zero = _mm256_setzero_si256();
+            for (s, d) in (&mut s8).zip(&mut d8) {
+                let mut u = limited(s);
+                if NLT_TYPE3 {
+                    // -bias - u where u < 0
+                    let c = _mm256_cmpgt_epi32(zero, u);
+                    u = _mm256_blendv_epi8(u, _mm256_sub_epi32(neg_bias, u), c);
+                }
+                d.copy_from_slice(&lanes_i32(u));
+            }
+            for (d, &s) in d8.into_remainder().iter_mut().zip(s8.remainder()) {
+                *d = lim.signed::<NLT_TYPE3>(s, bias);
+            }
+        } else {
+            let half = super::half_of(bit_depth);
+            let half8 = _mm256_set1_epi32(half);
+            for (s, d) in (&mut s8).zip(&mut d8) {
+                d.copy_from_slice(&lanes_i32(_mm256_add_epi32(limited(s), half8)));
+            }
+            for (d, &s) in d8.into_remainder().iter_mut().zip(s8.remainder()) {
+                *d = lim.unsigned(s, half);
+            }
+        }
+    }
+}
+
+/// `irv_convert_to_integer`, or `_nlt_type3` if `NLT_TYPE3`: the
+/// intrinsics kernel where it runs, else the loop.
+pub(super) fn irv_convert_to_integer<const NLT_TYPE3: bool>(
+    src_line: &LineBuf,
+    dst_line: &mut LineBuf,
+    dst_line_offset: u32,
+    bit_depth: u32,
+    is_signed: bool,
+    width: u32,
+) {
+    let (s, d, o, b, w) = (src_line, dst_line, dst_line_offset, bit_depth, width);
+    if !irv_convert_to_integer_avx2(s, d, o, b, is_signed, w, NLT_TYPE3) {
+        irv_convert_to_integer_nlt0or3::<NLT_TYPE3>(s, d, o, b, is_signed, w);
+    }
 }
 
 /// `local_gen_irv_convert_to_integer_nlt0or3` (see
@@ -419,35 +504,104 @@ pub(super) fn irv_convert_to_integer_nlt0or3<const NLT_TYPE3: bool>(
     let (doff, w) = (dst_line_offset as usize, width as usize);
     let sp = &src_line.f32()[..w];
     let dp = &mut dst_line.i32_mut()[doff..doff + w];
-    let sh = 32u32.wrapping_sub(bit_depth);
-    let neg_limit = i32::MIN.wrapping_shr(sh);
-    let mul = 1u64.wrapping_shl(bit_depth) as f32;
-    let fl_up_lim = -(neg_limit as f32); // val < upper
-    let fl_low_lim = neg_limit as f32; // val >= lower
-    let s32_up_lim = i32::MAX.wrapping_shr(sh);
-    let s32_low_lim = i32::MIN.wrapping_shr(sh);
-
+    let lim = ToInteger::new(bit_depth);
     if is_signed {
         let bias = nlt_bias(bit_depth);
         for (d, &s) in dp.iter_mut().zip(sp) {
-            let t = s * mul;
-            let mut v = round_i32(t);
-            v = if t >= fl_low_lim { v } else { s32_low_lim };
-            v = if t < fl_up_lim { v } else { s32_up_lim };
-            if NLT_TYPE3 {
-                v = binary_complement(v, bias);
-            }
-            *d = v;
+            *d = lim.signed::<NLT_TYPE3>(s, bias);
         }
     } else {
         let half = half_of(bit_depth);
         for (d, &s) in dp.iter_mut().zip(sp) {
-            let t = s * mul;
-            let mut v = round_i32(t);
-            v = if t >= fl_low_lim { v } else { s32_low_lim };
-            v = if t < fl_up_lim { v } else { s32_up_lim };
-            *d = v.wrapping_add(half);
+            *d = lim.unsigned(s, half);
         }
+    }
+}
+
+/// The constants of `local_gen_irv_convert_to_integer_nlt0or3`, and its
+/// per-sample steps.
+#[derive(Clone, Copy)]
+struct ToInteger {
+    mul: f32,
+    fl_up_lim: f32,  // val < upper
+    fl_low_lim: f32, // val >= lower
+    s32_up_lim: i32,
+    s32_low_lim: i32,
+}
+
+impl ToInteger {
+    #[inline(always)]
+    fn new(bit_depth: u32) -> Self {
+        let sh = 32u32.wrapping_sub(bit_depth);
+        let neg_limit = i32::MIN.wrapping_shr(sh);
+        Self {
+            mul: 1u64.wrapping_shl(bit_depth) as f32,
+            fl_up_lim: -(neg_limit as f32),
+            fl_low_lim: neg_limit as f32,
+            s32_up_lim: i32::MAX.wrapping_shr(sh),
+            s32_low_lim: i32::MIN.wrapping_shr(sh),
+        }
+    }
+
+    /// The sample, scaled, rounded and limited.
+    #[inline(always)]
+    fn limited(&self, s: f32) -> i32 {
+        let t = s * self.mul;
+        let mut v = round_i32(t);
+        v = if t >= self.fl_low_lim {
+            v
+        } else {
+            self.s32_low_lim
+        };
+        if t < self.fl_up_lim {
+            v
+        } else {
+            self.s32_up_lim
+        }
+    }
+
+    #[inline(always)]
+    fn signed<const NLT_TYPE3: bool>(&self, s: f32, bias: u32) -> i32 {
+        let v = self.limited(s);
+        if NLT_TYPE3 {
+            binary_complement(v, bias)
+        } else {
+            v
+        }
+    }
+
+    #[inline(always)]
+    fn unsigned(&self, s: f32, half: i32) -> i32 {
+        self.limited(s).wrapping_add(half)
+    }
+}
+
+crate::simd::avx2_dispatch! {
+    /// [`irv_convert_to_integer_nlt0or3`] with OpenJPH's AVX2 kernel
+    /// (`avx2_irv_convert_to_integer`, or `_nlt_type3` if `nlt_type3`),
+    /// where the CPU has AVX2 and the build can reach it; `false` to run
+    /// the loop instead.
+    pub(super) fn irv_convert_to_integer_avx2(
+        src_line: &LineBuf,
+        dst_line: &mut LineBuf,
+        dst_line_offset: u32,
+        bit_depth: u32,
+        is_signed: bool,
+        width: u32,
+        nlt_type3: bool,
+    ) -> bool {
+        avx2 => {
+            let (doff, w) = (dst_line_offset as usize, width as usize);
+            let sp = &src_line.f32()[..w];
+            let dp = &mut dst_line.i32_mut()[doff..doff + w];
+            if nlt_type3 {
+                avx2::irv_convert_to_integer::<true>(sp, dp, bit_depth, is_signed);
+            } else {
+                avx2::irv_convert_to_integer::<false>(sp, dp, bit_depth, is_signed);
+            }
+            true
+        },
+        fallback => false,
     }
 }
 

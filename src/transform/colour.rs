@@ -410,7 +410,7 @@ pub fn irv_convert_to_integer(
     width: u32,
 ) {
     #[cfg(feature = "simd")]
-    super::vectorised::irv_convert_to_integer_nlt0or3::<false>(
+    super::vectorised::irv_convert_to_integer::<false>(
         src_line,
         dst_line,
         dst_line_offset,
@@ -440,7 +440,7 @@ pub fn irv_convert_to_integer_nlt_type3(
     width: u32,
 ) {
     #[cfg(feature = "simd")]
-    super::vectorised::irv_convert_to_integer_nlt0or3::<true>(
+    super::vectorised::irv_convert_to_integer::<true>(
         src_line,
         dst_line,
         dst_line_offset,

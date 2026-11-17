@@ -162,6 +162,13 @@ pub(crate) mod x86 {
             _mm256_extract_epi32::<7>(v) as u32,
         ]
     }
+
+    /// The 8 lanes of `v` as `i32` (one `vmovdqu` into the array).
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    pub(crate) fn lanes_i32(v: __m256i) -> [i32; 8] {
+        lanes_u32(v).map(|x| x as i32)
+    }
 }
 
 avx2_dispatch! {
