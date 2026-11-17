@@ -42,14 +42,15 @@ GROUPS = [
     ("dec32_large", 200, 560_000, [],
      ["size_300x200_s16", "s16_rct_4c_300x200", "blk64x64_130x35",
       "blk128x32_130x35", "blk32x128_35x130", "blk1024x4_300x200",
-      "s16_1c_64x32", "s16_rct_4c_300x8", "s16_rct_4c_300x32"]),
+      "s16_1c_64x32", "s16_rct_4c_300x8", "s16_rct_4c_300x32",
+      "ict_s16_nlt4_4c_300x32"]),
     ("dec64", 500, 520_000, [],
      ["depth29s_noise_l5", "depth30s_noise_l5", "depth31u_noise",
       "depth31s_smooth", "depth32s_noise", "depth32u_noise",
       "depth32s_smooth", "rct1_depth28s", "rct1_depth31u", "rct1_depth32s",
       "nlt1_depth32s", "nlt3_depth32s_l5", "pat_noise_u32", "pat_const_u32",
       "pat_zero_u32", "pat_smooth_u32", "s32_rct_4c_300x8",
-      "s32_rct_4c_300x32", "s32_rct_4c_300x64"]),
+      "s32_rct_4c_300x32", "s32_rct_4c_300x64", "ict_s32_nlt4_3c_300x8"]),
 ]
 
 

@@ -104,8 +104,8 @@ happened.
 |---|---|---|---|---|
 | `dec32_small.ojbk` | 32 | 600 | 1 to 17 | 1x1 to 33x31 blocks: 4x4, 8x16 and 4x1024 nominal sizes, tiny images, 1-bit depth, const and zero images, precincts, tiles, subsampling, COC, and the two levels-0 streams described in `oracle/README.md` |
 | `dec32_depths.ojbk` | 32 | 292 | 8 to 29 | depths 8 to 28 signed and unsigned, RCT, NLT, irreversible 9/7 streams |
-| `dec32_large.ojbk` | 32 | 143 | 8 to 18 | full 64x64 and 128x32 blocks, 150x4 strips from 1024x4 blocks, the 64x64, 128x32 and 32x128 matrix cases, the 16-bit strips (NLT type 3 and the RCT) |
-| `dec64.ojbk` | 64 | 283 | 29 to 34 | depths 29 to 32, RCT at 28, 31 and 32 bits, NLT at 32 bits, the 32-bit strips (NLT type 3 and the RCT) including full 128x32 blocks |
+| `dec32_large.ojbk` | 32 | 167 | 4 to 18 | full 64x64 and 128x32 blocks, 150x4 strips from 1024x4 blocks, the 64x64, 128x32 and 32x128 matrix cases, the 16-bit strips (NLT type 3 and the RCT, or NLT type 4 and the ICT) |
+| `dec64.ojbk` | 64 | 293 | 12 to 34 | depths 29 to 32, RCT at 28, 31 and 32 bits, NLT at 32 bits, the 32-bit strips (NLT type 3 and the RCT, or NLT type 4 and the ICT) including full 128x32 blocks |
 
 Exact duplicate records are dropped. If a group has more records than its
 caps (a record count and a byte count, set in `gen_blocks.py`), the records
