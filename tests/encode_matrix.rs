@@ -56,3 +56,34 @@ fn main_headers_match_openjph() {
     }
     assert_eq!(checked, 150);
 }
+
+/// Gate 3: every codestream OpenJPH wrote, the three MISMATCH cases
+/// included, is reproduced byte for byte.
+#[test]
+fn codestreams_match_openjph() {
+    let mut failed = Vec::new();
+    let mut checked = 0;
+    for case in cases().iter().filter(|c| !c.is_refused()) {
+        let args = EncArgs::parse_command(&case.command).unwrap();
+        let mut out = Vec::new();
+        match drive::encode(&args, &mut out) {
+            Err(e) => failed.push(format!("{}: {e}", case.name)),
+            Ok(()) => {
+                let r = reference(case);
+                if out != r {
+                    let at = out.iter().zip(&r).position(|(a, b)| a != b);
+                    failed.push(format!(
+                        "{}: {} bytes vs OpenJPH's {}, first difference at {:?}",
+                        case.name,
+                        out.len(),
+                        r.len(),
+                        at
+                    ));
+                }
+            }
+        }
+        checked += 1;
+    }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+    assert_eq!(checked, 150);
+}

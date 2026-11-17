@@ -106,3 +106,11 @@ pub fn push_image(cs: &mut Encoder, a: &EncArgs, img: &[Vec<i64>]) -> htj2k::Res
     }
     Ok(())
 }
+
+/// Encodes `a`'s synthesised image, appending the codestream to `out`.
+pub fn encode(a: &EncArgs, out: &mut Vec<u8>) -> htj2k::Result<()> {
+    let img = a.synthesise();
+    let mut cs = headers(a, out)?;
+    push_image(&mut cs, a, &img)?;
+    cs.flush(out)
+}
