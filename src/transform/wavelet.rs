@@ -149,6 +149,24 @@ pub fn rev_vert_step(
     repeat: u32,
     synthesis: bool,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rev_vert_step(s, sig, other, aug, repeat, synthesis);
+    #[cfg(not(feature = "simd"))]
+    rev_vert_step_body(s, sig, other, aug, repeat, synthesis);
+}
+
+/// The body of [`rev_vert_step`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rev_vert_step_body(
+    s: &LiftingStep,
+    sig: &LineBuf,
+    other: &LineBuf,
+    aug: &mut LineBuf,
+    repeat: u32,
+    synthesis: bool,
+) {
     let n = repeat as usize;
     if sig.is_i32() || other.is_i32() || aug.is_i32() {
         rev_lift(
@@ -233,6 +251,8 @@ fn extend<T: Copy>(buf: &mut [T], pre: usize, width: usize) {
 /// the destination lines, with their `pre_size`s; `src` holds the logical
 /// samples of the source line.
 #[allow(clippy::too_many_arguments)]
+// inlined into the AVX2 version of its caller with the `simd` feature
+#[cfg_attr(feature = "simd", inline(always))]
 fn rev_horz_ana_impl<T: RevSample>(
     atk: &ParamAtk,
     l: &mut [T],
@@ -282,6 +302,8 @@ fn rev_horz_ana_impl<T: RevSample>(
 /// destination line; `l` and `h` are the full backing vectors of the
 /// source lines, with their `pre_size`s.
 #[allow(clippy::too_many_arguments)]
+// inlined into the AVX2 version of its caller with the `simd` feature
+#[cfg_attr(feature = "simd", inline(always))]
 fn rev_horz_syn_impl<T: RevSample>(
     atk: &ParamAtk,
     dst: &mut [T],
@@ -350,6 +372,24 @@ pub fn rev_horz_ana(
     width: u32,
     even: bool,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rev_horz_ana(atk, ldst, hdst, src, width, even);
+    #[cfg(not(feature = "simd"))]
+    rev_horz_ana_body(atk, ldst, hdst, src, width, even);
+}
+
+/// The body of [`rev_horz_ana`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rev_horz_ana_body(
+    atk: &ParamAtk,
+    ldst: &mut LineBuf,
+    hdst: &mut LineBuf,
+    src: &LineBuf,
+    width: u32,
+    even: bool,
+) {
     let (lpre, hpre) = (ldst.pre_size, hdst.pre_size);
     if src.is_i32() {
         rev_horz_ana_impl(
@@ -385,6 +425,24 @@ pub fn rev_horz_ana(
 /// at their band width); they need the same room as the destinations of
 /// [`rev_horz_ana`]. Lines are dispatched on `dst`.
 pub fn rev_horz_syn(
+    atk: &ParamAtk,
+    dst: &mut LineBuf,
+    lsrc: &mut LineBuf,
+    hsrc: &mut LineBuf,
+    width: u32,
+    even: bool,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rev_horz_syn(atk, dst, lsrc, hsrc, width, even);
+    #[cfg(not(feature = "simd"))]
+    rev_horz_syn_body(atk, dst, lsrc, hsrc, width, even);
+}
+
+/// The body of [`rev_horz_syn`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rev_horz_syn_body(
     atk: &ParamAtk,
     dst: &mut LineBuf,
     lsrc: &mut LineBuf,
@@ -452,6 +510,24 @@ pub fn irv_vert_step(
     repeat: u32,
     synthesis: bool,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_vert_step(s, sig, other, aug, repeat, synthesis);
+    #[cfg(not(feature = "simd"))]
+    irv_vert_step_body(s, sig, other, aug, repeat, synthesis);
+}
+
+/// The body of [`irv_vert_step`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_vert_step_body(
+    s: &LiftingStep,
+    sig: &LineBuf,
+    other: &LineBuf,
+    aug: &mut LineBuf,
+    repeat: u32,
+    synthesis: bool,
+) {
     let a = if synthesis { -s.irv_a } else { s.irv_a };
     let n = repeat as usize;
     irv_lift(
@@ -465,6 +541,17 @@ pub fn irv_vert_step(
 /// `gen_irv_vert_times_K`: multiplies the first `repeat` samples of the
 /// float line `aug` by `k`.
 pub fn irv_vert_times_k(k: f32, aug: &mut LineBuf, repeat: u32) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_vert_times_k(k, aug, repeat);
+    #[cfg(not(feature = "simd"))]
+    irv_vert_times_k_body(k, aug, repeat);
+}
+
+/// The body of [`irv_vert_times_k`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_vert_times_k_body(k: f32, aug: &mut LineBuf, repeat: u32) {
     scale(&mut aug.f32_mut()[..repeat as usize], k);
 }
 
@@ -473,6 +560,24 @@ pub fn irv_vert_times_k(k: f32, aug: &mut LineBuf, repeat: u32) {
 /// `hdst` (high pass), including the final scaling by `1/K` and `K`. Same
 /// buffer requirements as [`rev_horz_ana`]; all lines must be float.
 pub fn irv_horz_ana(
+    atk: &ParamAtk,
+    ldst: &mut LineBuf,
+    hdst: &mut LineBuf,
+    src: &LineBuf,
+    width: u32,
+    even: bool,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_horz_ana(atk, ldst, hdst, src, width, even);
+    #[cfg(not(feature = "simd"))]
+    irv_horz_ana_body(atk, ldst, hdst, src, width, even);
+}
+
+/// The body of [`irv_horz_ana`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_horz_ana_body(
     atk: &ParamAtk,
     ldst: &mut LineBuf,
     hdst: &mut LineBuf,
@@ -530,6 +635,24 @@ pub fn irv_horz_ana(
 /// inverse of [`irv_horz_ana`]. `lsrc` and `hsrc` are scaled and lifted in
 /// place, as for [`rev_horz_syn`].
 pub fn irv_horz_syn(
+    atk: &ParamAtk,
+    dst: &mut LineBuf,
+    lsrc: &mut LineBuf,
+    hsrc: &mut LineBuf,
+    width: u32,
+    even: bool,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_horz_syn(atk, dst, lsrc, hsrc, width, even);
+    #[cfg(not(feature = "simd"))]
+    irv_horz_syn_body(atk, dst, lsrc, hsrc, width, even);
+}
+
+/// The body of [`irv_horz_syn`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_horz_syn_body(
     atk: &ParamAtk,
     dst: &mut LineBuf,
     lsrc: &mut LineBuf,

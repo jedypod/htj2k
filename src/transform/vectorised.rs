@@ -31,6 +31,8 @@
 //! (`-C target-cpu=native`) vectorise them too.
 
 use super::colour::{binary_complement, nlt_bias, nlt_to_float_t, ojph_max, ojph_min, NltLut};
+use crate::line::LineBuf;
+use crate::params::{LiftingStep, ParamAtk};
 use multiversion::multiversion;
 
 /// Samples per chunk of the kernels with table lookups.
@@ -398,6 +400,94 @@ mod avx2 {
         }
         *max_val = m;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Wavelet: the scalar kernels as they are, compiled by multiversion
+// ---------------------------------------------------------------------------
+
+/// [`super::wavelet::rev_vert_step`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rev_vert_step(
+    s: &LiftingStep,
+    sig: &LineBuf,
+    other: &LineBuf,
+    aug: &mut LineBuf,
+    repeat: u32,
+    synthesis: bool,
+) {
+    super::wavelet::rev_vert_step_body(s, sig, other, aug, repeat, synthesis);
+}
+
+/// [`super::wavelet::rev_horz_ana`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rev_horz_ana(
+    atk: &ParamAtk,
+    ldst: &mut LineBuf,
+    hdst: &mut LineBuf,
+    src: &LineBuf,
+    width: u32,
+    even: bool,
+) {
+    super::wavelet::rev_horz_ana_body(atk, ldst, hdst, src, width, even);
+}
+
+/// [`super::wavelet::rev_horz_syn`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rev_horz_syn(
+    atk: &ParamAtk,
+    dst: &mut LineBuf,
+    lsrc: &mut LineBuf,
+    hsrc: &mut LineBuf,
+    width: u32,
+    even: bool,
+) {
+    super::wavelet::rev_horz_syn_body(atk, dst, lsrc, hsrc, width, even);
+}
+
+/// [`super::wavelet::irv_vert_step`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_vert_step(
+    s: &LiftingStep,
+    sig: &LineBuf,
+    other: &LineBuf,
+    aug: &mut LineBuf,
+    repeat: u32,
+    synthesis: bool,
+) {
+    super::wavelet::irv_vert_step_body(s, sig, other, aug, repeat, synthesis);
+}
+
+/// [`super::wavelet::irv_vert_times_k`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_vert_times_k(k: f32, aug: &mut LineBuf, repeat: u32) {
+    super::wavelet::irv_vert_times_k_body(k, aug, repeat);
+}
+
+/// [`super::wavelet::irv_horz_ana`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_horz_ana(
+    atk: &ParamAtk,
+    ldst: &mut LineBuf,
+    hdst: &mut LineBuf,
+    src: &LineBuf,
+    width: u32,
+    even: bool,
+) {
+    super::wavelet::irv_horz_ana_body(atk, ldst, hdst, src, width, even);
+}
+
+/// [`super::wavelet::irv_horz_syn`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_horz_syn(
+    atk: &ParamAtk,
+    dst: &mut LineBuf,
+    lsrc: &mut LineBuf,
+    hsrc: &mut LineBuf,
+    width: u32,
+    even: bool,
+) {
+    super::wavelet::irv_horz_syn_body(atk, dst, lsrc, hsrc, width, even);
 }
 
 #[cfg(test)]

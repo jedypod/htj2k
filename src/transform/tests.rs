@@ -955,6 +955,133 @@ mod vectorised {
         }
     }
 
+    /// Lines of random samples (`bits`-bit integers, or floats in
+    /// [-1, 1]) and room for the extensions.
+    fn rand_line(rng: &mut Rng, kind: u8, n: usize, bits: u32) -> LineBuf {
+        let mut l = match kind {
+            0 => line_i32(n + 1),
+            1 => line_i64(n + 1),
+            _ => LineBuf::new_f32(n + 2, 1),
+        };
+        match kind {
+            0 => l
+                .i32_full_mut()
+                .iter_mut()
+                .for_each(|v| *v = rng.signed(bits) as i32),
+            1 => l
+                .i64_full_mut()
+                .iter_mut()
+                .for_each(|v| *v = rng.signed(bits)),
+            _ => l
+                .f32_full_mut()
+                .iter_mut()
+                .for_each(|v| *v = rng.signed(24) as f32 / (1 << 23) as f32),
+        }
+        l
+    }
+
+    /// The wavelet kernels compiled by multiversion against their bodies
+    /// (the same source; this checks the wiring and that nothing in the
+    /// AVX2 versions changes the results), on every line written,
+    /// extension samples included.
+    #[test]
+    fn wavelet() {
+        let mut rng = Rng(0x7761_7665);
+        let rev = [
+            rev53(),
+            ParamAtk {
+                latk: 0,
+                satk: 0x5801,
+                katk: 0.0,
+                steps: vec![rev_step(-1, 3, 2), rev_step(3, -5, 3), rev_step(1, 0, 0)],
+                others: Vec::new(),
+            },
+        ];
+        let irv = [
+            irv97(),
+            ParamAtk {
+                latk: 0,
+                satk: 0x4a00,
+                katk: 0.75,
+                steps: vec![irv_step(0.3), irv_step(-1.7)],
+                others: Vec::new(),
+            },
+        ];
+        let widths: Vec<u32> = (0..=40)
+            .chain([63, 64, 65, 127, 128, 129, 1000, 1001])
+            .collect();
+        for &width in &widths {
+            let w = width as usize;
+            let half = w.div_ceil(2) + 1;
+            for even in [true, false] {
+                for (kind, atks) in [(0u8, &rev), (1, &rev), (2, &irv)] {
+                    for atk in atks {
+                        let bits = if kind == 1 { 50 } else { 24 };
+                        let src = rand_line(&mut rng, kind, w, bits);
+                        let (l0, h0) = (
+                            rand_line(&mut rng, kind, half, bits),
+                            rand_line(&mut rng, kind, half, bits),
+                        );
+                        let what = format!("kind {kind} width {width} even {even}");
+                        // analysis
+                        let (mut l1, mut h1, mut l2, mut h2) =
+                            (l0.clone(), h0.clone(), l0.clone(), h0.clone());
+                        if kind == 2 {
+                            irv_horz_ana_body(atk, &mut l1, &mut h1, &src, width, even);
+                            v::irv_horz_ana(atk, &mut l2, &mut h2, &src, width, even);
+                        } else {
+                            rev_horz_ana_body(atk, &mut l1, &mut h1, &src, width, even);
+                            v::rev_horz_ana(atk, &mut l2, &mut h2, &src, width, even);
+                        }
+                        assert_eq!(bits_of_line(&l1), bits_of_line(&l2), "ana l {what}");
+                        assert_eq!(bits_of_line(&h1), bits_of_line(&h2), "ana h {what}");
+                        // synthesis
+                        let (mut d1, mut d2) = (src.clone(), src.clone());
+                        let (mut l1, mut h1, mut l2, mut h2) =
+                            (l0.clone(), h0.clone(), l0.clone(), h0);
+                        if kind == 2 {
+                            irv_horz_syn_body(atk, &mut d1, &mut l1, &mut h1, width, even);
+                            v::irv_horz_syn(atk, &mut d2, &mut l2, &mut h2, width, even);
+                        } else {
+                            rev_horz_syn_body(atk, &mut d1, &mut l1, &mut h1, width, even);
+                            v::rev_horz_syn(atk, &mut d2, &mut l2, &mut h2, width, even);
+                        }
+                        assert_eq!(bits_of_line(&d1), bits_of_line(&d2), "syn dst {what}");
+                        assert_eq!(bits_of_line(&l1), bits_of_line(&l2), "syn l {what}");
+                        assert_eq!(bits_of_line(&h1), bits_of_line(&h2), "syn h {what}");
+                        // vertical steps
+                        if !even {
+                            continue;
+                        }
+                        let (sig, oth) = (
+                            rand_line(&mut rng, kind, w, bits),
+                            rand_line(&mut rng, kind, w, bits),
+                        );
+                        for step in &atk.steps {
+                            for synthesis in [false, true] {
+                                let (mut a1, mut a2) = (src.clone(), src.clone());
+                                if kind == 2 {
+                                    irv_vert_step_body(step, &sig, &oth, &mut a1, width, synthesis);
+                                    v::irv_vert_step(step, &sig, &oth, &mut a2, width, synthesis);
+                                } else {
+                                    rev_vert_step_body(step, &sig, &oth, &mut a1, width, synthesis);
+                                    v::rev_vert_step(step, &sig, &oth, &mut a2, width, synthesis);
+                                }
+                                assert_eq!(bits_of_line(&a1), bits_of_line(&a2), "vert {what}");
+                            }
+                        }
+                        if kind == 2 {
+                            let (mut a1, mut a2) = (src.clone(), src.clone());
+                            irv_vert_times_k_body(1.25, &mut a1, width);
+                            v::irv_vert_times_k(1.25, &mut a2, width);
+                            assert_eq!(bits_of_line(&a1), bits_of_line(&a2), "times_k {what}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn irv_convert_to_float_nlt_precise_1step() {
         let recs = read_records("nlt.bin");
