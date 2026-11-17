@@ -105,9 +105,15 @@ taskset -c CPU perf stat -x, -e cycles:u,instructions:u,task-clock -r 5 HARNESS 
 * **Variation.** perf's `-r 5` standard deviation of the mean, for N
   and for 2N, combined in quadrature and given as a percentage of the
   difference. Instructions vary by less than 0.005%. Cycles vary by 1
-  to 7% (on most rows the worst of the four is 3 to 5%), because other jobs use the core's other
-  hardware thread and the shared L3. So a cycle ratio is good to about
-  ±5 to 10%, and the instruction counts are the steadier guide.
+  to 12% (on half the rows the worst of the four is 6% or more),
+  because other jobs use the core's other hardware thread and the
+  shared L3. So a cycle ratio is good to about ±10 to 20%, and the
+  instruction counts are the steadier guide. Some rows are further off:
+  rerun alone, htj2k's 3-component 16-bit reversible encodes took 43 to
+  61 cycles per sample (the 1- and 4-component ones 53 to 64), not the
+  80 and 88 of the tables, and the
+  `u12_3c_ict_qs002` decode row (1.55 against OpenJPH generic, at 0.97
+  of its instructions) has 9 to 11% variation on every harness.
 
 ## Correctness checks
 
@@ -147,10 +153,10 @@ which the gradient reaches; the two builds wrap different ones.
   AVX2 but no AVX-512, so OpenJPH SIMD runs its AVX2 kernels. 512 KiB
   L2 per core, 16 MiB L3 per four cores. The full `lscpu` is in
   `bench/results/lscpu.txt`.
-* **System:** Linux 6.18, shared, with a load average from 8.6 to 17.2
-  during the run (`uptime` before and after each of the 368 perf runs
-  is in `log.txt`). The benchmark ran on CPU 21, whose core (with CPU
-  5) was 18% busy when it was chosen.
+* **System:** Linux 6.18, shared and busy, with a load average from
+  24.7 to 43.1 during the run (`uptime` before and after each of the
+  368 perf runs is in `log.txt`). The benchmark ran on CPU 29, whose
+  core (with CPU 13) was 78% busy when it was chosen.
 * **C++:** g++ 14.2.1, CMake 4.2.2. OpenJPH: `-O3 -DNDEBUG -std=gnu++14
   -fPIC -fexceptions` with `-DOJPH_ALIGNED_ALLOC_EXISTS
   -D_FILE_OFFSET_BITS=64`, plus `-DOJPH_DISABLE_SIMD` for generic; the
@@ -163,7 +169,9 @@ which the gradient reaches; the two builds wrap different ones.
 
 ## Results
 
-Run of 2026-11-17 (`bench/results/`). Ratios above 1 mean htj2k takes
+Run of 2026-11-17 at commit 2d3b32c (`bench/results/`), with the steps
+of `run.sh` run one by one (the native build's `-C target-cpu=native`
+given through a cargo `--config` file rather than `RUSTFLAGS`). Ratios above 1 mean htj2k takes
 more. "± max" is the largest variation of the four harnesses on the
 row. "native" is htj2k built with `-C target-cpu=native`; OpenJPH
 generic was not, so the native / generic columns compare different
@@ -174,18 +182,18 @@ Geometric means of the cycle ratios, by group:
 
 | group | op | htj2k / generic | htj2k / SIMD | native / generic | native / SIMD | instructions, htj2k / generic |
 |---|---|--:|--:|--:|--:|--:|
-| strips, reversible, 16-bit (6) | decode | 1.07 | 1.89 | 1.11 | 1.97 | 1.18 |
-| | encode | 1.08 | 3.48 | 0.97 | 3.12 | 1.03 |
-| strips, reversible, 32-bit (6) | decode | 1.12 | 1.32 | 0.95 | 1.12 | 1.19 |
-| | encode | 1.10 | 1.15 | 0.96 | 1.01 | 1.06 |
-| strips, irreversible (6) | decode | 1.29 | 3.81 | 0.99 | 2.91 | 1.30 |
-| | encode | 1.10 | 3.21 | 0.94 | 2.74 | 1.26 |
-| strips, noise (2) | decode | 1.11 | 1.70 | 1.06 | 1.61 | 1.18 |
-| | encode | 1.16 | 1.88 | 0.97 | 1.58 | 1.05 |
-| 3840x2160, reversible (1) | decode | 1.09 | 2.35 | 1.00 | 2.14 | 1.16 |
-| | encode | 1.01 | 3.07 | 0.90 | 2.74 | 0.99 |
-| 3840x2160, irreversible (2) | decode | 1.12 | 2.59 | 0.94 | 2.16 | 0.96 |
-| | encode | 1.19 | 2.58 | 1.07 | 2.32 | 1.08 |
+| strips, reversible, 16-bit (6) | decode | 0.95 | 1.77 | 0.83 | 1.55 | 0.94 |
+| | encode | 0.75 | 2.48 | 0.61 | 2.03 | 0.66 |
+| strips, reversible, 32-bit (6) | decode | 1.04 | 1.18 | 0.82 | 0.93 | 0.98 |
+| | encode | 0.66 | 0.68 | 0.57 | 0.59 | 0.57 |
+| strips, irreversible (6) | decode | 1.03 | 2.86 | 0.89 | 2.46 | 1.01 |
+| | encode | 0.89 | 2.53 | 0.82 | 2.33 | 0.98 |
+| strips, noise (2) | decode | 0.76 | 1.37 | 0.67 | 1.20 | 0.82 |
+| | encode | 0.66 | 1.02 | 0.63 | 0.97 | 0.58 |
+| 3840x2160, reversible (1) | decode | 0.96 | 2.11 | 0.79 | 1.72 | 0.97 |
+| | encode | 0.74 | 2.28 | 0.75 | 2.29 | 0.70 |
+| 3840x2160, irreversible (2) | decode | 1.13 | 2.32 | 0.80 | 1.65 | 0.90 |
+| | encode | 1.04 | 2.35 | 0.88 | 2.00 | 0.97 |
 
 ### Decode, all configurations
 
@@ -193,57 +201,57 @@ Cycles per sample (cycles:u), and htj2k's ratios:
 
 | configuration | bits/sample | OpenJPH generic | OpenJPH SIMD | htj2k | htj2k native | htj2k / generic | htj2k / SIMD | native / generic | native / SIMD | ± max |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| s16_1c_rev_8192x32 | 13.43 | 29.1 | 18.5 | 35.7 | 34.3 | 1.23 | 1.93 | 1.18 | 1.86 | 4.5% |
-| s16_3c_rev_8192x32 | 13.79 | 34.1 | 20.7 | 33.7 | 35.5 | 0.99 | 1.63 | 1.04 | 1.72 | 6.3% |
-| s16_4c_rev_8192x32 | 13.69 | 36.6 | 18.2 | 36.4 | 37.7 | 1.00 | 2.00 | 1.03 | 2.07 | 3.4% |
-| s32_1c_rev_8192x32 | 29.62 | 56.0 | 46.2 | 63.3 | 54.0 | 1.13 | 1.37 | 0.97 | 1.17 | 3.4% |
-| s32_3c_rev_8192x32 | 29.78 | 57.0 | 50.4 | 69.4 | 55.3 | 1.22 | 1.38 | 0.97 | 1.10 | 3.3% |
-| s32_4c_rev_8192x32 | 29.72 | 60.5 | 53.4 | 66.1 | 58.7 | 1.09 | 1.24 | 0.97 | 1.10 | 3.1% |
-| s16_1c_rev_2048x256 | 12.53 | 29.9 | 16.5 | 34.6 | 37.0 | 1.16 | 2.10 | 1.23 | 2.24 | 5.7% |
-| s16_3c_rev_2048x256 | 12.75 | 34.3 | 18.8 | 34.9 | 35.6 | 1.02 | 1.86 | 1.04 | 1.89 | 4.6% |
-| s16_4c_rev_2048x256 | 12.65 | 32.5 | 18.1 | 33.6 | 37.7 | 1.03 | 1.86 | 1.16 | 2.08 | 4.2% |
-| s32_1c_rev_2048x256 | 28.51 | 53.6 | 44.0 | 59.0 | 49.3 | 1.10 | 1.34 | 0.92 | 1.12 | 4.3% |
-| s32_3c_rev_2048x256 | 28.73 | 56.2 | 45.4 | 60.0 | 52.3 | 1.07 | 1.32 | 0.93 | 1.15 | 3.9% |
-| s32_4c_rev_2048x256 | 28.69 | 52.8 | 45.2 | 58.7 | 49.7 | 1.11 | 1.30 | 0.94 | 1.10 | 2.2% |
-| s16_3c_ict_q90_8192x32 | 1.31 | 52.5 | 19.9 | 71.2 | 54.5 | 1.36 | 3.59 | 1.04 | 2.74 | 3.9% |
-| s32_3c_ict_q90_8192x32 | 1.25 | 53.7 | 21.2 | 68.3 | 53.8 | 1.27 | 3.23 | 1.00 | 2.54 | 4.3% |
-| s16_3c_ict_q90_2048x256 | 0.60 | 48.4 | 14.3 | 65.5 | 46.7 | 1.35 | 4.56 | 0.96 | 3.25 | 4.8% |
-| s32_3c_ict_q90_2048x256 | 0.59 | 46.9 | 14.4 | 61.4 | 45.4 | 1.31 | 4.27 | 0.97 | 3.15 | 4.1% |
-| s16_3c_ict_qs002_8192x32 | 5.29 | 65.4 | 20.5 | 81.6 | 64.4 | 1.25 | 3.97 | 0.99 | 3.14 | 2.8% |
-| s32_3c_ict_qs002_8192x32 | 5.32 | 65.9 | 23.5 | 80.6 | 64.0 | 1.22 | 3.43 | 0.97 | 2.72 | 5.0% |
-| s16_3c_rev_noise_8192x32 | 17.46 | 34.9 | 18.3 | 38.7 | 39.8 | 1.11 | 2.11 | 1.14 | 2.17 | 4.2% |
-| s32_3c_rev_noise_8192x32 | 33.47 | 57.9 | 47.5 | 64.6 | 56.9 | 1.12 | 1.36 | 0.98 | 1.20 | 2.8% |
-| u12_3c_rev_3840x2160 | 8.14 | 32.9 | 15.3 | 36.0 | 32.8 | 1.09 | 2.35 | 1.00 | 2.14 | 6.7% |
-| u12_3c_ict_q90_3840x2160 | 0.04 | 14.1 | 7.0 | 16.5 | 13.6 | 1.17 | 2.36 | 0.96 | 1.94 | 5.1% |
-| u12_3c_ict_qs002_3840x2160 | 3.82 | 39.5 | 15.0 | 42.6 | 36.1 | 1.08 | 2.85 | 0.91 | 2.41 | 5.4% |
+| s16_1c_rev_8192x32 | 13.43 | 33.5 | 18.3 | 35.4 | 26.8 | 1.06 | 1.93 | 0.80 | 1.47 | 5.5% |
+| s16_3c_rev_8192x32 | 13.79 | 38.5 | 18.1 | 33.7 | 27.8 | 0.88 | 1.86 | 0.72 | 1.54 | 6.2% |
+| s16_4c_rev_8192x32 | 13.69 | 41.2 | 23.6 | 43.2 | 35.1 | 1.05 | 1.83 | 0.85 | 1.49 | 11.2% |
+| s32_1c_rev_8192x32 | 29.62 | 54.4 | 47.8 | 53.2 | 48.7 | 0.98 | 1.11 | 0.90 | 1.02 | 5.8% |
+| s32_3c_rev_8192x32 | 29.78 | 58.3 | 54.6 | 64.2 | 48.3 | 1.10 | 1.17 | 0.83 | 0.88 | 5.2% |
+| s32_4c_rev_8192x32 | 29.72 | 64.1 | 56.8 | 65.2 | 46.8 | 1.02 | 1.15 | 0.73 | 0.82 | 3.6% |
+| s16_1c_rev_2048x256 | 12.53 | 32.7 | 18.3 | 33.2 | 25.9 | 1.02 | 1.82 | 0.79 | 1.41 | 7.5% |
+| s16_3c_rev_2048x256 | 12.75 | 31.2 | 17.2 | 29.3 | 26.5 | 0.94 | 1.70 | 0.85 | 1.54 | 11.5% |
+| s16_4c_rev_2048x256 | 12.65 | 39.6 | 20.3 | 30.9 | 38.5 | 0.78 | 1.52 | 0.97 | 1.89 | 9.2% |
+| s32_1c_rev_2048x256 | 28.51 | 56.2 | 46.7 | 50.1 | 42.7 | 0.89 | 1.07 | 0.76 | 0.91 | 4.1% |
+| s32_3c_rev_2048x256 | 28.73 | 61.7 | 51.1 | 62.8 | 46.0 | 1.02 | 1.23 | 0.75 | 0.90 | 10.2% |
+| s32_4c_rev_2048x256 | 28.69 | 57.9 | 53.5 | 73.1 | 56.1 | 1.26 | 1.37 | 0.97 | 1.05 | 10.2% |
+| s16_3c_ict_q90_8192x32 | 1.31 | 60.5 | 30.3 | 63.1 | 57.8 | 1.04 | 2.08 | 0.96 | 1.91 | 12.3% |
+| s32_3c_ict_q90_8192x32 | 1.25 | 56.6 | 19.7 | 58.0 | 53.2 | 1.02 | 2.94 | 0.94 | 2.70 | 3.7% |
+| s16_3c_ict_q90_2048x256 | 0.60 | 55.8 | 17.8 | 56.3 | 48.8 | 1.01 | 3.17 | 0.87 | 2.75 | 5.1% |
+| s32_3c_ict_q90_2048x256 | 0.59 | 49.4 | 14.9 | 57.5 | 47.9 | 1.16 | 3.87 | 0.97 | 3.22 | 4.8% |
+| s16_3c_ict_qs002_8192x32 | 5.29 | 73.5 | 24.7 | 68.4 | 62.6 | 0.93 | 2.76 | 0.85 | 2.53 | 9.0% |
+| s32_3c_ict_qs002_8192x32 | 5.32 | 76.1 | 30.2 | 79.4 | 58.3 | 1.04 | 2.63 | 0.77 | 1.93 | 6.4% |
+| s16_3c_rev_noise_8192x32 | 17.46 | 44.1 | 17.5 | 33.9 | 32.0 | 0.77 | 1.94 | 0.73 | 1.83 | 9.3% |
+| s32_3c_rev_noise_8192x32 | 33.47 | 63.0 | 49.2 | 47.8 | 38.7 | 0.76 | 0.97 | 0.61 | 0.79 | 7.0% |
+| u12_3c_rev_3840x2160 | 8.14 | 38.1 | 17.4 | 36.7 | 30.0 | 0.96 | 2.11 | 0.79 | 1.72 | 12.2% |
+| u12_3c_ict_q90_3840x2160 | 0.04 | 18.4 | 6.8 | 15.0 | 12.2 | 0.82 | 2.22 | 0.66 | 1.80 | 12.3% |
+| u12_3c_ict_qs002_3840x2160 | 3.82 | 33.3 | 21.3 | 51.6 | 32.3 | 1.55 | 2.43 | 0.97 | 1.52 | 11.0% |
 
 Instructions per sample (instructions:u):
 
 | configuration | OpenJPH generic | OpenJPH SIMD | htj2k | htj2k native | htj2k / generic | htj2k / SIMD | ± max |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| s16_1c_rev_8192x32 | 101.8 | 46.4 | 122.9 | 102.2 | 1.21 | 2.65 | 0.00% |
-| s16_3c_rev_8192x32 | 107.2 | 47.0 | 125.0 | 103.7 | 1.17 | 2.66 | 0.00% |
-| s16_4c_rev_8192x32 | 105.8 | 46.9 | 124.5 | 103.3 | 1.18 | 2.66 | 0.00% |
-| s32_1c_rev_8192x32 | 184.0 | 155.3 | 217.5 | 174.7 | 1.18 | 1.40 | 0.00% |
-| s32_3c_rev_8192x32 | 182.7 | 155.8 | 217.7 | 175.9 | 1.19 | 1.40 | 0.00% |
-| s32_4c_rev_8192x32 | 183.0 | 155.6 | 217.6 | 175.6 | 1.19 | 1.40 | 0.00% |
-| s16_1c_rev_2048x256 | 99.1 | 44.2 | 119.4 | 99.1 | 1.21 | 2.70 | 0.00% |
-| s16_3c_rev_2048x256 | 104.2 | 44.9 | 121.2 | 100.2 | 1.16 | 2.70 | 0.00% |
-| s16_4c_rev_2048x256 | 102.8 | 44.7 | 120.7 | 99.8 | 1.17 | 2.70 | 0.00% |
-| s32_1c_rev_2048x256 | 179.9 | 151.1 | 212.1 | 170.2 | 1.18 | 1.40 | 0.00% |
-| s32_3c_rev_2048x256 | 178.8 | 151.8 | 212.4 | 171.5 | 1.19 | 1.40 | 0.00% |
-| s32_4c_rev_2048x256 | 179.1 | 151.6 | 212.4 | 171.2 | 1.19 | 1.40 | 0.00% |
-| s16_3c_ict_q90_8192x32 | 121.7 | 38.3 | 160.5 | 108.4 | 1.32 | 4.20 | 0.00% |
-| s32_3c_ict_q90_8192x32 | 121.1 | 37.8 | 160.0 | 108.0 | 1.32 | 4.23 | 0.00% |
-| s16_3c_ict_q90_2048x256 | 104.8 | 27.9 | 137.7 | 88.1 | 1.31 | 4.94 | 0.00% |
-| s32_3c_ict_q90_2048x256 | 104.8 | 27.9 | 137.8 | 88.1 | 1.31 | 4.94 | 0.00% |
-| s16_3c_ict_qs002_8192x32 | 148.9 | 44.7 | 186.5 | 131.1 | 1.25 | 4.17 | 0.00% |
-| s32_3c_ict_qs002_8192x32 | 149.0 | 44.6 | 186.6 | 131.2 | 1.25 | 4.18 | 0.00% |
-| s16_3c_rev_noise_8192x32 | 114.7 | 48.2 | 133.5 | 111.9 | 1.16 | 2.77 | 0.00% |
-| s32_3c_rev_noise_8192x32 | 193.1 | 166.2 | 230.5 | 186.3 | 1.19 | 1.39 | 0.00% |
-| u12_3c_rev_3840x2160 | 93.0 | 37.4 | 108.2 | 89.1 | 1.16 | 2.89 | 0.00% |
-| u12_3c_ict_q90_3840x2160 | 52.3 | 16.4 | 46.4 | 28.8 | 0.89 | 2.83 | 0.00% |
-| u12_3c_ict_qs002_3840x2160 | 108.1 | 40.8 | 112.7 | 87.4 | 1.04 | 2.76 | 0.00% |
+| s16_1c_rev_8192x32 | 101.8 | 46.4 | 98.0 | 80.9 | 0.96 | 2.11 | 0.00% |
+| s16_3c_rev_8192x32 | 107.2 | 47.0 | 99.6 | 81.8 | 0.93 | 2.12 | 0.00% |
+| s16_4c_rev_8192x32 | 105.8 | 46.9 | 99.2 | 81.6 | 0.94 | 2.12 | 0.00% |
+| s32_1c_rev_8192x32 | 184.0 | 155.3 | 177.4 | 143.5 | 0.96 | 1.14 | 0.00% |
+| s32_3c_rev_8192x32 | 182.7 | 155.8 | 175.3 | 142.7 | 0.96 | 1.13 | 0.00% |
+| s32_4c_rev_8192x32 | 183.0 | 155.6 | 176.0 | 143.0 | 0.96 | 1.13 | 0.00% |
+| s16_1c_rev_2048x256 | 99.1 | 44.2 | 95.4 | 78.6 | 0.96 | 2.16 | 0.00% |
+| s16_3c_rev_2048x256 | 104.2 | 44.9 | 96.9 | 79.4 | 0.93 | 2.16 | 0.00% |
+| s16_4c_rev_2048x256 | 102.8 | 44.7 | 96.5 | 79.1 | 0.94 | 2.16 | 0.00% |
+| s32_1c_rev_2048x256 | 179.9 | 151.1 | 181.1 | 146.4 | 1.01 | 1.20 | 0.00% |
+| s32_3c_rev_2048x256 | 178.8 | 151.8 | 178.6 | 145.4 | 1.00 | 1.18 | 0.00% |
+| s32_4c_rev_2048x256 | 179.1 | 151.6 | 179.1 | 145.6 | 1.00 | 1.18 | 0.00% |
+| s16_3c_ict_q90_8192x32 | 121.7 | 38.3 | 125.3 | 102.3 | 1.03 | 3.28 | 0.00% |
+| s32_3c_ict_q90_8192x32 | 121.1 | 37.8 | 124.9 | 102.0 | 1.03 | 3.30 | 0.00% |
+| s16_3c_ict_q90_2048x256 | 104.8 | 27.9 | 104.3 | 83.7 | 1.00 | 3.74 | 0.00% |
+| s32_3c_ict_q90_2048x256 | 104.8 | 27.9 | 104.3 | 83.7 | 1.00 | 3.74 | 0.00% |
+| s16_3c_ict_qs002_8192x32 | 148.9 | 44.7 | 147.7 | 120.7 | 0.99 | 3.30 | 0.00% |
+| s32_3c_ict_qs002_8192x32 | 149.0 | 44.6 | 147.8 | 120.7 | 0.99 | 3.31 | 0.00% |
+| s16_3c_rev_noise_8192x32 | 114.7 | 48.2 | 102.6 | 84.7 | 0.89 | 2.13 | 0.00% |
+| s32_3c_rev_noise_8192x32 | 193.1 | 166.2 | 143.7 | 116.0 | 0.74 | 0.86 | 0.00% |
+| u12_3c_rev_3840x2160 | 93.0 | 37.4 | 90.6 | 75.0 | 0.97 | 2.42 | 0.00% |
+| u12_3c_ict_q90_3840x2160 | 52.3 | 16.4 | 43.7 | 27.0 | 0.84 | 2.67 | 0.00% |
+| u12_3c_ict_qs002_3840x2160 | 108.1 | 40.8 | 104.8 | 80.1 | 0.97 | 2.57 | 0.00% |
 
 ### Encode, all configurations
 
@@ -251,57 +259,57 @@ Cycles per sample (cycles:u), and htj2k's ratios:
 
 | configuration | bits/sample | OpenJPH generic | OpenJPH SIMD | htj2k | htj2k native | htj2k / generic | htj2k / SIMD | native / generic | native / SIMD | ± max |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| s16_1c_rev_8192x32 | 13.43 | 76.4 | 22.4 | 83.7 | 71.1 | 1.10 | 3.74 | 0.93 | 3.18 | 3.2% |
-| s16_3c_rev_8192x32 | 13.79 | 78.2 | 22.8 | 83.0 | 74.7 | 1.06 | 3.64 | 0.95 | 3.28 | 4.0% |
-| s16_4c_rev_8192x32 | 13.69 | 76.7 | 26.4 | 81.6 | 77.8 | 1.06 | 3.09 | 1.02 | 2.95 | 3.7% |
-| s32_1c_rev_8192x32 | 29.62 | 110.7 | 99.0 | 122.8 | 98.3 | 1.11 | 1.24 | 0.89 | 0.99 | 6.0% |
-| s32_3c_rev_8192x32 | 29.78 | 109.3 | 104.5 | 121.2 | 107.8 | 1.11 | 1.16 | 0.99 | 1.03 | 2.8% |
-| s32_4c_rev_8192x32 | 29.72 | 112.6 | 105.7 | 119.5 | 110.6 | 1.06 | 1.13 | 0.98 | 1.05 | 2.1% |
-| s16_1c_rev_2048x256 | 12.53 | 69.4 | 19.9 | 77.9 | 65.7 | 1.12 | 3.92 | 0.95 | 3.31 | 3.6% |
-| s16_3c_rev_2048x256 | 12.75 | 71.3 | 23.3 | 75.4 | 70.5 | 1.06 | 3.24 | 0.99 | 3.03 | 2.7% |
-| s16_4c_rev_2048x256 | 12.65 | 70.2 | 23.0 | 76.6 | 68.4 | 1.09 | 3.34 | 0.97 | 2.98 | 4.3% |
-| s32_1c_rev_2048x256 | 28.51 | 100.8 | 97.2 | 108.3 | 95.8 | 1.08 | 1.12 | 0.95 | 0.99 | 2.2% |
-| s32_3c_rev_2048x256 | 28.73 | 101.3 | 100.9 | 116.9 | 101.0 | 1.15 | 1.16 | 1.00 | 1.00 | 3.5% |
-| s32_4c_rev_2048x256 | 28.69 | 105.8 | 100.3 | 113.3 | 98.9 | 1.07 | 1.13 | 0.93 | 0.99 | 3.0% |
-| s16_3c_ict_q90_8192x32 | 1.31 | 82.1 | 32.4 | 91.1 | 80.6 | 1.11 | 2.82 | 0.98 | 2.49 | 4.0% |
-| s32_3c_ict_q90_8192x32 | 1.25 | 91.5 | 32.9 | 102.3 | 88.5 | 1.12 | 3.11 | 0.97 | 2.69 | 2.9% |
-| s16_3c_ict_q90_2048x256 | 0.60 | 66.3 | 27.1 | 71.4 | 62.1 | 1.08 | 2.63 | 0.94 | 2.29 | 3.4% |
-| s32_3c_ict_q90_2048x256 | 0.59 | 79.7 | 25.3 | 88.9 | 74.5 | 1.12 | 3.52 | 0.93 | 2.95 | 3.9% |
-| s16_3c_ict_qs002_8192x32 | 5.29 | 118.5 | 37.7 | 130.6 | 111.1 | 1.10 | 3.46 | 0.94 | 2.95 | 2.4% |
-| s32_3c_ict_qs002_8192x32 | 5.32 | 129.4 | 37.0 | 142.6 | 116.6 | 1.10 | 3.86 | 0.90 | 3.16 | 2.0% |
-| s16_3c_rev_noise_8192x32 | 17.46 | 71.9 | 28.0 | 82.4 | 69.8 | 1.15 | 2.95 | 0.97 | 2.50 | 2.6% |
-| s32_3c_rev_noise_8192x32 | 33.47 | 106.1 | 103.5 | 124.2 | 103.2 | 1.17 | 1.20 | 0.97 | 1.00 | 3.4% |
-| u12_3c_rev_3840x2160 | 8.14 | 64.6 | 21.2 | 65.3 | 58.3 | 1.01 | 3.07 | 0.90 | 2.74 | 4.4% |
-| u12_3c_ict_q90_3840x2160 | 0.04 | 12.7 | 9.0 | 17.1 | 14.3 | 1.35 | 1.90 | 1.13 | 1.59 | 4.4% |
-| u12_3c_ict_qs002_3840x2160 | 3.82 | 76.8 | 23.1 | 80.4 | 77.8 | 1.05 | 3.48 | 1.01 | 3.37 | 2.3% |
+| s16_1c_rev_8192x32 | 13.43 | 79.8 | 23.5 | 48.3 | 44.7 | 0.61 | 2.06 | 0.56 | 1.90 | 3.6% |
+| s16_3c_rev_8192x32 | 13.79 | 78.3 | 23.5 | 79.6 | 61.0 | 1.02 | 3.39 | 0.78 | 2.60 | 8.7% |
+| s16_4c_rev_8192x32 | 13.69 | 89.6 | 25.7 | 49.3 | 49.5 | 0.55 | 1.92 | 0.55 | 1.93 | 7.4% |
+| s32_1c_rev_8192x32 | 29.62 | 129.7 | 106.6 | 67.6 | 61.7 | 0.52 | 0.63 | 0.48 | 0.58 | 3.5% |
+| s32_3c_rev_8192x32 | 29.78 | 112.6 | 105.6 | 84.7 | 68.8 | 0.75 | 0.80 | 0.61 | 0.65 | 4.3% |
+| s32_4c_rev_8192x32 | 29.72 | 122.1 | 110.2 | 79.9 | 67.0 | 0.65 | 0.73 | 0.55 | 0.61 | 2.4% |
+| s16_1c_rev_2048x256 | 12.53 | 77.3 | 23.0 | 53.7 | 41.8 | 0.69 | 2.33 | 0.54 | 1.81 | 4.8% |
+| s16_3c_rev_2048x256 | 12.75 | 76.9 | 24.0 | 87.5 | 58.6 | 1.14 | 3.64 | 0.76 | 2.44 | 5.2% |
+| s16_4c_rev_2048x256 | 12.65 | 80.1 | 25.3 | 52.3 | 41.8 | 0.65 | 2.07 | 0.52 | 1.65 | 4.7% |
+| s32_1c_rev_2048x256 | 28.51 | 108.0 | 106.2 | 67.3 | 58.9 | 0.62 | 0.63 | 0.55 | 0.55 | 4.9% |
+| s32_3c_rev_2048x256 | 28.73 | 106.4 | 116.4 | 83.7 | 65.6 | 0.79 | 0.72 | 0.62 | 0.56 | 10.0% |
+| s32_4c_rev_2048x256 | 28.69 | 102.4 | 113.4 | 66.9 | 65.6 | 0.65 | 0.59 | 0.64 | 0.58 | 10.5% |
+| s16_3c_ict_q90_8192x32 | 1.31 | 88.8 | 38.9 | 74.3 | 73.9 | 0.84 | 1.91 | 0.83 | 1.90 | 3.4% |
+| s32_3c_ict_q90_8192x32 | 1.25 | 103.0 | 36.3 | 90.7 | 85.6 | 0.88 | 2.50 | 0.83 | 2.36 | 3.2% |
+| s16_3c_ict_q90_2048x256 | 0.60 | 66.4 | 25.9 | 58.4 | 56.2 | 0.88 | 2.26 | 0.85 | 2.17 | 4.5% |
+| s32_3c_ict_q90_2048x256 | 0.59 | 79.4 | 32.0 | 77.1 | 67.9 | 0.97 | 2.41 | 0.85 | 2.12 | 3.5% |
+| s16_3c_ict_qs002_8192x32 | 5.29 | 116.4 | 40.8 | 120.8 | 97.5 | 1.04 | 2.96 | 0.84 | 2.39 | 4.3% |
+| s32_3c_ict_qs002_8192x32 | 5.32 | 144.5 | 32.4 | 111.3 | 103.9 | 0.77 | 3.43 | 0.72 | 3.20 | 8.6% |
+| s16_3c_rev_noise_8192x32 | 17.46 | 83.7 | 34.0 | 57.8 | 55.5 | 0.69 | 1.70 | 0.66 | 1.64 | 5.4% |
+| s32_3c_rev_noise_8192x32 | 33.47 | 110.4 | 115.1 | 69.8 | 66.1 | 0.63 | 0.61 | 0.60 | 0.57 | 6.0% |
+| u12_3c_rev_3840x2160 | 8.14 | 70.2 | 22.9 | 52.1 | 52.3 | 0.74 | 2.28 | 0.75 | 2.29 | 6.3% |
+| u12_3c_ict_q90_3840x2160 | 0.04 | 16.0 | 9.3 | 19.9 | 16.3 | 1.24 | 2.14 | 1.02 | 1.76 | 7.6% |
+| u12_3c_ict_qs002_3840x2160 | 3.82 | 79.5 | 26.7 | 68.8 | 60.7 | 0.86 | 2.58 | 0.76 | 2.28 | 3.9% |
 
 Instructions per sample (instructions:u):
 
 | configuration | OpenJPH generic | OpenJPH SIMD | htj2k | htj2k native | htj2k / generic | htj2k / SIMD | ± max |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| s16_1c_rev_8192x32 | 190.7 | 61.3 | 198.8 | 169.1 | 1.04 | 3.24 | 0.00% |
-| s16_3c_rev_8192x32 | 196.6 | 62.0 | 202.0 | 171.2 | 1.03 | 3.25 | 0.00% |
-| s16_4c_rev_8192x32 | 195.0 | 61.8 | 201.0 | 170.6 | 1.03 | 3.25 | 0.00% |
-| s32_1c_rev_8192x32 | 278.6 | 254.0 | 294.2 | 243.8 | 1.06 | 1.16 | 0.00% |
-| s32_3c_rev_8192x32 | 279.2 | 254.6 | 294.5 | 244.8 | 1.05 | 1.16 | 0.00% |
-| s32_4c_rev_8192x32 | 279.0 | 254.4 | 294.3 | 244.5 | 1.05 | 1.16 | 0.00% |
-| s16_1c_rev_2048x256 | 184.9 | 58.2 | 191.5 | 163.4 | 1.04 | 3.29 | 0.00% |
-| s16_3c_rev_2048x256 | 190.3 | 58.7 | 193.8 | 164.8 | 1.02 | 3.30 | 0.00% |
-| s16_4c_rev_2048x256 | 188.7 | 58.5 | 193.0 | 164.3 | 1.02 | 3.30 | 0.00% |
-| s32_1c_rev_2048x256 | 270.6 | 245.9 | 286.7 | 237.4 | 1.06 | 1.17 | 0.00% |
-| s32_3c_rev_2048x256 | 271.5 | 246.7 | 287.4 | 238.9 | 1.06 | 1.16 | 0.00% |
-| s32_4c_rev_2048x256 | 271.3 | 246.6 | 287.4 | 238.7 | 1.06 | 1.17 | 0.00% |
-| s16_3c_ict_q90_8192x32 | 154.1 | 57.3 | 200.0 | 144.1 | 1.30 | 3.49 | 0.00% |
-| s32_3c_ict_q90_8192x32 | 152.9 | 57.0 | 199.2 | 143.4 | 1.30 | 3.50 | 0.00% |
-| s16_3c_ict_q90_2048x256 | 124.2 | 40.5 | 164.1 | 110.7 | 1.32 | 4.05 | 0.00% |
-| s32_3c_ict_q90_2048x256 | 124.2 | 40.5 | 164.5 | 111.1 | 1.32 | 4.07 | 0.00% |
-| s16_3c_ict_qs002_8192x32 | 218.8 | 62.3 | 256.1 | 191.3 | 1.17 | 4.11 | 0.00% |
-| s32_3c_ict_qs002_8192x32 | 219.0 | 62.0 | 256.5 | 191.8 | 1.17 | 4.13 | 0.00% |
-| s16_3c_rev_noise_8192x32 | 210.5 | 66.6 | 218.9 | 185.4 | 1.04 | 3.29 | 0.00% |
-| s32_3c_rev_noise_8192x32 | 293.1 | 268.4 | 311.1 | 259.3 | 1.06 | 1.16 | 0.00% |
-| u12_3c_rev_3840x2160 | 170.0 | 53.3 | 169.0 | 145.3 | 0.99 | 3.17 | 0.00% |
-| u12_3c_ict_q90_3840x2160 | 41.1 | 19.3 | 45.9 | 29.3 | 1.12 | 2.38 | 0.00% |
-| u12_3c_ict_qs002_3840x2160 | 154.0 | 53.9 | 159.2 | 131.8 | 1.03 | 2.95 | 0.00% |
+| s16_1c_rev_8192x32 | 190.7 | 61.3 | 126.2 | 111.5 | 0.66 | 2.06 | 0.00% |
+| s16_3c_rev_8192x32 | 196.6 | 62.0 | 127.8 | 112.3 | 0.65 | 2.06 | 0.00% |
+| s16_4c_rev_8192x32 | 195.0 | 61.8 | 127.3 | 112.1 | 0.65 | 2.06 | 0.00% |
+| s32_1c_rev_8192x32 | 278.6 | 254.0 | 158.8 | 132.0 | 0.57 | 0.63 | 0.00% |
+| s32_3c_rev_8192x32 | 279.2 | 254.6 | 158.4 | 132.4 | 0.57 | 0.62 | 0.00% |
+| s32_4c_rev_8192x32 | 279.0 | 254.4 | 158.4 | 132.2 | 0.57 | 0.62 | 0.00% |
+| s16_1c_rev_2048x256 | 184.9 | 58.2 | 122.6 | 108.1 | 0.66 | 2.11 | 0.00% |
+| s16_3c_rev_2048x256 | 190.3 | 58.7 | 124.0 | 108.9 | 0.65 | 2.11 | 0.00% |
+| s16_4c_rev_2048x256 | 188.7 | 58.5 | 123.7 | 108.7 | 0.66 | 2.11 | 0.00% |
+| s32_1c_rev_2048x256 | 270.6 | 245.9 | 154.4 | 127.8 | 0.57 | 0.63 | 0.00% |
+| s32_3c_rev_2048x256 | 271.5 | 246.7 | 154.2 | 128.6 | 0.57 | 0.62 | 0.00% |
+| s32_4c_rev_2048x256 | 271.3 | 246.6 | 154.3 | 128.5 | 0.57 | 0.63 | 0.00% |
+| s16_3c_ict_q90_8192x32 | 154.1 | 57.3 | 160.6 | 133.3 | 1.04 | 2.80 | 0.00% |
+| s32_3c_ict_q90_8192x32 | 152.9 | 57.0 | 160.2 | 133.0 | 1.05 | 2.81 | 0.00% |
+| s16_3c_ict_q90_2048x256 | 124.2 | 40.5 | 129.7 | 104.6 | 1.04 | 3.20 | 0.00% |
+| s32_3c_ict_q90_2048x256 | 124.2 | 40.5 | 130.1 | 105.0 | 1.05 | 3.22 | 0.00% |
+| s16_3c_ict_qs002_8192x32 | 218.8 | 62.3 | 189.9 | 161.4 | 0.87 | 3.05 | 0.00% |
+| s32_3c_ict_qs002_8192x32 | 219.0 | 62.0 | 190.2 | 161.8 | 0.87 | 3.07 | 0.00% |
+| s16_3c_rev_noise_8192x32 | 210.5 | 66.6 | 130.1 | 114.6 | 0.62 | 1.95 | 0.00% |
+| s32_3c_rev_noise_8192x32 | 293.1 | 268.4 | 161.8 | 135.4 | 0.55 | 0.60 | 0.00% |
+| u12_3c_rev_3840x2160 | 170.0 | 53.3 | 118.7 | 105.3 | 0.70 | 2.23 | 0.00% |
+| u12_3c_ict_q90_3840x2160 | 41.1 | 19.3 | 45.3 | 28.5 | 1.10 | 2.34 | 0.00% |
+| u12_3c_ict_qs002_3840x2160 | 154.0 | 53.9 | 130.1 | 107.8 | 0.84 | 2.41 | 0.00% |
 
 ## Profiles
 
@@ -311,123 +319,122 @@ time, top 5. The 3840x2160 profiles run only 4 iterations, so the
 set-up (`synthesise`, `main` and, for decoding, the encode before the
 loop) takes a large share of them; it is left out here.
 
-**Decode, `s16_3c_rev_8192x32`** (htj2k 33.7, generic 34.1 cycles/sample)
+**Decode, `s16_3c_rev_8192x32`** (htj2k 33.7, generic 38.5 cycles/sample)
 
 | htj2k | % | OpenJPH generic | % |
 |---|--:|---|--:|
-| `coding::decoder32::decode_codeblock32` | 54.8 | `ojph_decode_codeblock32` | 73.4 |
-| `coding::readers::Frwd::read` | 17.5 | `gen_rct_backward` | 3.8 |
-| `transform::wavelet::rev_horz_syn` | 6.9 | `gen_rev_tx_from_cb32` | 3.8 |
-| `codestream::subband::Subband::pull_line` | 3.6 | `gen_rev_horz_syn` | 3.5 |
-| `transform::wavelet::rev_vert_step` | 2.3 | `memmove` | 3.3 |
+| `coding::decoder32::decode_codeblock32` | 72.3 | `ojph_decode_codeblock32` | 71.9 |
+| `transform::wavelet::rev_horz_syn` | 3.9 | `memmove` | 4.4 |
+| `codestream::subband::Subband::pull_line` | 3.6 | `gen_rev_horz_syn` | 3.8 |
+| `transform::colour::rev_convert_nlt_type3` | 2.9 | `gen_rev_tx_from_cb32` | 3.6 |
+| `transform::wavelet::rev_vert_step` | 2.7 | `gen_rct_backward` | 3.6 |
 
-**Decode, `s32_3c_rev_8192x32`** (69.4 against 57.0)
+`memmove` (2.4%) and `memset` (2.4%) follow in htj2k's profile. The
+forward bit reader is now inlined into `decode_codeblock32`.
 
-| htj2k | % | OpenJPH generic | % |
-|---|--:|---|--:|
-| `coding::decoder64::decode_codeblock64` | 74.7 | `ojph_decode_codeblock64` | 68.1 |
-| `transform::wavelet::rev_horz_syn` | 6.9 | `gen_rev_tx_from_cb64` | 7.4 |
-| `codestream::subband::Subband::pull_line` | 3.6 | `gen_rev_horz_syn` | 6.1 |
-| `transform::wavelet::rev_vert_step` | 3.6 | `memmove` | 4.5 |
-| `memset` | 2.0 | `gen_rev_vert_step` | 4.3 |
-
-**Decode, `s16_3c_ict_q90_8192x32`** (71.2 against 52.5)
+**Decode, `s32_3c_rev_8192x32`** (64.2 against 58.3)
 
 | htj2k | % | OpenJPH generic | % |
 |---|--:|---|--:|
-| `transform::colour::irv_convert_to_integer_nlt` | 51.1 | `gen_irv_convert_to_integer_nlt` | 54.3 |
-| `coding::decoder32::decode_codeblock32` | 22.3 | `ojph_decode_codeblock32` | 24.5 |
-| `floorf` (libm) | 5.7 | `gen_irv_horz_syn` | 4.2 |
-| `transform::wavelet::irv_horz_syn` | 5.4 | `gen_ict_backward` | 3.2 |
-| `transform::wavelet::irv_vert_step` | 2.5 | `gen_irv_vert_step` | 2.8 |
+| `coding::decoder64::decode_codeblock64` | 72.1 | `ojph_decode_codeblock64` | 68.2 |
+| `transform::wavelet::rev_horz_syn` | 6.8 | `gen_rev_horz_syn` | 7.0 |
+| `codestream::subband::Subband::pull_line` | 4.8 | `gen_rev_tx_from_cb64` | 6.8 |
+| `transform::wavelet::rev_vert_step` | 3.8 | `memmove` | 5.1 |
+| `memset` | 2.9 | `gen_rev_vert_step` | 4.1 |
 
-**Decode, `u12_3c_rev_3840x2160`**: `decode_codeblock32` and
-`Frwd::read` again lead htj2k's profile (32.4% and 5.9%, with the
-set-up encode in 23.4%), as `ojph_decode_codeblock32` (35.9%) leads
-OpenJPH's.
+**Decode, `s16_3c_ict_q90_8192x32`** (63.1 against 60.5)
 
-**Encode, `s16_3c_rev_8192x32`** (83.0 against 78.2) and
-**`s32_3c_rev_8192x32`** (121.2 against 109.3)
+| htj2k | % | OpenJPH generic | % |
+|---|--:|---|--:|
+| `transform::colour::irv_convert_to_integer_nlt` | 51.9 | `gen_irv_convert_to_integer_nlt` | 55.0 |
+| `coding::decoder32::decode_codeblock32` | 27.1 | `ojph_decode_codeblock32` | 24.4 |
+| `transform::wavelet::irv_horz_syn` | 4.6 | `gen_irv_horz_syn` | 4.6 |
+| `transform::wavelet::irv_vert_step` | 2.8 | `gen_irv_vert_step` | 2.9 |
+| `codestream::subband::Subband::pull_line` | 2.6 | `gen_irv_tx_from_cb32` | 2.7 |
+
+**Decode, `u12_3c_rev_3840x2160`**: `decode_codeblock32` leads
+htj2k's profile (42.1%, with the set-up encode in 16.8%), as
+`ojph_decode_codeblock32` (35.0%) leads OpenJPH's.
+
+**Encode, `s16_3c_rev_8192x32`** (79.6 against 78.3) and
+**`s32_3c_rev_8192x32`** (84.7 against 112.6)
 
 | htj2k, 16-bit | % | htj2k, 32-bit | % |
 |---|--:|---|--:|
-| `coding::encoder::encode` (32-bit) | 87.6 | `coding::encoder::encode` (64-bit) | 83.9 |
-| `memmove` | 2.1 | `transform::wavelet::rev_horz_ana` | 3.1 |
-| `transform::wavelet::rev_horz_ana` | 1.8 | `memmove` | 2.9 |
-| `memset` | 1.8 | `memset` | 2.6 |
-| | | `codestream::write::codeblock::Codeblock::push` | 2.1 |
+| `coding::encoder::encode` (32-bit) | 78.7 | `coding::encoder::encode` (64-bit) | 70.2 |
+| `memmove` | 3.9 | `transform::wavelet::rev_horz_ana` | 5.6 |
+| `memset` | 3.3 | `memmove` | 5.2 |
+| `transform::wavelet::rev_horz_ana` | 2.8 | `memset` | 4.9 |
+| `codestream::write::codeblock::Codeblock::push` | 2.1 | `codestream::write::codeblock::Codeblock::push` | 3.9 |
 
-OpenJPH generic spends 88.9% in `ojph_encode_codeblock32` and 84.8% in
+OpenJPH generic spends 87.6% in `ojph_encode_codeblock32` and 84.0% in
 `ojph_encode_codeblock64`, then the same transforms.
 
-**Encode, `s16_3c_ict_q90_8192x32`** (91.1 against 82.1)
+**Encode, `s16_3c_ict_q90_8192x32`** (74.3 against 88.8)
 
 | htj2k | % | OpenJPH generic | % |
 |---|--:|---|--:|
-| `transform::colour::irv_convert_to_float_nlt` | 40.0 | `gen_irv_convert_to_float_nlt` | 48.5 |
-| `coding::encoder::encode` | 36.8 | `ojph_encode_codeblock32` | 38.5 |
-| `floorf` (libm) | 6.5 | `gen_irv_horz_ana` | 3.1 |
-| `codestream::write::codeblock::Codeblock::push` | 5.4 | `gen_ict_forward` | 2.1 |
-| `transform::wavelet::irv_horz_ana` | 3.3 | `gen_irv_vert_step` | 1.8 |
+| `transform::colour::irv_convert_to_float_nlt` | 42.5 | `gen_irv_convert_to_float_nlt` | 49.0 |
+| `coding::encoder::encode` | 37.8 | `ojph_encode_codeblock32` | 38.7 |
+| `codestream::write::codeblock::Codeblock::push` | 6.4 | `gen_irv_horz_ana` | 3.4 |
+| `transform::wavelet::irv_horz_ana` | 3.6 | `gen_ict_forward` | 2.0 |
+| `transform::wavelet::irv_vert_step` | 2.4 | `gen_irv_vert_step` | 1.7 |
 
-**Encode, `u12_3c_ict_q90_3840x2160`** (17.1 against 12.7), without
+**Encode, `u12_3c_ict_q90_3840x2160`** (19.9 against 16.0), without
 the set-up
 
 | htj2k | % | OpenJPH generic | % |
 |---|--:|---|--:|
-| `codestream::write::codeblock::Codeblock::push` | 21.4 | `gen_irv_horz_ana` | 10.9 |
-| `coding::encoder::encode` | 11.2 | `ojph_encode_codeblock32` | 10.6 |
-| `transform::wavelet::irv_horz_ana` | 10.1 | `gen_ict_forward` | 6.8 |
-| `transform::wavelet::irv_vert_step` | 6.5 | `gen_irv_vert_step` | 6.5 |
-| `memmove` | 3.6 | `gen_irv_tx_to_cb32` | 5.5 |
+| `codestream::write::codeblock::Codeblock::push` | 22.5 | `ojph_encode_codeblock32` | 11.1 |
+| `transform::wavelet::irv_horz_ana` | 10.9 | `gen_irv_horz_ana` | 10.6 |
+| `coding::encoder::encode` | 10.8 | `gen_ict_forward` | 8.4 |
+| `transform::wavelet::irv_vert_step` | 6.9 | `gen_irv_vert_step` | 7.0 |
+| `memmove` | 4.6 | `gen_irv_tx_to_cb32` | 6.2 |
 
 ## Where the gaps are
 
-Against the C++ it is ported from, htj2k is close: 1.0 to 1.36 times
-OpenJPH generic's cycles, about 1.1 on most rows, and the native build
-is at or below OpenJPH generic on most rows (not on the 16-bit
-reversible decode). The large gaps are to OpenJPH's SIMD build, where
-OpenJPH has SIMD kernels.
+Against the C++ it is ported from, htj2k now executes fewer
+instructions than OpenJPH generic on most rows: 0.55 to 0.70 times on
+the reversible encodes, 0.74 to 1.01 on the reversible decodes, and
+1.00 to 1.05 on the Qfactor 90 strips, where the float conversions
+dominate. In cycles, which on this run are noisy (see Variation), it
+is 0.52 to 1.26 times OpenJPH generic on the strips, and the native
+build is at or below OpenJPH generic on every row but one (1.02). The
+large gaps are to OpenJPH's SIMD build, where OpenJPH has SIMD
+kernels.
 
 1. **16-bit and 12-bit samples (32-bit code blocks) against OpenJPH
-   SIMD: about 1.9x to decode and 3.5x to encode.** OpenJPH's AVX2
+   SIMD: about 1.8x to decode and 2.5x to encode.** OpenJPH's AVX2
    block encoder and its SIMD block decoder, wavelet and colour kernels
-   take the reversible images to 15 to 26 cycles per sample in either
-   direction;
-   htj2k needs 34 to 36 to decode and 65 to 84 to encode. The block
-   encoder is 87% of htj2k's encode, so a vectorised block encoder is
-   the largest single item.
-2. **Irreversible coding: 1.9 to 4.6x against SIMD, and 1.3x against
-   generic on the strips' decode.** The conversions between integers
-   and floats with NLT type 4 are half of both sides' time on the
-   Qfactor 90 strips, and OpenJPH SIMD vectorises them. On top of that,
-   htj2k calls libm's `floorf` once per sample (6% of cycles), as the
-   x86-64 baseline has no rounding instruction. With
-   `target-cpu=native` (SSE4.1) it becomes `roundss`, and the native
-   build matches OpenJPH generic (0.99 on the irreversible strips). A
-   rounding that does not need SSE4.1 would give most of that to the
-   default build.
-3. **The block decoders' bit readers.** `Frwd::read` alone is 17.5% of
-   the 16-bit decode, and it is not inlined into `decode_codeblock32`
-   as OpenJPH's `frwd_read` is. htj2k executes 16 to 21% more
-   instructions than OpenJPH generic on every reversible decode. On the
-   32-bit (64-bit block) decode htj2k is 1.12x OpenJPH generic and 1.32x
-   OpenJPH SIMD. OpenJPH has no SIMD 64-bit block decoder, so for
-   32-bit samples this is the gap that matters.
-4. **Empty code blocks in the encoder.** `Codeblock::push` is 21% of
+   take the reversible gradient images to 17 to 26 cycles per sample in
+   either direction; htj2k needs 29 to 43 to decode and about 43 to 64
+   to encode (the 80 and 88 of the 3-component encodes in the tables
+   above are this run's load: two reruns gave 43 to 61, with the same
+   instruction counts).
+   The block encoder is 79% of htj2k's 16-bit encode, so a vectorised
+   block encoder is still the largest single item.
+2. **Irreversible coding: 1.9 to 3.9x against SIMD.** The conversions
+   between integers and floats with NLT type 4 are half of both sides'
+   time on the Qfactor 90 strips, and OpenJPH SIMD vectorises them.
+   htj2k now truncates instead of calling libm's `floorf` (the two
+   agree on every `f32` once saturated to `u32`), so the default build
+   no longer needs SSE4.1 to match OpenJPH generic here.
+3. **Empty code blocks in the encoder.** `Codeblock::push` is 22% of
    the 3840x2160 Qfactor 90 encode, where nearly every block is
-   empty, against 5.5% for OpenJPH's `gen_irv_tx_to_cb32`. This row is
-   htj2k's worst against generic (1.35x). It also shows on the strips
-   (5% of the irreversible encode).
-5. **Zeroing and copying.** `memset` (2 to 2.6%) appears in every htj2k
-   profile and in none of OpenJPH's, and `Subband::pull_line` (3.6%)
-   is a copy that OpenJPH avoids. They are small, but they are on
-   every path.
+   empty, against 6.2% for OpenJPH's `gen_irv_tx_to_cb32`. This is the
+   one row where htj2k executes clearly more instructions than OpenJPH
+   generic (1.10x). It also shows on the strips (6% of the irreversible
+   encode).
+4. **Zeroing and copying.** `memset` (2.4 to 4.9%) is in htj2k's
+   top entries on all four reversible strip profiles and in none of
+   OpenJPH's, and `Subband::pull_line`
+   (2.6 to 4.8%) is a copy that OpenJPH avoids. They are small, but
+   they are on every path.
 
-For 32-bit samples OpenJPH's SIMD build gains little over its generic
-build (1.0 to 1.4x), because its 64-bit block coders have no SIMD
-version. There the default htj2k build is within 1.12 to 1.38x of
-OpenJPH SIMD, and the native build within 1.0 to 1.2x. For 16-bit and
-12-bit samples, matching OpenJPH SIMD needs SIMD block coders,
-wavelets, and colour and sample conversions: about 2x for decoding and
-3x for encoding.
+For 32-bit reversible samples OpenJPH's SIMD build gains little over
+its generic build, because its 64-bit block coders have no SIMD
+version. There the default htj2k build encodes in 0.6 to 0.8 times OpenJPH SIMD's cycles
+and decodes in 1.0 to 1.4 times, and the native build decodes in 0.8
+to 1.05 times. For 16-bit and 12-bit samples, matching OpenJPH SIMD
+needs SIMD block coders, wavelets, and colour and sample conversions:
+about 2x for decoding and 2 to 3x for encoding.

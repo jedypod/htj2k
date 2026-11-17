@@ -212,34 +212,39 @@ instructions from `perf stat`, five runs each, on the least busy core.
 Each harness runs at N and at 2N iterations. The difference of the two
 counts, divided by N and by the number of samples, is the cost per
 sample, so set-up, process start and exit cancel. Cycle ratios are good
-to about ±5 to 10%. Instruction counts vary by less than 0.005%.
+to about ±10 to 20% on this run. Instruction counts vary by less
+than 0.005%.
 
 The table gives the geometric means of the cycle ratios of the default
 build. A ratio above 1 means htj2k takes more cycles.
 
 | Images | Op | htj2k / generic | htj2k / SIMD |
 |---|---|--:|--:|
-| Strips, reversible, 16-bit | decode | 1.07 | 1.89 |
-| | encode | 1.08 | 3.48 |
-| Strips, reversible, 32-bit | decode | 1.12 | 1.32 |
-| | encode | 1.10 | 1.15 |
-| Strips, irreversible | decode | 1.29 | 3.81 |
-| | encode | 1.10 | 3.21 |
-| Strips, noise | decode | 1.11 | 1.70 |
-| | encode | 1.16 | 1.88 |
-| 3840×2160, reversible, 12-bit | decode | 1.09 | 2.35 |
-| | encode | 1.01 | 3.07 |
-| 3840×2160, irreversible, 12-bit | decode | 1.12 | 2.59 |
-| | encode | 1.19 | 2.58 |
+| Strips, reversible, 16-bit | decode | 0.95 | 1.77 |
+| | encode | 0.75 | 2.48 |
+| Strips, reversible, 32-bit | decode | 1.04 | 1.18 |
+| | encode | 0.66 | 0.68 |
+| Strips, irreversible | decode | 1.03 | 2.86 |
+| | encode | 0.89 | 2.53 |
+| Strips, noise | decode | 0.76 | 1.37 |
+| | encode | 0.66 | 1.02 |
+| 3840×2160, reversible, 12-bit | decode | 0.96 | 2.11 |
+| | encode | 0.74 | 2.28 |
+| 3840×2160, irreversible, 12-bit | decode | 1.13 | 2.32 |
+| | encode | 1.04 | 2.35 |
 
-Against OpenJPH generic, htj2k takes 0.99 to 1.36 times the cycles,
-about 1.1 on most configurations. Built with `-C target-cpu=native`, it
-is at or below OpenJPH generic on most configurations. Against OpenJPH
-SIMD, 16-bit and 12-bit samples take about 1.9 times the cycles to
-decode and 3.5 times to encode. For 32-bit samples OpenJPH has no SIMD
-64-bit block coder, and htj2k takes 1.12 to 1.38 times OpenJPH SIMD's
-cycles. [bench/README.md](bench/README.md) has the full tables, the
-profiles, where the gaps are, and how to reproduce the run.
+htj2k executes fewer instructions than OpenJPH generic on most
+configurations (0.55 to 0.70 times on the reversible encodes, 0.74 to
+1.01 on the reversible decodes). Its cycles are 0.52 to 1.55 times
+OpenJPH generic's, and below 1 on most encodes; the cycle figures of
+this run are noisier than usual, as the machine was busy. Built with
+`-C target-cpu=native`, it is at or below OpenJPH generic on all but
+one configuration. Against OpenJPH SIMD, 16-bit and 12-bit samples
+take about 1.8 to 2.1 times the cycles to decode and 2.3 to 2.5 times
+to encode. For 32-bit reversible samples OpenJPH has no SIMD 64-bit block
+coder: htj2k encodes in 0.6 to 0.8 times OpenJPH SIMD's cycles and decodes
+in 1.0 to 1.4 times. [bench/README.md](bench/README.md) has the full
+tables, the profiles, where the gaps are, and how to reproduce the run.
 
 ## Verification
 
