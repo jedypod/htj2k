@@ -423,8 +423,8 @@ const MS_SLACK: usize = 16;
 /// bytes, and no call can fill the buffer. Nearer the end, every call
 /// first writes the complete bytes still pending and then runs the C++'s
 /// loop, so the buffer-full error comes from the same call as in the C++.
-struct Ms {
-    buf: [u8; MS_CAP],
+struct Ms<B> {
+    buf: B,
     pos: usize,
     buf_size: usize,
     max_bits: i32,
@@ -432,11 +432,12 @@ struct Ms {
     acc: u64,
 }
 
-impl Ms {
-    /// `ms_init`.
-    fn new(buf_size: usize) -> Self {
+impl<B: AsRef<[u8]> + AsMut<[u8]>> Ms<B> {
+    /// `ms_init`, with the buffer, of which `buf_size` bytes are used.
+    fn new(buf: B, buf_size: usize) -> Self {
+        debug_assert!(buf_size <= buf.as_ref().len());
         Ms {
-            buf: [0; MS_CAP],
+            buf,
             pos: 0,
             buf_size,
             max_bits: 8,
@@ -450,7 +451,7 @@ impl Ms {
     #[inline(always)]
     fn emit_byte(&mut self) {
         let byte = (self.acc & ((1u64 << self.max_bits) - 1)) as u8;
-        self.buf[self.pos] = byte;
+        self.buf.as_mut()[self.pos] = byte;
         self.pos += 1;
         self.acc >>= self.max_bits;
         self.used_bits -= self.max_bits;
@@ -466,7 +467,7 @@ impl Ms {
         if self.used_bits >= 32 {
             let low = self.acc as u32;
             if self.max_bits == 8 && !has_ff_byte(low) {
-                self.buf[self.pos..self.pos + 4].copy_from_slice(&low.to_le_bytes());
+                self.buf.as_mut()[self.pos..self.pos + 4].copy_from_slice(&low.to_le_bytes());
                 self.pos += 4;
                 self.acc >>= 32;
                 self.used_bits -= 32;
@@ -539,7 +540,7 @@ impl Ms {
                 if self.pos >= self.buf_size {
                     return ojph_error!(0x00020006, "magnitude sign encoder's buffer is full");
                 }
-                self.buf[self.pos] = tmp as u8;
+                self.buf.as_mut()[self.pos] = tmp as u8;
                 self.pos += 1;
             }
         } else if self.max_bits == 7 {
@@ -563,6 +564,11 @@ pub(crate) trait Sample: Copy {
     const MAX_MISSING_MSBS: u32;
     /// `ms_size`, the capacity of the MagSgn buffer.
     const MS_SIZE: usize;
+    /// The MagSgn buffer, `[u8; MS_SIZE]`. It is zeroed for every block,
+    /// so it is no larger than the encoder can use.
+    type MsBuf: AsRef<[u8]> + AsMut<[u8]>;
+    /// A zeroed MagSgn buffer.
+    fn ms_buf() -> Self::MsBuf;
     /// Whether UVLC extension bits are written (64-bit only).
     const UVLC_EXT: bool;
 
@@ -588,6 +594,12 @@ impl Sample for u32 {
     const MAX_MISSING_MSBS: u32 = 29;
     const MS_SIZE: usize = (16384usize * 16).div_ceil(15); // (16384*16+14)/15
     const UVLC_EXT: bool = false;
+    type MsBuf = [u8; Self::MS_SIZE];
+
+    #[inline(always)]
+    fn ms_buf() -> Self::MsBuf {
+        [0; Self::MS_SIZE]
+    }
 
     #[inline(always)]
     fn quantise(self, p: u32) -> Option<(i32, u64)> {
@@ -614,6 +626,12 @@ impl Sample for u64 {
     // samples, rounded up to 22528 bytes, times 16/15 for bit stuffing
     const MS_SIZE: usize = MS_CAP;
     const UVLC_EXT: bool = true;
+    type MsBuf = [u8; MS_CAP];
+
+    #[inline(always)]
+    fn ms_buf() -> Self::MsBuf {
+        [0; MS_CAP]
+    }
 
     #[inline(always)]
     fn quantise(self, p: u32) -> Option<(i32, u64)> {
@@ -687,7 +705,7 @@ impl Quads {
         u_cap: i32,
         vlc: &mut Vlc,
         mel: &mut Mel,
-        ms: &mut Ms,
+        ms: &mut Ms<impl AsRef<[u8]> + AsMut<[u8]>>,
     ) -> Result<()> {
         let rho = self.rho[q];
         let tuple = tbl[((c_q << 8) + (rho << 4) + eps) as usize] as i32;
@@ -762,7 +780,7 @@ pub(crate) fn encode<T: Sample>(
 
     let mut mel = Mel::new();
     let mut vlc = Vlc::new();
-    let mut ms = Ms::new(T::MS_SIZE);
+    let mut ms = Ms::new(T::ms_buf(), T::MS_SIZE);
 
     let p = T::P0 - missing_msbs;
     let stride = stride as usize;
@@ -1026,7 +1044,7 @@ pub(crate) fn encode<T: Sample>(
     let length = ms.pos + mel.pos + vlc.pos;
     let start = coded.len();
     coded.reserve(length);
-    coded.extend_from_slice(&ms.buf[..ms.pos]);
+    coded.extend_from_slice(&ms.buf.as_ref()[..ms.pos]);
     coded.extend_from_slice(&mel.buf[..mel.pos]);
     coded.extend_from_slice(&vlc.buf[VLC_SIZE - vlc.pos..]);
 
@@ -1079,9 +1097,8 @@ pub(crate) fn encode<T: Sample>(
 ///   `0x00020012` for a `width` above 1024 and `0x00020013` for a `buf`
 ///   too small.
 ///
-/// The scratch buffers, about 27 kB, are on the stack. (The C++'s 32-bit
-/// encoder has a smaller MagSgn buffer, 21 kB in all; the port gives both
-/// widths the 64-bit size and limits the 32-bit one to 17477 bytes.)
+/// The scratch buffers, about 21 kB as in the C++ (a MagSgn buffer of
+/// 17477 bytes, smaller than the 64-bit encoder's), are on the stack.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_codeblock32(
     buf: &[u32],
@@ -1205,7 +1222,7 @@ mod tests {
         let mut seed = 0x6d73u64;
         for round in 0..20_000usize {
             let buf_size = if round % 50 == 0 { MS_CAP } else { round % 81 };
-            let mut ms = Ms::new(buf_size);
+            let mut ms = Ms::new([0u8; MS_CAP], buf_size);
             let mut rm = RefMs {
                 buf: Vec::new(),
                 buf_size,
