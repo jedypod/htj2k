@@ -348,8 +348,8 @@ wraps, or writes a codestream that no decoder reads.
 | The colour transform without a `set_planar` call | `0x00030021` | Picks planar, which it cannot encode correctly. |
 
 The encoder also refuses a tile part longer than its 32-bit length field
-can hold, a comment longer than a COM segment can hold (`0x0008000A`),
-and calls out of order. `exchange` before `write_headers` and `flush`
+can hold (`0x00080060`), a comment longer than a COM segment can hold
+(`0x0008000A`), and calls out of order. `exchange` before `write_headers` and `flush`
 before every line is exchanged are calls out of order. A setter called
 after `write_headers` changes nothing.
 
