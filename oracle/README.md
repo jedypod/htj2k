@@ -252,6 +252,8 @@ These are found by the matrix and kept in it on purpose.
   * `rct1_planar_illegal`: the planar interface cannot be used with the
     colour transform.
   * `rct1_2comps`: the colour transform needs 3 or more components.
+  * `mixfmt_rct_illegal`: the colour transform needs the first 3
+    components to have the same depth (0x00040014).
   * `tile_off_illegal`: the tile offset must be smaller than the image
     offset.
   * `sub_2x2_planar0`: the error comes from `ojph_enc`, not OpenJPH.

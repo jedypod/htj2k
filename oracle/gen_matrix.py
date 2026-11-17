@@ -280,6 +280,59 @@ def cases():
     add("zh_middle", "--size", "8x1", "--img-off", "0,1", "--comps", "3",
         "--sub", "1x1,1x2,1x1", "--planar", "1", "--levels", "2", "--seed",
         "1310")
+
+    # -- tile parts in the remaining orders, several tiles in PCRL --
+    tp = ["--size", "40x30", "--comps", "3", "--tile", "24x16", "--levels",
+          "2", "--block", "8x8", "--precincts", "8x8"]
+    add("tp_cprl_C", *tp, "--prog", "CPRL", "--tlm", "--tileparts", "C",
+        "--seed", "1400")
+    add("tp_cprl_C_coc", *tp, "--prog", "CPRL", "--tlm", "--tileparts", "C",
+        "--coc", "1:1:4x8", "--coc", "2:3:16x8", "--seed", "1401")
+    add("tp_rlcp_R", *tp, "--prog", "RLCP", "--tlm", "--tileparts", "R",
+        "--seed", "1402")
+    add("tp_rlcp_C", *tp, "--prog", "RLCP", "--tlm", "--tileparts", "C",
+        "--seed", "1403")
+    add("tp_rlcp_RC_notlm", *tp, "--prog", "RLCP", "--tileparts", "RC",
+        "--seed", "1404")
+    add("pcrl_tiles", "--size", "61x47", "--img-off", "3,2", "--tile-off",
+        "1,1", "--tile", "20x16", "--comps", "3", "--sub", "1x1,2x2,2x1",
+        "--planar", "1", "--levels", "3", "--block", "8x8", "--precincts",
+        "8x8,16x16", "--prog", "PCRL", "--tlm", "--seed", "1405")
+    add("pcrl_tiles_coc", "--size", "50x40", "--tile", "16x16", "--comps",
+        "3", "--levels", "2", "--block", "8x8", "--coc", "2:3:4x4",
+        "--prog", "PCRL", "--seed", "1406")
+
+    # -- irreversible with tiles, offsets, subsampling and precincts --
+    add("irv_tiles_sub_prec", "--size", "61x47", "--img-off", "5,3",
+        "--tile-off", "2,1", "--tile", "24x20", "--comps", "3", "--sub",
+        "1x1,2x2,2x1", "--planar", "1", "--irrev", "--depth", "12",
+        "--levels", "3", "--block", "8x8", "--precincts", "8x8,16x16,32x32",
+        "--prog", "RPCL", "--tlm", "--tileparts", "R", "--seed", "1410")
+    add("irv_rct_tiles_prec", "--size", "45x33", "--img-off", "7,9",
+        "--tile-off", "3,4", "--tile", "16x24", "--comps", "3", "--rct", "1",
+        "--irrev", "--depth", "10", "--signed", "1", "--levels", "2",
+        "--block", "8x8", "--precincts", "8x8,16x16", "--prog", "CPRL",
+        "--tileparts", "C", "--seed", "1411")
+    add("irv_s16_nlt3_tiles", "--size", "64x40", "--tile", "32x32",
+        "--comps", "2", "--irrev", "--depth", "16", "--signed", "1",
+        "--nlt3", "--levels", "3", "--block", "16x16", "--precincts",
+        "16x16", "--prog", "PCRL", "--qstep", "0.0005", "--seed", "1412")
+
+    # -- components of different depth and signedness: 16-bit signed,
+    # 32-bit signed and 32-bit unsigned --
+    mix = ["--comp-fmt", "16:1,32:1,32:0"]
+    add("mixfmt_s16_s32_u32", "--size", "300x32", "--comps", "3", *mix, "--nlt3",
+        "--levels", "5", "--block", "128x32", "--prog", "RPCL", "--tlm",
+        "--tileparts", "R", "--planar", "1", "--seed", "1420")
+    add("mixfmt_s16_s32_u32_noise", "--size", "77x19", "--comps", "3", *mix,
+        "--nlt3", "--levels", "5", "--block", "128x32", "--prog", "RPCL",
+        "--tlm", "--tileparts", "R", "--planar", "0", "--pattern", "noise",
+        "--seed", "1421")
+    add("mixfmt_4c_tiles", "--size", "41x33", "--comps", "4", "--comp-fmt",
+        "16:1,16:1,32:0,8:0", "--nlt3", "--tile", "16x16", "--levels", "2",
+        "--block", "8x8", "--prog", "LRCP", "--seed", "1422")
+    add("mixfmt_rct_illegal", "--size", "8x8", "--comps", "3", "--comp-fmt",
+        "16:1,32:1,16:1", "--rct", "1", "--planar", "0", "--seed", "1423")
     return c
 
 

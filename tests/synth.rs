@@ -31,5 +31,5 @@ fn synthesiser_reproduces_every_lossless_raw() {
         assert_eq!(Some(fnv1a64(&raw)), case.raw_fnv, "{}: hash", case.name);
         checked += 1;
     }
-    assert_eq!(checked, 152);
+    assert_eq!(checked, 162);
 }
