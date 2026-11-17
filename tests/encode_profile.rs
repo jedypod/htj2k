@@ -3,13 +3,16 @@
 // 2-Clause BSD license; see LICENSE-OPENJPH for the original copyright
 // notice and licence text, which also apply to this file.
 
-//! The encoder at large sizes, against the sizes and hashes of
-//! OpenJPH's codestreams in `tests/data/profile/MANIFEST.txt`
-//! (`oracle/gen_profile.py`): short, wide images from 8192x256 down to
-//! 8192x1 and 1x256 with 128x32 blocks, RPCL, TLM and tile parts at
-//! resolutions, reversible with NLT type 3 and the RCT. Each output is
-//! also decoded with the crate's decoder and compared with OpenJPH's
-//! decode.
+//! The encoder at large sizes and over quality sweeps, against the
+//! sizes and hashes of OpenJPH's codestreams in
+//! `tests/data/profile/MANIFEST.txt` (`oracle/gen_profile.py`): short,
+//! wide images from 8192x256 down to 8192x1 and 1x256 with 128x32
+//! blocks, RPCL, TLM and tile parts at resolutions, reversible with NLT
+//! type 3 and the RCT or irreversible with NLT type 4 and the ICT, with
+//! reversible extra components, sizes of 1 mod 32 with a COM segment,
+//! and every Qfactor and a range of explicit per-component steps on a
+//! small image. Each output is also decoded with the crate's decoder
+//! and compared with OpenJPH's decode.
 
 mod common;
 
@@ -143,5 +146,5 @@ fn profile_codestreams_match_openjph() {
         all.len(),
         failed.join("\n")
     );
-    assert_eq!((lossless, lossy), (24, 0));
+    assert_eq!((lossless, lossy), (24, 329));
 }

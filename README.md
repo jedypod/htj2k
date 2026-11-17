@@ -42,9 +42,13 @@ The encoder reproduces OpenJPH's codestreams byte for byte:
 * all 11 in `tests/data/strips`, 300 samples wide and 8 to 200 lines
   high, or 64 wide, with four components under NLT type 3 and the RCT,
   or one, and 128x32 blocks;
-* 24 more at large sizes (`tests/data/profile`): short, wide images
-  from 8192x256 down to 8192x1 and 1x256 with 128x32 blocks, RPCL, TLM
-  and tile parts at resolutions, reversible with NLT type 3 and the RCT.
+* 353 more at large sizes and over quality sweeps
+  (`tests/data/profile`): short, wide images from 8192x256 down to
+  8192x1 and 1x256 with 128x32 blocks, RPCL, TLM and tile parts at
+  resolutions, reversible with NLT type 3 and the RCT or irreversible
+  with NLT type 4 and the ICT, reversible extra components, sizes of
+  1 mod 32 with a COM segment, and every Qfactor and 54 explicit
+  per-component steps on 16- and 32-bit signed samples.
 
 It also refuses each of the 16 configurations OpenJPH refuses, with
 OpenJPH's error code where OpenJPH gives one. Its block encoder

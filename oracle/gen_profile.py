@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 """Generates tests/data/profile/MANIFEST.txt: encoder references at large
-sizes, kept as sizes and hashes.
+sizes and over quality sweeps, kept as sizes and hashes.
 
 Every case is an ojph_enc command line, encoded with OpenJPH and decoded
 with ojph_dec. The codestreams are too large to commit (up to a few MB
-each), so the manifest keeps the size and FNV-1a-64 hash of
+each), or too many, so the manifest keeps the size and FNV-1a-64 hash of
 the codestream, of its main header (up to the first SOT, so a test can
 tell a parameter difference from one in the coded data) and of
 ojph_dec's decode. tests/encode_profile.rs encodes each case with the
 crate's encoder and requires the same bytes, then decodes them with the
 crate's decoder and requires ojph_dec's samples.
 
-The cases, wide_*: one tile, RPCL, 128x32 code blocks, 5
-decompositions, TLM and tile parts at resolutions, at sizes from
-8192x256 down to 8192x1 and 1x256, with 1 to 4 components of 16-bit
-signed (NLT type 3), 32-bit signed (NLT type 3) and 32-bit unsigned
-samples, reversible with the RCT on three or four components, planar
-when subsampled.
+The cases:
+* wide_*: one tile, RPCL, 128x32 code blocks, 5 decompositions, TLM and
+  tile parts at resolutions, at sizes from 8192x256 down to 8192x1 and
+  1x256, with 1 to 4 components of 16-bit signed (NLT type 3), 32-bit
+  signed (NLT type 3) and 32-bit unsigned samples, reversible with the
+  RCT on three or four components, planar when subsampled;
+* ict_*: the same layout, irreversible with the ICT and NLT type 4 on
+  the first three components, at the same sizes and at sizes of 1 mod 32
+  (8193x257 to 1x257), with a COM segment, and with reversible extra
+  components (NLT type 3 when signed);
+* sweep_*: one 64x32 image of three components, irreversible with the
+  ICT and NLT type 4, at every Qfactor from 1 to 100 and at 54
+  explicit per-component steps, for 16-bit and 32-bit signed samples.
 
 The codestreams, their decodes and the encoder inputs are left in
 oracle/build/profile/.
@@ -34,6 +41,27 @@ S16 = ["--depth", "16", "--signed", "1", "--nlt3"]
 S32 = ["--depth", "32", "--signed", "1", "--nlt3"]
 U32 = ["--depth", "32", "--signed", "0"]
 RCT = ["--rct", "1", "--planar", "0"]
+
+
+def nlt4(comps, points):
+    out = []
+    for c in comps:
+        out += ["--nlt4", "%d:%d" % (c, points)]
+    return out
+
+
+# Irreversible with the ICT and NLT type 4 on components 0 to 2.
+ICT16 = ["--depth", "16", "--signed", "1", "--irrev", "--rct", "1"] + \
+    nlt4(range(3), 513)
+ICT32 = ["--depth", "32", "--signed", "1", "--irrev", "--rct", "1"] + \
+    nlt4(range(3), 257)
+
+
+def steps(k):
+    """The k-th step of the explicit sweep, for components 0, 1 and 2."""
+    base = 0.006 * 0.85 ** k
+    return ["--qstep", "%.6g" % base, "--qstep-comp", "1:%.6g" % (base * 0.96),
+            "--qstep-comp", "2:%.6g" % (base * 1.1)]
 
 
 def cases():
@@ -76,6 +104,56 @@ def cases():
         add("wide_s16_rct_3c_%s" % size, size, 3, S16, *RCT, seed=5040 + i)
     add("wide_s32_1c_8192x1", "8192x1", 1, S32, seed=5046)
     add("wide_u32_rct_3c_1x256", "1x256", 3, U32, *RCT, seed=5047)
+
+    # -- irreversible with the ICT and NLT type 4 --
+    for i, size in enumerate(["8192x256", "8192x32", "8192x8", "8192x3",
+                              "8192x1", "1x256"]):
+        add("ict_s16_q90_%s" % size, size, 3, ICT16, "--qfactor", "90",
+            seed=5100 + i)
+    add("ict_s16_noise_q60_2048x256", "2048x256", 3, ICT16, "--qfactor",
+        "60", "--pattern", "noise", seed=5106)
+    add("ict_s32_steps_2048x256", "2048x256", 3, ICT32, *steps(10),
+        seed=5107)
+    add("ict_s32_q75_8192x32", "8192x32", 3, ICT32, "--qfactor", "75",
+        seed=5108)
+    # sizes of 1 mod 32, with a COM segment recording the padding
+    for i, (size, pad) in enumerate([
+            ("8193x257", "rows=1,cols=1"), ("8193x33", "rows=1,cols=1"),
+            ("8193x1", "rows=0,cols=1"), ("4097x33", "rows=30,cols=1"),
+            ("513x33", "rows=16,cols=0"), ("33x33", "rows=0,cols=0"),
+            ("1x257", "rows=1,cols=0")]):
+        add("ict_s16_pad1_%s" % size, size, 3, ICT16, "--qfactor", "90",
+            "--comment", "padding:" + pad, seed=5110 + i)
+    add("ict_s32_pad1_steps_97x33", "97x33", 3, ICT32, *steps(3),
+        "--comment", "padding:rows=28,cols=0", seed=5117)
+    # reversible extra components: 32-bit signed with NLT type 3, and
+    # 32-bit unsigned
+    mixed = ["--comp-fmt", "16:1,16:1,16:1,32:1,32:0", "--irrev", "--rct",
+             "1", "--rev-comps", "3,4", "--nlt3-comps", "3"] + \
+        nlt4(range(3), 513)
+    add("ict_mixed_5c_q85_2048x256", "2048x256", 5, mixed, "--qfactor",
+        "85", seed=5120)
+    add("ict_mixed_5c_steps_1000x64", "1000x64", 5, mixed, *steps(20),
+        seed=5121)
+    add("ict_s32_rev_s16_4c_q50_512x256", "512x256", 4,
+        ["--comp-fmt", "32:1,32:1,32:1,16:1", "--irrev", "--rct", "1",
+         "--rev-comps", "3", "--nlt3-comps", "3"] + nlt4(range(3), 257),
+        "--qfactor", "50", seed=5122)
+    # a subsampled fourth component: planar, so no ICT
+    add("irv_s16_sub_4c_q90_512x64", "512x64", 4,
+        ["--depth", "16", "--signed", "1", "--irrev", "--sub",
+         "1x1,1x1,1x1,2x2", "--planar", "1", "--rev-comps", "3",
+         "--nlt3-comps", "3"] + nlt4(range(3), 513), "--qfactor", "90",
+        seed=5123)
+
+    # -- sweeps on one small image --
+    for kind, ict in [("s16", ICT16), ("s32", ICT32)]:
+        for q in range(1, 101):
+            add("sweep_%s_q%d" % (kind, q), "64x32", 3, ict, "--qfactor",
+                str(q), seed=5200)
+        for k in range(54):
+            add("sweep_%s_step%d" % (kind, k), "64x32", 3, ict, *steps(k),
+                seed=5200)
     return c
 
 
@@ -97,7 +175,7 @@ def main():
     clean_dir(out, {".txt"})
     clean_dir(build, {".j2c", ".raw"})
     manifest = [
-        "# Encoder references at large sizes,",
+        "# Encoder references at large sizes and over quality sweeps,",
         "# made with oracle/ojph_enc and decoded with oracle/ojph_dec by",
         "# oracle/gen_profile.py.  The codestreams are not committed;",
         "# they are in oracle/build/profile/ after a regeneration.",
@@ -128,7 +206,7 @@ def main():
             print("DECODE-FAILED", name, se.strip())
             bad += 1
             continue
-        lossy = "--irrev" in args
+        lossy = "--irrev" in args or "--irrev-comps" in args
         if open(rin, "rb").read() == open(raw, "rb").read():
             status = "lossless"
         elif lossy:

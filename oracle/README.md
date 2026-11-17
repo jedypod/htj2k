@@ -179,7 +179,7 @@ others, about 2 MB, are checked by hash, and all of them are left in
 
 ### `tests/data/profile/MANIFEST.txt`
 
-`gen_profile.py` encodes 24 images with `ojph_enc` and decodes them
+`gen_profile.py` encodes 353 images with `ojph_enc` and decodes them
 with `ojph_dec`:
 
 * `wide_*`: one tile, RPCL, 128x32 code blocks, 5 decompositions, TLM
@@ -189,20 +189,35 @@ with `ojph_dec`:
   reversible, with the RCT on three or four components, and planar with
   subsampled chroma (`--sub 1x1,2x2,2x2`). A few short or small images
   use fewer levels.
+* `ict_*`: the same layout, irreversible with the ICT and NLT type 4
+  (`--nlt4`, 513 points for 16-bit and 257 for 32-bit components) on
+  the first three components, with a Qfactor or explicit
+  per-component steps; at the sizes above, at sizes of 1 mod 32 (from
+  8193x257 to 1x257, as replication padding to 2^5 n + 1 gives) with a
+  COM segment recording the padding, with reversible extra components
+  (32-bit signed with NLT type 3, 32-bit unsigned, 16-bit signed), and
+  planar with a subsampled reversible fourth component (so no ICT).
+* `sweep_*`: one 64x32 image of three components, irreversible with
+  the ICT and NLT type 4, at every Qfactor from 1 to 100 and at 54
+  explicit steps (base 0.006 * 0.85^k, components 1 and 2 at 0.96 and
+  1.1 times the base), for 16-bit and 32-bit signed samples.
 
-The codestreams total about 54 MB, so only sizes and hashes are
+The codestreams total about 60 MB, so only sizes and hashes are
 committed:
 
 ```
 name | status | j2c bytes | j2c_fnv1a64 | header bytes | header_fnv1a64 | raw bytes | raw_fnv1a64 | command
 ```
 
-`status` is `lossless`: the decode equals the encoder input. The header
-is the main header, up to the first SOT, so a test can tell a parameter
-difference from one in the coded data. The raw is `ojph_dec`'s decode.
-The codestreams, decodes and encoder inputs are left in
-`oracle/build/profile/`, where the encoder test looks for the
-codestream to report the first byte that differs.
+`status` is `lossless` (the decode equals the encoder input) or `lossy`
+(irreversible). The header is the main header, up to the first SOT, so
+a test can tell a parameter difference (NLT, QCD, QCC, COC, COM) from
+one in the coded data. The raw is `ojph_dec`'s decode.
+`tests/encode_profile.rs` encodes every case and requires the same
+header and codestream, then decodes it with the crate's decoder and
+requires `ojph_dec`'s samples. The codestreams, decodes and encoder
+inputs are left in `oracle/build/profile/`, where the test looks for
+the codestream to report the first byte that differs.
 
 ### `tests/data/ours/MANIFEST.txt`
 
