@@ -403,6 +403,34 @@ impl Encoder {
             );
         }
 
+        // set_precinct_size checks sizes only up to the decompositions of
+        // the time. Raising them afterwards, or carrying on after it
+        // failed, leaves precincts of 1 sample above resolution 0, which
+        // OpenJPH writes and then cannot decode (0x0005007F). The COD is
+        // written even when every component has a COC, so it is checked
+        // too.
+        let cods = std::iter::once((None, &self.cod))
+            .chain((0..num_comps).map(|c| (Some(c), self.cod.get_coc(c))));
+        for (comp, cod) in cods {
+            for r in 1..=cod.get_num_decompositions() {
+                let p = cod.get_log_precinct_size(r);
+                if p.w == 0 || p.h == 0 {
+                    let which = match comp {
+                        None => "the COD segment".to_string(),
+                        Some(c) => format!("component {c}"),
+                    };
+                    return ojph_error!(
+                        0x00080009,
+                        "{} has a precinct size of {}x{} at resolution {}; only resolution 0 can have precincts 1 sample wide or high (set the precinct sizes after the number of decompositions)",
+                        which,
+                        1u32 << p.w,
+                        1u32 << p.h,
+                        r
+                    );
+                }
+            }
+        }
+
         // pre_alloc: the tile grid
         let sz = &self.siz;
         let tile_size = sz.get_tile_size();
