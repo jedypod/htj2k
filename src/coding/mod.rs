@@ -23,6 +23,8 @@
 mod decoder32;
 mod decoder64;
 mod encoder;
+#[cfg(feature = "simd")]
+mod encoder_avx2;
 mod readers;
 mod tables;
 

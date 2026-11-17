@@ -75,9 +75,9 @@ const fn build_vlc_enc(src: &[VlcSrc]) -> [u16; 2048] {
 }
 
 /// VLC encoding table for the initial row of quads (`vlc_tbl0`).
-static VLC_TBL0: [u16; 2048] = build_vlc_enc(&TBL0);
+pub(super) static VLC_TBL0: [u16; 2048] = build_vlc_enc(&TBL0);
 /// VLC encoding table for the other rows of quads (`vlc_tbl1`).
-static VLC_TBL1: [u16; 2048] = build_vlc_enc(&TBL1);
+pub(super) static VLC_TBL1: [u16; 2048] = build_vlc_enc(&TBL1);
 
 /// One UVLC codeword: prefix, suffix and extension, each with its length
 /// (`uvlc_tbl_struct`).
@@ -129,12 +129,14 @@ static UVLC_TBL: [Uvlc; NUM_UVLC_ENTRIES] = build_uvlc();
 // ---------------------------------------------------------------------------
 
 /// Size of the MEL part of the C++'s `mel_vlc_buf`.
-const MEL_SIZE: usize = 192;
+pub(super) const MEL_SIZE: usize = 192;
 /// Size of the VLC part of the C++'s `mel_vlc_buf` (3072 - 192).
-const VLC_SIZE: usize = 3072 - MEL_SIZE;
+pub(super) const VLC_SIZE: usize = 3072 - MEL_SIZE;
 /// The largest MagSgn buffer (the 64-bit encoder's `ms_size`,
 /// `(22528 * 16 + 14) / 15` in the C++).
 const MS_CAP: usize = (22528usize * 16).div_ceil(15);
+/// The 32-bit encoder's `ms_size`, `(16384 * 16 + 14) / 15` in the C++.
+pub(super) const MS_SIZE32: usize = (16384usize * 16).div_ceil(15);
 
 /// `mel_struct`; `buf_size` is `MEL_SIZE`.
 struct Mel {
@@ -148,7 +150,7 @@ struct Mel {
 }
 
 /// MEL exponents.
-const MEL_EXP: [i32; 13] = [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5];
+pub(super) const MEL_EXP: [i32; 13] = [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5];
 
 impl Mel {
     /// `mel_init`.
@@ -592,7 +594,7 @@ impl Sample for u32 {
     const ZERO: Self = 0;
     const P0: u32 = 30;
     const MAX_MISSING_MSBS: u32 = 29;
-    const MS_SIZE: usize = (16384usize * 16).div_ceil(15); // (16384*16+14)/15
+    const MS_SIZE: usize = MS_SIZE32;
     const UVLC_EXT: bool = false;
     type MsBuf = [u8; Self::MS_SIZE];
 
@@ -1109,7 +1111,46 @@ pub fn encode_codeblock32(
     stride: u32,
     coded: &mut Vec<u8>,
 ) -> Result<u32> {
+    #[cfg(feature = "simd")]
+    if let Some(length) = encode32_simd(buf, missing_msbs, num_passes, width, height, stride, coded)
+    {
+        return Ok(length);
+    }
     encode(buf, missing_msbs, num_passes, width, height, stride, coded)
+}
+
+#[cfg(feature = "simd")]
+crate::simd::avx2_dispatch! {
+    /// The AVX2 encoder, where it applies: arguments the generic encoder
+    /// accepts, with a `height` of at least 1 (the generic encoder codes
+    /// row 0 even for a height of 0) and a `width` of at least 1. `None`
+    /// leaves `coded` as it was, for the generic encoder, which then
+    /// encodes the block or returns the error.
+    #[allow(clippy::too_many_arguments, clippy::ptr_arg)]
+    pub(super) fn encode32_simd(
+        buf: &[u32],
+        missing_msbs: u32,
+        num_passes: u32,
+        width: u32,
+        height: u32,
+        stride: u32,
+        coded: &mut Vec<u8>,
+    ) -> Option<u32> {
+        avx2 => {
+            let fits = height >= 1
+                && (height as u64 - 1) * stride as u64 + width as u64 <= buf.len() as u64;
+            if num_passes != 1 || missing_msbs > 29 || !(1..=1024).contains(&width) || !fits {
+                return None;
+            }
+            let start = coded.len();
+            let length = super::encoder_avx2::encode32(buf, missing_msbs, width, height, stride, coded);
+            if length.is_none() {
+                coded.truncate(start);
+            }
+            length
+        },
+        fallback => None,
+    }
 }
 
 /// Encodes one code block of 64-bit samples with the HT cleanup pass; port

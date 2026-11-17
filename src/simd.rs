@@ -24,7 +24,7 @@
 //! intrinsic then, and `multiversion` then calls the function's
 //! baseline version, which has no such attribute, so no safe code could
 //! reach the kernels. Such builds leave the kernels out: each kernel
-//! module starts with the same `cfg` as the macro's.
+//! module, and [`x86`], starts with the same `cfg` as the macro's.
 //!
 //! Vectors are loaded and stored through arrays: `_mm256_setr_epi32` of
 //! the eight elements of an `&[u32; 8]` and the eight
@@ -105,8 +105,56 @@ macro_rules! avx2_dispatch {
         }
     };
 }
-#[allow(unused_imports)] // until the first kernel
 pub(crate) use avx2_dispatch;
+
+#[cfg(all(
+    target_arch = "x86_64",
+    not(all(
+        target_feature = "avx2",
+        target_feature = "bmi1",
+        target_feature = "bmi2",
+        target_feature = "lzcnt",
+        target_feature = "popcnt"
+    ))
+))]
+pub(crate) mod x86 {
+    //! Helpers for the AVX2 kernels.
+
+    pub(crate) use std::arch::x86_64::*;
+
+    /// Loads the first 8 elements of `s` (one `vmovdqu`).
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    pub(crate) fn load_u32(s: &[u32]) -> __m256i {
+        let s: &[u32; 8] = s[..8].try_into().unwrap();
+        _mm256_setr_epi32(
+            s[0] as i32,
+            s[1] as i32,
+            s[2] as i32,
+            s[3] as i32,
+            s[4] as i32,
+            s[5] as i32,
+            s[6] as i32,
+            s[7] as i32,
+        )
+    }
+
+    /// The 8 lanes of `v` (one `vmovdqu` into the array).
+    #[target_feature(enable = "avx2")]
+    #[inline]
+    pub(crate) fn lanes_u32(v: __m256i) -> [u32; 8] {
+        [
+            _mm256_extract_epi32::<0>(v) as u32,
+            _mm256_extract_epi32::<1>(v) as u32,
+            _mm256_extract_epi32::<2>(v) as u32,
+            _mm256_extract_epi32::<3>(v) as u32,
+            _mm256_extract_epi32::<4>(v) as u32,
+            _mm256_extract_epi32::<5>(v) as u32,
+            _mm256_extract_epi32::<6>(v) as u32,
+            _mm256_extract_epi32::<7>(v) as u32,
+        ]
+    }
+}
 
 avx2_dispatch! {
     /// Whether the AVX2 kernels run on this CPU (for the tests).
