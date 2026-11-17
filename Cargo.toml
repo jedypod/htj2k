@@ -10,3 +10,13 @@ categories = ["multimedia::images", "multimedia::encoding"]
 exclude = ["oracle/"]
 
 [dependencies]
+# Only with the `simd` feature: run-time selection of the AVX2 kernels.
+multiversion = { version = "0.9", optional = true }
+# Only with the `simd` feature (multiversion depends on it already): a
+# clear error on compilers older than the feature needs.
+rustversion = { version = "1", optional = true }
+
+[features]
+# AVX2 kernels on x86_64, chosen at run time; the scalar code elsewhere.
+# Needs Rust 1.87 (safe intrinsics in `#[target_feature]` functions).
+simd = ["dep:multiversion", "dep:rustversion"]

@@ -352,6 +352,46 @@ coder: htj2k encodes in 0.6 to 0.8 times OpenJPH SIMD's cycles and decodes
 in 1.0 to 1.4 times. [bench/README.md](bench/README.md) has the full
 tables, the profiles, where the gaps are, and how to reproduce the run.
 
+## The `simd` feature
+
+The `simd` cargo feature, off by default, adds AVX2 versions of hot
+kernels. Without it the crate is unchanged: the same code paths and no
+dependencies.
+
+```toml
+htj2k = { version = "0.1", features = ["simd"] }
+```
+
+- On x86_64 the crate checks the CPU once per process and runs the AVX2
+  kernels when it has AVX2, BMI1, BMI2, LZCNT and POPCNT (every CPU
+  with AVX2 has the others). Elsewhere, and on other architectures, it
+  runs the scalar code. Built with `-C target-cpu` set to such a CPU,
+  the choice is made at compile time.
+- The output does not change: the encoder writes the same bytes and the
+  decoder returns the same samples with the feature as without it.
+  OpenJPH's own SIMD kernels round some float conversions differently
+  from its generic code; the crate's follow the generic code.
+- The crate stays free of `unsafe` code. The kernels are safe
+  `#[target_feature]` functions, selected through the
+  [`multiversion`](https://crates.io/crates/multiversion) crate, which
+  the feature adds as a dependency (with `rustversion`).
+- The feature needs Rust 1.87, for safe intrinsics in
+  `#[target_feature]` functions; on an older compiler it stops with an
+  error that says so.
+
+To test both builds, and the compile-time selection:
+
+```sh
+cargo test --release
+cargo test --release --features simd
+RUSTFLAGS="-C target-cpu=native" cargo test --release --features simd
+cargo clippy --all-targets && cargo clippy --all-targets --features simd
+```
+
+With the feature, a unit test checks that the kernels are selected
+exactly when the CPU has the features, so on such a CPU the tests run
+the AVX2 code.
+
 ## Verification
 
 Every module is tested against the output of the C++ it is translated
@@ -558,7 +598,8 @@ crate's (`tests/data/ours`, see `oracle/README.md`).
 
 ## Minimum Rust version
 
-The crate builds with Rust 1.83 or later.
+The crate builds with Rust 1.83 or later, and with the `simd` feature
+with Rust 1.87 or later.
 
 ## Licence
 

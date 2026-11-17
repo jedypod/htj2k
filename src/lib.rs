@@ -23,4 +23,7 @@ pub mod coding;
 pub mod params;
 pub mod transform;
 
+#[cfg(feature = "simd")]
+mod simd;
+
 pub use error::{Error, Result};
