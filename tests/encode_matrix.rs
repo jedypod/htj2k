@@ -160,3 +160,26 @@ fn decoder_round_trips_encoder_output() {
     }
     assert_eq!((lossless, lossy), (143, 4));
 }
+
+/// The output vector is only appended to: a codestream written after
+/// other bytes leaves them alone, and the vector can be reused, cleared
+/// or not, for the next codestream.
+#[test]
+fn output_vector_is_appended_to_and_reusable() {
+    let all = cases();
+    let picked: Vec<&MatrixCase> = all.iter().filter(|c| !c.is_refused()).step_by(17).collect();
+    let mut out = b"leading bytes".to_vec();
+    for case in &picked {
+        let args = EncArgs::parse_command(&case.command).unwrap();
+        let start = out.len();
+        drive::encode(&args, &mut out).unwrap();
+        assert!(out[start..] == reference(case), "{}: appended", case.name);
+        assert!(out.starts_with(b"leading bytes"));
+    }
+    for case in &picked {
+        let args = EncArgs::parse_command(&case.command).unwrap();
+        out.clear();
+        drive::encode(&args, &mut out).unwrap();
+        assert!(out == reference(case), "{}: reused", case.name);
+    }
+}
