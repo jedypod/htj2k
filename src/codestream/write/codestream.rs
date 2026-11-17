@@ -968,3 +968,7 @@ impl Encoder {
 fn put_u16(out: &mut Vec<u8>, v: u16) {
     out.extend_from_slice(&v.to_be_bytes());
 }
+
+#[cfg(test)]
+#[path = "reuse_tests.rs"]
+mod reuse_tests;

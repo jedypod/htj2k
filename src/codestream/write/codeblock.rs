@@ -101,6 +101,21 @@ impl Codeblock {
         })
     }
 
+    /// Puts the block back on the first row of blocks of its subband,
+    /// whose height is `height`, as `new` leaves it.
+    pub(crate) fn reset(&mut self, height: u32) {
+        self.recreate(Size::new(self.cb_size.w, height));
+    }
+
+    /// Sets every sample of the buffer to the bit pattern `bits`.
+    #[cfg(test)]
+    pub(crate) fn fill_buffers(&mut self, bits: u32) {
+        match &mut self.buf {
+            CbBuf::B32(b) => b.fill(bits),
+            CbBuf::B64(b) => b.fill((bits as u64) << 32 | bits as u64),
+        }
+    }
+
     /// Starts the next row of blocks.
     pub(crate) fn recreate(&mut self, cb_size: Size) {
         self.cb_size = cb_size;

@@ -165,6 +165,11 @@ const MMSB: usize = 2;
 const MMSB_FLAGS: usize = 3;
 
 impl Precinct {
+    /// Forgets the packet header, as `new` leaves the precinct.
+    pub(crate) fn reset(&mut self) {
+        self.coded = None;
+    }
+
     /// Codes the packet header, and returns the size of the packet: the
     /// header and the code blocks' bytes, or 1 for an empty packet.
     /// `scratch` holds the tag trees.

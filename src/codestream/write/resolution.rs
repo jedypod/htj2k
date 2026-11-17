@@ -180,28 +180,15 @@ impl Resolution {
                 budget.line_i64(width, 1)?
             });
         }
-        let ssp = (0..num_steps as usize)
-            .map(|i| LiftingBuf {
-                line: i,
-                active: false,
-            })
-            .collect();
-
         Ok(Resolution {
             reversible,
             num_steps,
             res_num,
             res_rect,
             lines,
-            ssp,
-            sig: LiftingBuf {
-                line: num_steps as usize,
-                active: false,
-            },
-            aug: LiftingBuf {
-                line: num_steps as usize + 1,
-                active: false,
-            },
+            ssp: vec![LiftingBuf::default(); num_steps as usize],
+            sig: LiftingBuf::default(),
+            aug: LiftingBuf::default(),
             bands,
             child_res,
             precincts,
@@ -210,10 +197,63 @@ impl Resolution {
             num_bytes: 0,
             atk,
             cur_line: 0,
-            rows_to_produce: res_rect.siz.h,
-            vert_even: (res_rect.org.y & 1) == 0,
+            rows_to_produce: 0,
+            vert_even: false,
             horz_even: (res_rect.org.x & 1) == 0,
         })
+    }
+
+    /// Sets every sample of the buffers of this resolution and the ones
+    /// below it to the bit pattern `bits`.
+    #[cfg(test)]
+    pub(crate) fn fill_buffers(&mut self, bits: u32) {
+        for line in self.lines.iter_mut() {
+            line.fill_bits(bits);
+        }
+        for band in self.bands.iter_mut() {
+            band.fill_buffers(bits);
+        }
+        if let Some(child) = self.child_res.as_deref_mut() {
+            child.fill_buffers(bits);
+        }
+    }
+
+    /// Returns this resolution, the ones below it, their subbands and
+    /// their precincts to the state `new` leaves them in, ready for
+    /// another codestream of the same parameters. Everything that
+    /// encoding a codestream changes is set here and only here; the line
+    /// and code-block buffers are kept as they are, since every sample
+    /// of them is written before it is read.
+    pub(crate) fn reset(&mut self) {
+        let num_steps = self.ssp.len();
+        for (i, s) in self.ssp.iter_mut().enumerate() {
+            *s = LiftingBuf {
+                line: i,
+                active: false,
+            };
+        }
+        self.sig = LiftingBuf {
+            line: num_steps,
+            active: false,
+        };
+        self.aug = LiftingBuf {
+            line: num_steps + 1,
+            active: false,
+        };
+        self.cur_precinct_loc = Point::new(0, 0);
+        self.num_bytes = 0;
+        self.cur_line = 0;
+        self.rows_to_produce = self.res_rect.siz.h;
+        self.vert_even = (self.res_rect.org.y & 1) == 0;
+        for p in self.precincts.iter_mut() {
+            p.reset();
+        }
+        for band in self.bands.iter_mut() {
+            band.reset();
+        }
+        if let Some(child) = self.child_res.as_deref_mut() {
+            child.reset();
+        }
     }
 
     pub(crate) fn next_resolution(&self) -> Option<&Resolution> {

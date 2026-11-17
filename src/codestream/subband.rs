@@ -31,6 +31,8 @@ pub(crate) struct Subband {
     cur_line: i32,
     cur_cb_height: i32,
     pub(crate) coded_cbs: Vec<CodedCbHeader>,
+    /// The K_max of every code block of the subband.
+    k_max: u32,
 }
 
 impl Subband {
@@ -126,14 +128,11 @@ impl Subband {
         band.num_blocks.h = ceil_shift(tby1, ycb_prime) - (tby0 >> ycb_prime);
 
         band.coded_cbs = budget.alloc(band.num_blocks.area() as usize)?;
-        for cp in band.coded_cbs.iter_mut() {
-            cp.k_max = k_max;
-        }
+        band.k_max = k_max;
         let x_lower_bound = (tbx0 >> xcb_prime) << xcb_prime;
         let y_lower_bound = (tby0 >> ycb_prime) << ycb_prime;
 
-        let mut cb_size = Size::new(0, tby1.min(y_lower_bound.saturating_add(nominal.h)) - tby0);
-        band.cur_cb_height = cb_size.h as i32;
+        let mut cb_size = Size::new(0, band.first_row_height());
         // The tallest row of blocks: the first, the last, or any between,
         // which are of nominal height. The blocks keep their buffers from
         // row to row, so this is the height they are allocated for.
@@ -163,8 +162,45 @@ impl Subband {
             )?);
             line_offset += cb_size.w;
         }
-
         Ok(band)
+    }
+
+    /// The height of the first row of code blocks.
+    fn first_row_height(&self) -> u32 {
+        let tby0 = self.band_rect.org.y;
+        let tby1 = tby0 + self.band_rect.siz.h;
+        let y_lower_bound = (tby0 >> self.ycb_prime) << self.ycb_prime;
+        tby1.min(y_lower_bound.saturating_add(1 << self.ycb_prime)) - tby0
+    }
+
+    /// Sets every sample of the subband's buffers to the bit pattern
+    /// `bits`.
+    #[cfg(test)]
+    pub(crate) fn fill_buffers(&mut self, bits: u32) {
+        self.lines.fill_bits(bits);
+        for block in self.blocks.iter_mut() {
+            block.fill_buffers(bits);
+        }
+    }
+
+    /// Returns the subband to the state `new` leaves it in: no packet
+    /// parsed, no line pulled, and its code blocks on the first row.
+    pub(crate) fn reset(&mut self) {
+        self.cur_cb_row = 0;
+        self.cur_line = 0;
+        if self.empty {
+            return;
+        }
+        let height = self.first_row_height();
+        self.cur_cb_height = height as i32;
+        let k_max = self.k_max;
+        self.coded_cbs.fill(CodedCbHeader {
+            k_max,
+            ..CodedCbHeader::default()
+        });
+        for block in self.blocks.iter_mut() {
+            block.reset(height);
+        }
     }
 
     /// Works out which code blocks of this subband belong to each precinct

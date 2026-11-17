@@ -44,6 +44,15 @@ impl TileComp {
         Ok(TileComp { res, num_decomps })
     }
 
+    #[cfg(test)]
+    pub(crate) fn fill_buffers(&mut self, bits: u32) {
+        self.res.fill_buffers(bits);
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.res.reset();
+    }
+
     pub(crate) fn get_num_decompositions(&self) -> u32 {
         self.num_decomps
     }

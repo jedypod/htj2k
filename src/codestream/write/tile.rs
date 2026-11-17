@@ -205,7 +205,29 @@ impl Tile {
                 });
             }
         }
+        tile.reset();
         Ok(tile)
+    }
+
+    /// Sets every sample of the tile's buffers to the bit pattern `bits`.
+    #[cfg(test)]
+    pub(crate) fn fill_buffers(&mut self, bits: u32) {
+        for line in self.lines.iter_mut() {
+            line.fill_bits(bits);
+        }
+        for comp in self.comps.iter_mut() {
+            comp.fill_buffers(bits);
+        }
+    }
+
+    /// Returns the tile to the state `new` leaves it in, ready for
+    /// another codestream of the same parameters.
+    pub(crate) fn reset(&mut self) {
+        self.cur_line.fill(0);
+        self.num_bytes = 0;
+        for comp in self.comps.iter_mut() {
+            comp.reset();
+        }
     }
 
     /// Takes this tile's part of the next line of component `comp_num`

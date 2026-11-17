@@ -282,24 +282,64 @@ impl Resolution {
                     budget.line_f32(width, 1)?
                 });
             }
-            res.ssp = (0..num_steps)
-                .map(|i| LiftingBuf {
-                    line: i,
-                    active: false,
-                })
-                .collect();
-            res.sig = LiftingBuf {
-                line: num_steps,
-                active: false,
-            };
-            res.aug = LiftingBuf {
-                line: num_steps + 1,
-                active: false,
-            };
-            res.vert_even = (res_rect.org.y & 1) == 0;
+            res.ssp = vec![LiftingBuf::default(); num_steps];
             res.horz_even = (res_rect.org.x & 1) == 0;
         }
         Ok(res)
+    }
+
+    /// Sets every sample of the buffers of this resolution and the ones
+    /// below it to the bit pattern `bits`.
+    #[cfg(test)]
+    pub(crate) fn fill_buffers(&mut self, bits: u32) {
+        for line in self.lines.iter_mut() {
+            line.fill_bits(bits);
+        }
+        for band in self.bands.iter_mut() {
+            band.fill_buffers(bits);
+        }
+        if let Some(child) = self.child_res.as_deref_mut() {
+            child.fill_buffers(bits);
+        }
+    }
+
+    /// Returns this resolution, the ones below it and their subbands to
+    /// the state `new` leaves them in, ready for another codestream of
+    /// the same parameters. Everything that decoding a codestream
+    /// changes is set here and only here; the line and code-block
+    /// buffers are kept as they are, since every sample of them is
+    /// written before it is read.
+    pub(crate) fn reset(&mut self) {
+        self.cur_line = 0;
+        self.cur_precinct_loc = Point::new(0, 0);
+        if self.skipped_res_for_recon {
+            self.sig = LiftingBuf::default();
+            self.aug = LiftingBuf::default();
+            self.vert_even = false;
+        } else {
+            let num_steps = self.ssp.len();
+            for (i, s) in self.ssp.iter_mut().enumerate() {
+                *s = LiftingBuf {
+                    line: i,
+                    active: false,
+                };
+            }
+            self.sig = LiftingBuf {
+                line: num_steps,
+                active: false,
+            };
+            self.aug = LiftingBuf {
+                line: num_steps + 1,
+                active: false,
+            };
+            self.vert_even = (self.res_rect.org.y & 1) == 0;
+        }
+        for band in self.bands.iter_mut() {
+            band.reset();
+        }
+        if let Some(child) = self.child_res.as_deref_mut() {
+            child.reset();
+        }
     }
 
     pub(crate) fn next_resolution(&mut self) -> Option<&mut Resolution> {

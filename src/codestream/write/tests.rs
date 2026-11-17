@@ -13,7 +13,7 @@
 //! packets.
 
 #[path = "../../../tests/common/mod.rs"]
-mod common;
+pub(super) mod common;
 
 use super::codeblock::record;
 use common::drive;

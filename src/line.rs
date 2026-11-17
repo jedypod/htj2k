@@ -61,6 +61,19 @@ impl LineBuf {
         }
     }
 
+    /// Sets every sample, `pre_size` ones included, to the bit pattern
+    /// `bits`: for the tests that check that no sample is read before it
+    /// is written.
+    #[cfg(test)]
+    pub(crate) fn fill_bits(&mut self, bits: u32) {
+        match &mut self.data {
+            LineData::None => {}
+            LineData::I32(v) => v.fill(bits as i32),
+            LineData::I64(v) => v.fill(((bits as u64) << 32 | bits as u64) as i64),
+            LineData::F32(v) => v.fill(f32::from_bits(bits)),
+        }
+    }
+
     pub fn is_i32(&self) -> bool {
         matches!(self.data, LineData::I32(_))
     }

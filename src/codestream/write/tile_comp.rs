@@ -57,6 +57,16 @@ impl TileComp {
         self.res.get_line()
     }
 
+    #[cfg(test)]
+    pub(crate) fn fill_buffers(&mut self, bits: u32) {
+        self.res.fill_buffers(bits);
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.num_bytes = 0;
+        self.res.reset();
+    }
+
     pub(crate) fn push_line(&mut self, budget: &mut Budget) -> Result<()> {
         self.res.push_line(budget)
     }
