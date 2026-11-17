@@ -144,15 +144,121 @@ fn encode(width: u32, height: u32, rgb: &[Vec<i32>; 3]) -> htj2k::Result<Vec<u8>
 
 You set the parameters through `access_siz_mut`, `access_cod_mut`,
 `access_qcd_mut` and `access_nlt_mut`, and through `set_planar`,
-`set_tilepart_divisions`, `request_tlm_marker`, `set_memory_limit` and
-`set_version_comment`. Every one of these fails once `write_headers` has
-been called. The codestream is appended to the `Vec`, so the caller can
-write its own bytes first and reuse the allocation for the next
-codestream. A failed call leaves the `Vec` as it was.
+`set_tilepart_divisions`, `request_tlm_marker`, `set_memory_limit`,
+`set_output_limit` and `set_version_comment`. Every one of these fails
+once `write_headers` has been called. The codestream is appended to the
+`Vec`, so the caller can write its own bytes first and reuse the
+allocation for the next codestream. A failed call leaves the `Vec` as it
+was.
+
+`set_output_limit(bytes)` caps the length of the codestream. Once the
+codestream would be longer, the encoder stops with error `0x00080070`
+and does not code the rest of the image. `write_headers` stops if the
+headers and the other fixed parts are already too long. `exchange`
+stops as soon as those and the code blocks coded so far are too long.
+It checks after each code block, so a strip of one row of code blocks
+stops part way through the row. `flush` adds the packet headers and
+stops otherwise, since it knows the exact length before it writes. A
+codestream that fits is written exactly as without the limit.
+
+The failing call appends nothing, but the main header from
+`write_headers` is still in the `Vec`. A caller who then stores the
+samples some other way truncates the `Vec` to its length before
+`write_headers`.
 
 The HT block encoders are public too, as `coding::encode_codeblock32`
 and `coding::encode_codeblock64`. `tests/readme.rs` runs both examples
 above and checks that their text here is the code it runs.
+
+## Reusing a decoder or encoder
+
+Some callers code many small images or strips, for example 32- or
+256-line bands of a larger image. For them, most of the cost of a
+codestream is building the coder's tree of tiles, resolutions, subbands
+and code blocks, with its buffers. Both sides can keep that tree for
+the next codestream:
+
+- `Codestream::into_memory(self) -> DecoderMemory` takes the memory out
+  of a decoder, at any point and after an error too.
+  `Codestream::with_memory(memory: DecoderMemory) -> Codestream<'a>`
+  starts a decoder with that memory, in the state `Codestream::new()`
+  gives. The decoder borrows its input, so this pair lets one memory
+  serve inputs with different lifetimes. `DecoderMemory::new()` (also
+  `Default`) is empty.
+- `Codestream::reset(&mut self)` does both in place, when the next input
+  lives as long as the last.
+- `Encoder::reset(&mut self)` returns an encoder to the state
+  `Encoder::new()` gives, from any state, and keeps its memory.
+
+Every parameter and setting goes back to its default, including the
+memory limit, the output limit, resilience and the version comment. A
+reused object differs from a new one only in what it allocates.
+
+`create` (decoder) and `write_headers` (encoder) compare the parameters
+the tree is built from with those of the kept tree:
+
+- decoder: SIZ, COD/COC, QCD/QCC, NLT, DFS, the skipped resolutions
+  and resilience;
+- encoder: SIZ, COD/COC, QCD/QCC and NLT, after they are finalised.
+
+If they are equal, they reset each node's state and zero the lines
+handed to the caller. Otherwise they free the old tree and build a new
+one. So a codestream of a new shape costs what it did before, and one of
+the same shape allocates almost nothing in the tree.
+
+Samples in the kept buffers are not cleared, because every sample is
+written before it is read. The tests check this. They fill every kept
+buffer with garbage before the next codestream, and every codestream of
+the test data must then decode, or encode, exactly as with a new
+object. They also run sequences of codestreams with the same shape and
+with different shapes, a damaged, failed or abandoned codestream
+followed by a valid one, and the robustness fuzz tests through a
+reused object.
+
+The memory limit applies to each codestream as to a new object. A kept
+tree is charged, against the new limit, what building it took, so the
+same codestreams and configurations are accepted and refused, with the
+same error. A tree that does not match is freed before the new one is
+built. Kept coded-byte capacity beyond what the limit has left is freed
+too. So kept memory cannot let a codestream hold more than the limit
+allows. The small allocations that the limits do not count (see
+Differences from OpenJPH) are kept as well.
+
+Rejected designs:
+
+- A pool of buffers would still rebuild the tree each time. Buffers
+  larger than asked for would also escape the limit.
+- Keeping the encoder's parameters would write different bytes from a
+  new encoder, because `write_headers` rewrites some of them.
+- Clearing every kept buffer would cost most of what reuse saves.
+
+`examples/reuse_cost.rs` measures the costs per codestream for a run of
+same-shaped codestreams:
+
+- allocations and the bytes they ask for, with a counting allocator;
+- user-space instructions, with `perf stat`, as the difference between
+  N and 2N codestreams.
+
+The strips use the benchmark's strip coding: 5 levels, 128×32 blocks,
+RPCL, TLM and tile parts per resolution. They are 16-bit signed with
+NLT type 3, and the 4-component strip uses the RCT on the first three
+components. The 3840×2160 image is 12-bit RGB with the RCT and OpenJPH's
+defaults.
+
+| Case | Side | Allocations, new → reused | Bytes, new → reused | Instructions, new → reused |
+|---|---|--:|--:|--:|
+| 2048×32, 1 component | decode | 177 → 5 | 375 KB → 1.0 KB | 6.53 M → 6.42 M (−1.7%) |
+| | encode | 236 → 8 | 649 KB → 1.2 KB | 8.38 M → 8.23 M (−1.7%) |
+| 256×32, 1 component | decode | 141 → 5 | 58 KB → 1.0 KB | 0.96 M → 0.90 M (−6.2%) |
+| | encode | 174 → 8 | 72 KB → 1.2 KB | 1.20 M → 1.13 M (−5.8%) |
+| 1920×32, 4 components | decode | 634 → 5 | 1.43 MB → 1.0 KB | 24.9 M → 24.4 M (−2.0%) |
+| | encode | 844 → 8 | 2.24 MB → 1.2 KB | 31.8 M → 31.2 M (−1.9%) |
+| 3840×2160, 3 components | decode | 872 → 4 | 9.6 MB → 0.2 KB | 2252 M → 2250 M (−0.1%) |
+| | encode | 1272 → 7 | 60.5 MB → 0.4 KB | 2952 M → 2948 M (−0.1%) |
+
+The allocations left come from the parameter objects: the decoder's
+`read_headers` and the encoder's setters. The new bytes include
+reallocations as the coded data grows.
 
 ## Memory use
 
@@ -351,6 +457,7 @@ wraps, or writes a codestream that no decoder reads.
 | Decoder-side or unimplemented parameter state | `0x0008000D` | Ignores it, or writes markers the packets do not match. |
 | Any setter or `access_*_mut` call after `write_headers` | `0x0008000B` | Changes the stream being written, which can leave it without tile parts, with a wrong TLM, or with a wrong image. |
 | The colour transform without a `set_planar` call | `0x00030021` | Picks planar, which it cannot encode correctly. |
+| A codestream longer than `set_output_limit` allows | `0x00080070` | Has no output limit. |
 
 The encoder also refuses a tile part longer than its 32-bit length field
 can hold (`0x00080060`), a comment longer than a COM segment can hold
@@ -392,7 +499,15 @@ The encoder's calls differ from OpenJPH's where a C++ call could leave
 the encoder or its output in a broken state.
 
 - A failed call leaves the output `Vec` as it was, and the encoder
-  cannot be used further.
+  cannot be used further until `reset`.
+- `set_output_limit` caps the length of the codestream (`0x00080070`).
+  OpenJPH has no such cap.
+- `Encoder::reset`, and `Codestream::reset`, `into_memory` and
+  `with_memory` on the decoder, keep the tree of tiles and its buffers
+  for the next codestream of the same shape (see Reusing a decoder or
+  encoder). OpenJPH's `codestream::restart` keeps its allocator's
+  storage but builds the tree again for every codestream. It has no
+  memory limit to keep.
 - `exchange()` takes no arguments. Each call returns the next line to
   fill, as `Option<(component, &mut [i32])>`, and takes back the
   previous one. The encoder keeps its line buffers, so the caller
@@ -419,8 +534,10 @@ encoder allocates, because it does not count these allocations.
 - The TLM table takes 8 bytes per tile part and is allocated by
   `write_headers` before the limit applies. It is at most about 22 MB,
   for the 2,795,776 tile parts that TLM segments can index.
-- The scratch space for the tag trees and the header of the packet
-  `flush` is writing takes a few bytes per code block of one precinct.
+- The scratch space for the tag trees takes a few bytes per code block
+  of one precinct. Each precinct's packet header takes a few bytes per
+  code block. `reset` keeps both, and the TLM table's storage, for the
+  next codestream.
 - The coded bytes are kept in one `Vec<u8>`, which can briefly hold up
   to twice what is counted while it grows.
 - The caller's output `Vec` and small fixed-size buffers are not
