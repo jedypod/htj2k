@@ -229,5 +229,19 @@ These are found by the matrix and kept in it on purpose.
     `res_num <= num_decomps` in `tile_comp::write_precincts` under the
     layer-first progressions. The same parameters work with RPCL, PCRL
     and CPRL (`coc_levels_*`).
+* **Tile-part count with per-component decompositions (OpenJPH
+  encoder).** This case is not in the matrix; the encoder's robustness
+  test found it.
+  * The trigger is LRCP or RLCP, with tile parts at components (and so
+    at resolutions too), and components with different numbers of
+    decompositions. For example: `--size 33x27 --comps 3 --levels 3
+    --coc 1:1:4x8 --prog LRCP --tileparts C`.
+  * TNsot counts a tile part for every resolution of the component with
+    the most, but none is written for resolutions that other components
+    lack, and TPsot skips their numbers (here TNsot is 12, with 10 tile
+    parts numbered 0 to 11 without 7 and 10).
+  * `ojph_dec` rejects the result with 0x00030091, "wrong tile part
+    index", and so does the crate's decoder. The crate's encoder writes
+    the same bytes.
 * **No multi-pass code blocks.** The OpenJPH encoder writes only the
   cleanup pass. See `tests/data/blocks/README.md`.

@@ -4,12 +4,24 @@ A High-Throughput JPEG 2000 (HTJ2K, ITU-T T.814 | ISO/IEC 15444-15)
 codestream codec in safe Rust, ported from
 [OpenJPH](https://github.com/aous72/OpenJPH) 0.33.0.
 
-Work in progress. Decoding works: `codestream::Codestream` reads a
-codestream held in memory and returns it line by line, following
-`ojph::codestream` (`read_headers`, `create`, `pull`). Of the encoder,
-only the HT code-block encoder is ported so far
-(`coding::encode_codeblock32` and `encode_codeblock64`); the codestream
-writer is not, and neither are OpenJPH's SIMD kernels.
+Both directions work, with OpenJPH's generic code paths; its SIMD
+kernels are not ported.
+
+* **Decoding.** `codestream::Codestream` reads a codestream held in
+  memory and returns it line by line, following `ojph::codestream`
+  (`read_headers`, `create`, `pull`).
+* **Encoding.** `codestream::Encoder` follows `ojph::codestream` when
+  it writes: set the parameters (`access_siz_mut`, `access_cod_mut`,
+  `access_qcd_mut`, `access_nlt_mut`, `set_planar`,
+  `set_tilepart_divisions`, `request_tlm_marker`, `set_memory_limit`),
+  then `write_headers`, `exchange` for every line, and `flush`. The
+  codestream is appended to a caller's `Vec<u8>`. Everything OpenJPH's
+  encoder does is ported: every progression order, tiles and offsets,
+  subsampling, precincts, per-component COC, tile parts at resolutions
+  and/or components, TLM, reversible and irreversible coding, the
+  colour transforms, NLT type 3, and planar and interleaved exchange.
+  The HT block encoders are also public, as `coding::encode_codeblock32`
+  and `encode_codeblock64`.
 
 ## How it is checked
 
@@ -18,8 +30,22 @@ Every module is tested against output of the C++ it is translated from.
 `tests/data`; see `oracle/README.md`. The decoder reproduces OpenJPH's
 output sample for sample on all 161 codestreams there, which include
 16- and 32-bit signed samples under NLT type 3 in strips of four
-components with 128x32 blocks. The block encoder reproduces OpenJPH's
-coded bytes for every recorded call in `tests/data/encoder`.
+components with 128x32 blocks.
+
+The encoder reproduces OpenJPH's codestreams byte for byte:
+* all 150 that `ojph_enc` writes in the parameter matrix (`tests/data/matrix`);
+* all 11 in `tests/data/strips`, 300 samples wide and 8 to 200 lines
+  high, or 64 wide, with four components under NLT type 3 and the RCT,
+  or one, and 128x32 blocks;
+* 24 more at large sizes (`tests/data/profile`): short, wide images
+  from 8192x256 down to 8192x1 and 1x256 with 128x32 blocks, RPCL, TLM
+  and tile parts at resolutions, reversible with NLT type 3 and the RCT.
+
+It also refuses each of the 9 configurations OpenJPH refuses, with
+OpenJPH's error code where OpenJPH gives one. Its block encoder
+reproduces the coded bytes of every recorded call in
+`tests/data/encoder`. Random configurations, samples and call
+sequences never make it panic.
 
 ## Differences from OpenJPH
 
@@ -46,6 +72,50 @@ intended differences in behaviour:
   with only a cleanup pass are not affected.
 * NLT type 0, and type 3 on an unsigned reversible component, are treated
   as no nonlinearity, as OpenJPH does after 0.33.0.
+
+The encoder differs as follows:
+
+* It returns an error where OpenJPH asserts, loops forever or wraps.
+  * LRCP or RLCP with components of different decomposition counts and
+    no tile parts at components; OpenJPH asserts in
+    `tile_comp::write_precincts`.
+  * Interleaved exchange of components of different heights;
+    OpenJPH's `exchange` cannot do it, and `ojph_enc` reports it.
+  * Precincts 1 sample wide or high above resolution 0. This is left
+    when precincts are set before the decomposition count is raised.
+    OpenJPH writes it, and then cannot decode it.
+  * A tile part longer than its 32-bit length field can hold.
+  * Calls out of order, such as `exchange` before `write_headers` or
+    `flush` before every line is exchanged.
+* A failed call leaves the output `Vec` as it was, and the encoder
+  cannot be used further.
+* `exchange()` takes no arguments. Each call returns the next line to
+  fill, as `Option<(component, &mut [i32])>`, and takes back the
+  previous one, so the encoder keeps its line buffers and the caller
+  cannot pass back a line of the wrong size. OpenJPH passes the filled
+  line back as an argument.
+* If `set_planar` is never called the exchange is interleaved. OpenJPH
+  then picks planar with a colour transform, which it cannot encode
+  correctly.
+* `set_memory_limit` bounds the memory for the tiles and the coded data
+  held until `flush`. The default is 4 GiB, and an image needing more
+  is refused by `write_headers`. As in the decoder, the limit is
+  checked before each allocation. A caller who raises it past what the
+  system can supply gets the allocator's failure, which aborts.
+* The first COM segment reads `htj2k Ver <crate version>.` by default.
+  `set_version_comment` replaces it, or removes it with `None`. Passing
+  `"OpenJPH Ver 0.33.0."` gives OpenJPH's bytes exactly.
+* The encoder has its own tree of tiles, resolutions, subbands and
+  precincts (`src/codestream/write`), so the decoder's structures and
+  memory use are unchanged. It is not shared with the decoder, as
+  OpenJPH's is.
+* Known OpenJPH bugs are reproduced, not fixed, so the bytes stay the
+  same. In particular, see `oracle/README.md`:
+  * with no decompositions, the reversible path loses the minimum
+    sample;
+  * LRCP or RLCP with tile parts at components and per-component
+    decomposition counts writes a tile-part count, and tile-part
+    indices, that neither decoder accepts.
 
 ## Licence
 
