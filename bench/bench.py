@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the codec benchmark: correctness checks, then perf counters.
 
-Called by bench/run.sh after it has built the four harnesses; see
+Called by bench/run.sh after it has built the five harnesses; see
 bench/README.md for the method. Usage:
 
     python3 bench/bench.py [--cpu N] [--repeat R] [--target S] [--only SUBSTR]
@@ -9,8 +9,10 @@ bench/README.md for the method. Usage:
 
 For every configuration it first runs `check` on each harness and
 requires:
-  * htj2k's codestream (both builds) == OpenJPH generic's, byte for byte;
-  * every decode (htj2k, htj2k native, OpenJPH SIMD) == OpenJPH generic's.
+  * htj2k's codestream (all three builds) == OpenJPH generic's, byte for
+    byte;
+  * every decode (htj2k, htj2k native, htj2k simd, OpenJPH SIMD) ==
+    OpenJPH generic's.
 OpenJPH SIMD's codestream is compared with generic's too, and reported.
 
 Then, for each configuration, operation (enc, dec) and harness, it runs
@@ -49,7 +51,10 @@ HARNESSES = [
     ("ojph_simd", "OpenJPH SIMD", "oracle/build/bench/bench_codec_simd"),
     ("htj2k", "htj2k", "target/release/examples/bench_codec"),
     ("htj2k_nat", "htj2k native", "target/native/release/examples/bench_codec"),
+    ("htj2k_simd", "htj2k simd", "target/simd/release/examples/bench_codec"),
 ]
+
+KEYS = [k for k, _, _ in HARNESSES]
 
 STRIP = "--levels 5 --block 128x32 --prog RPCL --tlm --tileparts R"
 
@@ -232,12 +237,12 @@ def check(cfgs, log):
             res[key] = parse_kv(run([path, "check"] + shlex.split(opts), log))
         ref = res["ojph_gen"]
         bad = []
-        for key in ("htj2k", "htj2k_nat"):
+        for key in ("htj2k", "htj2k_nat", "htj2k_simd"):
             if (res[key]["j2c_bytes"], res[key]["j2c_fnv"]) != (ref["j2c_bytes"], ref["j2c_fnv"]):
                 bad.append(f"{key} codestream differs from OpenJPH generic")
         if (res["ojph_simd"]["j2c_bytes"], res["ojph_simd"]["j2c_fnv"]) != (ref["j2c_bytes"], ref["j2c_fnv"]):
             bad.append("OpenJPH SIMD codestream differs from OpenJPH generic")
-        for key in ("htj2k", "htj2k_nat", "ojph_simd"):
+        for key in ("htj2k", "htj2k_nat", "htj2k_simd", "ojph_simd"):
             if (res[key]["raw_bytes"], res[key]["raw_fnv"]) != (ref["raw_bytes"], ref["raw_fnv"]):
                 bad.append(f"{key} decode differs from OpenJPH generic "
                            f"({raw_diff(key, opts, log)})")
@@ -344,29 +349,30 @@ def main():
         md.write(f"### {title}\n\n")
         md.write("Cycles per sample (cycles:u), and htj2k's ratios:\n\n")
         md.write("| configuration | bits/sample | OpenJPH generic | OpenJPH SIMD | htj2k "
-                 "| htj2k native | htj2k / generic | htj2k / SIMD | native / generic "
-                 "| native / SIMD | ± max |\n")
-        md.write("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|\n")
+                 "| htj2k native | htj2k simd | htj2k / generic | htj2k / SIMD "
+                 "| native / generic | simd / SIMD | ± max |\n")
+        md.write("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|\n")
         for r in rows:
             if r["op"] != op:
                 continue
-            g, s, h, nt = (r[k]["cyc"] for k in ("ojph_gen", "ojph_simd", "htj2k", "htj2k_nat"))
-            var = max(r[k]["cv"] for k in ("ojph_gen", "ojph_simd", "htj2k", "htj2k_nat"))
+            g, s, h, nt, sm = (r[k]["cyc"] for k in KEYS)
+            var = max(r[k]["cv"] for k in KEYS)
             md.write(f"| {r['config']} | {fmt(r['bps'], 2)} | {fmt(g)} | {fmt(s)} "
-                     f"| {fmt(h)} | {fmt(nt)} "
+                     f"| {fmt(h)} | {fmt(nt)} | {fmt(sm)} "
                      f"| {fmt(h / g, 2)} | {fmt(h / s, 2)} | {fmt(nt / g, 2)} "
-                     f"| {fmt(nt / s, 2)} | {fmt(var, 1)}% |\n")
+                     f"| {fmt(sm / s, 2)} | {fmt(var, 1)}% |\n")
         md.write("\nInstructions per sample (instructions:u):\n\n")
         md.write("| configuration | OpenJPH generic | OpenJPH SIMD | htj2k | htj2k native "
-                 "| htj2k / generic | htj2k / SIMD | ± max |\n")
-        md.write("|---|--:|--:|--:|--:|--:|--:|--:|\n")
+                 "| htj2k simd | htj2k / generic | htj2k / SIMD | simd / SIMD | ± max |\n")
+        md.write("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|\n")
         for r in rows:
             if r["op"] != op:
                 continue
-            g, s, h, nt = (r[k]["ins"] for k in ("ojph_gen", "ojph_simd", "htj2k", "htj2k_nat"))
-            var = max(r[k]["iv"] for k in ("ojph_gen", "ojph_simd", "htj2k", "htj2k_nat"))
+            g, s, h, nt, sm = (r[k]["ins"] for k in KEYS)
+            var = max(r[k]["iv"] for k in KEYS)
             md.write(f"| {r['config']} | {fmt(g)} | {fmt(s)} | {fmt(h)} | {fmt(nt)} "
-                     f"| {fmt(h / g, 2)} | {fmt(h / s, 2)} | {fmt(var, 2)}% |\n")
+                     f"| {fmt(sm)} | {fmt(h / g, 2)} | {fmt(h / s, 2)} | {fmt(sm / s, 2)} "
+                     f"| {fmt(var, 2)}% |\n")
         md.write("\n")
     bad = {k: v[0] for k, v in problems.items() if v[0]}
     md.write("Correctness: " + ("all checks passed.\n" if not bad else
@@ -418,7 +424,8 @@ def demangle_v0(sym):
 
 
 def profile(cpu, cfgs, out, log):
-    """perf record of htj2k and OpenJPH generic on a few configurations."""
+    """perf record of every harness but htj2k native on a few
+    configurations."""
     log.echo("== perf record")
     txt = open(os.path.join(out, "profile.txt"), "w")
     data = os.path.join("target", "bench_perf.data")
@@ -428,7 +435,7 @@ def profile(cpu, cfgs, out, log):
         n = max(4, round(4 * 16e6 / samples))
         for op in ("dec", "enc"):
             for key, label, path in HARNESSES:
-                if key not in ("htj2k", "ojph_gen"):
+                if key == "htj2k_nat":
                     continue
                 run(["taskset", "-c", str(cpu), "perf", "record", "-q", "-e", "cycles:u",
                      "-o", data, "--", path, op, str(n)] + shlex.split(opts), log)

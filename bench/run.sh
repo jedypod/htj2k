@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the four benchmark harnesses and reproduces the tables in
+# Builds the five benchmark harnesses and reproduces the tables in
 # bench/README.md:
 #
 #   oracle/build/bench/bench_codec_generic   OpenJPH, OJPH_DISABLE_SIMD=ON
@@ -7,6 +7,7 @@
 #   target/release/examples/bench_codec      htj2k, cargo build --release
 #   target/native/release/examples/bench_codec
 #                                            htj2k, -C target-cpu=native
+#   target/simd/release/examples/bench_codec   htj2k, --features simd
 #
 # then runs bench/bench.py, which checks that the codestreams and decodes
 # agree and measures cycles:u and instructions:u with perf stat on the
@@ -29,6 +30,7 @@ sh oracle/build_bench.sh
 cargo build --release --example bench_codec
 RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=native" \
   cargo build --release --example bench_codec --target-dir target/native
+cargo build --release --features simd --example bench_codec --target-dir target/simd
 
 mkdir -p bench/results
 {
@@ -39,6 +41,7 @@ mkdir -p bench/results
   echo "rustc: $(rustc -V)"
   echo "cargo profile: release (opt-level 3, no LTO, codegen-units 16)"
   echo "htj2k native: RUSTFLAGS=-C target-cpu=native"
+  echo "htj2k simd: --features simd (run-time AVX2 dispatch)"
   echo "perf: $(perf --version)"
   for b in generic simd; do
     echo "--- OpenJPH $b"
