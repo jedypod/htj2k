@@ -10,6 +10,7 @@ are listed in MANIFEST.txt with the error text, and no files are kept.
 """
 
 import os
+import re
 import sys
 
 from common import HERE, BUILD, DATA, DEC, ENC, clean_dir, fnv1a64_file, run
@@ -333,6 +334,116 @@ def cases():
         "--block", "8x8", "--prog", "LRCP", "--seed", "1422")
     add("mixfmt_rct_illegal", "--size", "8x8", "--comps", "3", "--comp-fmt",
         "16:1,32:1,16:1", "--rct", "1", "--planar", "0", "--seed", "1423")
+
+    # -- Qfactor: OpenJPH's visual weights for Y, Cb, Cr after the ICT,
+    # luminance for 1 or 2 components and for components after the third.
+    for i, q in enumerate([1, 5, 30, 60, 90, 100]):
+        add("qf_ict_q%d" % q, "--size", "32x24", "--comps", "3", "--depth",
+            "12", "--irrev", "--rct", "1", "--qfactor", str(q), "--levels",
+            "3", "--block", "16x16", "--seed", str(1500 + i))
+    add("qf_s16_1c_q50", "--size", "33x21", "--depth", "16", "--signed", "1",
+        "--irrev", "--qfactor", "50", "--levels", "2", "--seed", "1506")
+    add("qf_4c_no_ict_q75", "--size", "29x19", "--comps", "4", "--depth",
+        "10", "--irrev", "--qfactor", "75", "--levels", "2", "--block",
+        "8x8", "--seed", "1507")
+    add("qf_ict_noise_q85", "--size", "40x24", "--comps", "3", "--depth",
+        "16", "--signed", "1", "--irrev", "--rct", "1", "--qfactor", "85",
+        "--levels", "5", "--block", "128x32", "--prog", "RPCL", "--pattern",
+        "noise", "--seed", "1508")
+    add("qf_low_illegal", "--size", "8x8", "--irrev", "--qfactor", "0.5")
+    add("qf_high_illegal", "--size", "8x8", "--irrev", "--qfactor", "101")
+
+    # -- explicit per-component steps (QCC) --
+    add("qstep_comp_ict", "--size", "32x24", "--comps", "3", "--depth", "12",
+        "--irrev", "--rct", "1", "--qstep", "0.004", "--qstep-comp",
+        "1:0.006", "--qstep-comp", "2:0.009", "--levels", "3", "--block",
+        "16x16", "--seed", "1510")
+    add("qstep_comp_s16_tiles", "--size", "41x33", "--comps", "3", "--depth",
+        "16", "--signed", "1", "--irrev", "--qstep", "0.0005",
+        "--qstep-comp", "0:0.00031", "--qstep-comp", "2:0.0021", "--tile",
+        "16x16", "--levels", "2", "--block", "8x8", "--prog", "CPRL",
+        "--seed", "1511")
+    add("qstep_comp_with_qf", "--size", "32x24", "--comps", "3", "--depth",
+        "12", "--irrev", "--rct", "1", "--qfactor", "60", "--qstep-comp",
+        "2:0.01", "--levels", "3", "--block", "16x16", "--seed", "1512")
+
+    # -- reversible and irreversible components in one codestream.
+    # set_reversible(c, ...) makes a COC with the default 5 levels, which
+    # OpenJPH cannot write under LRCP when the main COD has fewer.
+    add("rev_comps_ict_nlt3_s16", "--size", "40x24", "--comps", "5",
+        "--comp-fmt", "16:1,16:1,16:1,16:1,32:1", "--irrev", "--rct", "1",
+        "--rev-comps", "3,4", "--nlt3-comps", "3,4", "--levels", "5",
+        "--block", "128x32", "--prog", "RPCL", "--tlm", "--tileparts", "R",
+        "--seed", "1520")
+    add("rev_comps_ict_nlt3_s32", "--size", "37x19", "--comps", "5",
+        "--comp-fmt", "32:1,32:1,32:1,16:1,32:0", "--irrev", "--rct", "1",
+        "--rev-comps", "3,4", "--nlt3-comps", "3", "--qstep", "0.002",
+        "--levels", "5", "--block", "128x32", "--prog", "RPCL", "--tlm",
+        "--tileparts", "R", "--pattern", "noise", "--seed", "1521")
+    add("irrev_comps_rpcl", "--size", "40x24", "--comps", "3", "--depth",
+        "12", "--irrev-comps", "1", "--qstep", "0.01", "--levels", "3",
+        "--block", "16x16", "--prog", "RPCL", "--seed", "1522")
+    add("irrev_comps_lrcp_illegal", "--size", "40x24", "--comps", "3",
+        "--depth", "12", "--irrev-comps", "1", "--levels", "3", "--seed",
+        "1523")
+
+    # -- NLT type 4 (binary complement followed by a LUT) --
+    add("nlt4_s16", "--size", "40x24", "--depth", "16", "--signed", "1",
+        "--irrev", "--nlt4", "0:513", "--levels", "3", "--block", "16x16",
+        "--seed", "1530")
+    add("nlt4_s32", "--size", "40x24", "--depth", "32", "--signed", "1",
+        "--irrev", "--nlt4", "0:257", "--levels", "3", "--block", "16x16",
+        "--pattern", "noise", "--seed", "1531")
+    add("nlt4_u12_2pts", "--size", "21x17", "--depth", "12", "--irrev",
+        "--nlt4", "0:2", "--levels", "2", "--seed", "1532")
+    add("nlt4_ict_s16_qf", "--size", "40x24", "--comps", "3", "--depth",
+        "16", "--signed", "1", "--irrev", "--rct", "1", "--qfactor", "80",
+        "--nlt4", "0:513", "--nlt4", "1:513", "--nlt4", "2:513", "--levels",
+        "5", "--block", "128x32", "--prog", "RPCL", "--tlm", "--tileparts",
+        "R", "--seed", "1533")
+    add("nlt4_ict_s32_steps", "--size", "40x24", "--comps", "3", "--depth",
+        "32", "--signed", "1", "--irrev", "--rct", "1", "--qstep", "0.003",
+        "--qstep-comp", "1:0.0029", "--qstep-comp", "2:0.0052", "--nlt4",
+        "0:257", "--nlt4", "1:257", "--nlt4", "2:257", "--levels", "5",
+        "--block", "128x32", "--prog", "RPCL", "--tlm", "--tileparts", "R",
+        "--seed", "1534")
+    add("nlt4_planar_sub", "--size", "36x20", "--comps", "4", "--depth",
+        "16", "--signed", "1", "--irrev", "--sub", "1x1,1x1,1x1,2x2",
+        "--planar", "1", "--nlt4", "0:513", "--nlt4", "1:513", "--nlt4",
+        "2:513", "--rev-comps", "3", "--nlt3-comps", "3", "--qfactor", "90",
+        "--levels", "5", "--block", "128x32", "--prog", "RPCL", "--seed",
+        "1535")
+    add("nlt4_rev_illegal", "--size", "8x8", "--depth", "16", "--signed",
+        "1", "--nlt4", "0:513")
+    add("nlt4_flat_illegal", "--size", "8x8", "--depth", "8", "--irrev",
+        "--nlt4", "0:256")
+
+    # -- COM segments after the version comment --
+    add("comment_two", "--size", "21x17", "--comment", "first",
+        "--comment", "second:rows=3,cols=1", "--levels", "2", "--seed",
+        "1540")
+
+    # -- sizes of 1 mod 32 (as for replication padding to a multiple of
+    # 2^5 plus one), irreversible with the ICT and NLT type 4 on the
+    # first three components, a reversible fourth with NLT type 3, and a
+    # COM segment recording the padding --
+    add("pad1_ict_65x33", "--size", "65x33", "--comps", "4", "--depth",
+        "16", "--signed", "1", "--irrev", "--rct", "1", "--rev-comps", "3",
+        "--nlt3-comps", "3", "--nlt4", "0:513", "--nlt4", "1:513", "--nlt4",
+        "2:513", "--qfactor", "90", "--levels", "5", "--block", "128x32",
+        "--prog", "RPCL", "--tlm", "--tileparts", "R", "--comment",
+        "padding:rows=31,cols=1", "--seed", "1550")
+    add("pad1_ict_s32_33x1", "--size", "33x1", "--comps", "3", "--depth",
+        "32", "--signed", "1", "--irrev", "--rct", "1", "--nlt4", "0:257",
+        "--nlt4", "1:257", "--nlt4", "2:257", "--qstep", "0.001",
+        "--levels", "5", "--block", "128x32", "--prog", "RPCL", "--tlm",
+        "--tileparts", "R", "--comment", "padding:rows=0,cols=1", "--seed",
+        "1551")
+    add("pad1_ict_1x33", "--size", "1x33", "--comps", "3", "--depth", "16",
+        "--signed", "1", "--irrev", "--rct", "1", "--nlt4", "0:513",
+        "--nlt4", "1:513", "--nlt4", "2:513", "--qfactor", "95", "--levels",
+        "5", "--block", "128x32", "--prog", "RPCL", "--tlm", "--tileparts",
+        "R", "--comment", "padding:rows=1,cols=0", "--seed", "1552")
     return c
 
 
@@ -340,8 +451,12 @@ def tidy(stderr):
     """One-line error text with machine-specific source paths shortened."""
     src = os.path.realpath(os.environ.get("OJPH_SRC") or os.path.join(
         HERE, "..", "..", "reference", "OpenJPH"))
-    return " / ".join(l.replace(src + "/", "OpenJPH/")
+    text = " / ".join(l.replace(src + "/", "OpenJPH/")
                       for l in stderr.strip().splitlines())
+    # OpenJPH prints the rejected Qfactor, a float, with %i, which shows
+    # whatever is in an integer register; keep the manifest reproducible.
+    return re.sub(r"(Qfactor must be between 1 and 100, but was set to )"
+                  r"-?\d+", r"\1(a float printed with %i)", text)
 
 
 def main():
@@ -389,12 +504,16 @@ def main():
             continue
         a = open(rin, "rb").read()
         b = open(raw, "rb").read()
-        if "--irrev" in args:
+        if "--irrev" in args or "--irrev-comps" in args:
             import struct
             n = len(a) // 4
-            # signed interpretation unless --signed 0 (the default)
+            # signed interpretation if --signed 1 or a --comp-fmt
+            # component is signed; unsigned otherwise (the default)
             signed = "--signed" in args and \
                 args[args.index("--signed") + 1] == "1"
+            if "--comp-fmt" in args:
+                fmts = args[args.index("--comp-fmt") + 1].split(",")
+                signed = signed or any(f.endswith(":1") for f in fmts)
             fmt = "<%d%s" % (n, "i" if signed else "I")
             if len(a) != len(b):
                 status = "MISMATCH(size)"

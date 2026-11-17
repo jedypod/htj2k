@@ -60,7 +60,7 @@ fn main_headers_match_openjph() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 168);
+    assert_eq!(checked, 193);
 }
 
 /// Gate 3: every codestream OpenJPH wrote is reproduced byte for byte,
@@ -100,7 +100,7 @@ fn codestreams_match_openjph() {
         checked += 1;
     }
     assert!(failed.is_empty(), "{}", failed.join("\n"));
-    assert_eq!((checked, levels0), (173, 5));
+    assert_eq!((checked, levels0), (198, 5));
 }
 
 /// Gate 4: every configuration OpenJPH refused, by an exception or an
@@ -132,7 +132,7 @@ fn refused_cases_return_errors() {
         }
         checked += 1;
     }
-    assert_eq!(checked, 11);
+    assert_eq!(checked, 16);
 }
 
 /// Gate 5: our decoder gives back the input of every lossless case from
@@ -172,7 +172,7 @@ fn decoder_round_trips_encoder_output() {
             lossy += 1;
         }
     }
-    assert_eq!((lossless, lossy), (165, 8));
+    assert_eq!((lossless, lossy), (166, 32));
 }
 
 /// The strips of `tests/data/strips` (`oracle/gen_strips.py`), made

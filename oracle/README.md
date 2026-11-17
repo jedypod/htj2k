@@ -279,6 +279,20 @@ These are found by the matrix and kept in it on purpose.
     components to have the same depth (0x00040014).
   * `tile_off_illegal`: the tile offset must be smaller than the image
     offset.
+  * `qf_low_illegal` and `qf_high_illegal`: the Qfactor must be from 1
+    to 100 (0x00050181). OpenJPH prints the rejected value, a float,
+    with `%i`, so `gen_matrix.py` replaces that number in the error
+    text to keep the manifest reproducible.
+  * `nlt4_rev_illegal`: NLT type 4 needs an irreversible component
+    (0x000501B1).
+  * `nlt4_flat_illegal`: an NLT LUT must be strictly increasing
+    (0x000501A6); 256 points cannot rise strictly from 0 to 255 with
+    the `--nlt4` formula.
+  * `irrev_comps_lrcp_illegal`: `set_reversible(c, ...)` gives component
+    c a COC with the default 5 decompositions, more than the main COD's
+    3, and OpenJPH's encoder asserts on that under LRCP, as for
+    `coc_levels_blocks` below. The same parameters work with RPCL
+    (`irrev_comps_rpcl`).
   * `sub_2x2_planar0`: the error comes from `ojph_enc`, not OpenJPH.
     OpenJPH's interleaved (non-planar) `exchange` steps through comp 0's
     height for every component, so it cannot take subsampled components.
