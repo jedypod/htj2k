@@ -433,6 +433,32 @@ impl Sample for u32 {
     }
 }
 
+impl Sample for u64 {
+    const ZERO: Self = 0;
+    const P0: u32 = 62;
+    const MAX_MISSING_MSBS: u32 = 61;
+    // 38 bits/sample + 1 color + 4 wavelet = 43 bits per sample, for 4096
+    // samples, rounded up to 22528 bytes, times 16/15 for bit stuffing
+    const MS_SIZE: usize = MS_CAP;
+    const UVLC_EXT: bool = true;
+
+    #[inline(always)]
+    fn quantise(self, p: u32) -> Option<(i32, u64)> {
+        let t = self;
+        let mut val = t.wrapping_add(t);
+        val >>= p;
+        val &= !1u64;
+        if val != 0 {
+            val -= 1;
+            let e_q = 64 - val.leading_zeros() as i32;
+            val -= 1;
+            Some((e_q, val + (t >> 63)))
+        } else {
+            None
+        }
+    }
+}
+
 /// The per-pair-of-quads state of the C++ (`e_qmax`, `e_q`, `rho`, `s`).
 /// Samples are numbered as in the C++: 0 to 3 in the first quad (column
 /// by column, top then bottom), 4 to 7 in the second.
@@ -886,6 +912,47 @@ pub(crate) fn encode<T: Sample>(
 #[allow(clippy::too_many_arguments)]
 pub fn encode_codeblock32(
     buf: &[u32],
+    missing_msbs: u32,
+    num_passes: u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    coded: &mut Vec<u8>,
+) -> Result<u32> {
+    encode(buf, missing_msbs, num_passes, width, height, stride, coded)
+}
+
+/// Encodes one code block of 64-bit samples with the HT cleanup pass; port
+/// of OpenJPH's generic `ojph_encode_codeblock64`, producing the same bytes.
+///
+/// As [`encode_codeblock32`], except that:
+///
+/// * samples are 64-bit, as written by
+///   [`rev_tx_to_cb64`](crate::transform::codeblock_fun::rev_tx_to_cb64):
+///   the sign in bit 63, the magnitude in bits 62 to 0, and
+///   `p = 62 - missing_msbs`. OpenJPH uses this encoder for components
+///   whose `K_max` is more than 30;
+/// * `missing_msbs` is 0 to 61 (error `0x00020011` above);
+/// * the MagSgn buffer has 24030 bytes. From a `missing_msbs` of about 43
+///   up, a full 4096-sample block of the largest magnitudes no longer
+///   fits, and the encoder returns error `0x00020005` where the C++ raises
+///   it;
+/// * quads with `u_q` above 32 get UVLC extension bits, which the 32-bit
+///   encoder never needs.
+///
+/// A block with `missing_msbs` above 55 is encoded as OpenJPH encodes it,
+/// but OpenJPH's 64-bit decoder, and so [`decode_codeblock64`], cannot
+/// always decode it: they read at most 57 MagSgn bits per sample, and a
+/// sample can take `missing_msbs + 2`. Codestreams stay far below that:
+/// OpenJPH passes `K_max - 1`, which is at most 34 in the test vectors
+/// encoded from 32-bit images (5 levels, colour transform).
+///
+/// [`decode_codeblock64`]: super::decode_codeblock64
+///
+/// The scratch buffers (about 27 kB, as in the C++) are on the stack.
+#[allow(clippy::too_many_arguments)]
+pub fn encode_codeblock64(
+    buf: &[u64],
     missing_msbs: u32,
     num_passes: u32,
     width: u32,

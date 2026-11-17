@@ -9,7 +9,9 @@
 //! Every block that encodes is then decoded with the crate's own block
 //! decoder, which must give back the coded part of the input samples.
 
-use htj2k::coding::{decode_codeblock32, encode_codeblock32};
+use htj2k::coding::{
+    decode_codeblock32, decode_codeblock64, encode_codeblock32, encode_codeblock64,
+};
 use std::path::{Path, PathBuf};
 
 fn data_dir() -> PathBuf {
@@ -18,6 +20,10 @@ fn data_dir() -> PathBuf {
 
 fn u32_at(b: &[u8], o: usize) -> u32 {
     u32::from_le_bytes(b[o..o + 4].try_into().unwrap())
+}
+
+fn u64_at(b: &[u8], o: usize) -> u64 {
+    u64::from_le_bytes(b[o..o + 8].try_into().unwrap())
 }
 
 #[derive(Debug)]
@@ -67,7 +73,13 @@ struct Stats {
     matched: usize,
     errors: usize,
     round_trips: usize,
+    /// blocks beyond what the decoder can read back (64-bit only)
+    not_decodable: usize,
 }
+
+/// The largest `missing_msbs` for which the 64-bit decoder can decode any
+/// cleanup pass (see `run64`).
+const MAX_DECODABLE_MISSING_MSBS64: u32 = 55;
 
 /// Checks one record against the encoder: same error, or same length and
 /// bytes. Returns the coded bytes on success.
@@ -163,6 +175,71 @@ fn run32(what: &str, h: &Header, samples: &[u8], coded_ref: &[u8], stats: &mut S
     stats.round_trips += 1;
 }
 
+fn run64(what: &str, h: &Header, samples: &[u8], coded_ref: &[u8], stats: &mut Stats) {
+    let packed: Vec<u64> = (0..samples.len() / 8)
+        .map(|i| u64_at(samples, 8 * i))
+        .collect();
+    let buf = with_stride(h, &packed, |i| {
+        0x5A5A_5A5A_5A5A_5A5A ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    });
+    let mut out = vec![0xEEu8; 3];
+    let res = encode_codeblock64(
+        &buf,
+        h.missing_msbs,
+        h.num_passes,
+        h.width,
+        h.height,
+        h.stride,
+        &mut out,
+    );
+    assert_eq!(&out[..3], &[0xEE; 3], "{what}: existing bytes changed");
+    out.drain(..3);
+    let Some(coded) = check_encode(what, h, coded_ref, res, out, stats) else {
+        return;
+    };
+
+    // OpenJPH's 64-bit decoder, and so the port, refills its MagSgn window
+    // only to 57 bits per sample (`frwd_fetch64`), while a sample takes up
+    // to `missing_msbs + 2` bits; above 55 the largest magnitudes cannot
+    // be decoded. Those blocks are checked against OpenJPH's bytes only.
+    if h.missing_msbs > MAX_DECODABLE_MISSING_MSBS64 {
+        stats.not_decodable += 1;
+        return;
+    }
+    let (w, ht) = (h.width as usize, h.height as usize);
+    let mut dec = vec![0u64; w * ht];
+    let ok = decode_codeblock64(
+        &coded,
+        &mut dec,
+        h.missing_msbs,
+        1,
+        coded.len() as u32,
+        0,
+        h.width,
+        h.height,
+        h.width,
+        false,
+    );
+    assert!(ok, "{what}: the decoder rejected the encoder's output");
+    let p = 62 - h.missing_msbs;
+    for (i, (&t, &d)) in packed.iter().zip(&dec).enumerate() {
+        let mu = (t & 0x7FFF_FFFF_FFFF_FFFF) >> p;
+        let want = if mu == 0 {
+            0
+        } else {
+            (t & 0x8000_0000_0000_0000) | ((2 * mu + 1) << (p - 1))
+        };
+        assert_eq!(
+            d,
+            want,
+            "{what}: round trip of sample ({}, {})",
+            i % w,
+            i / w
+        );
+    }
+    stats.round_trips += 1;
+}
+
 #[test]
 fn golden_encoder_records() {
     let mut files: Vec<PathBuf> = std::fs::read_dir(data_dir())
@@ -172,7 +249,7 @@ fn golden_encoder_records() {
         .collect();
     files.sort();
     let mut s32 = Stats::default();
-    let mut skipped64 = 0;
+    let mut s64 = Stats::default();
     for path in &files {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let data = std::fs::read(path).unwrap();
@@ -189,17 +266,21 @@ fn golden_encoder_records() {
             );
             match h.bits {
                 32 => run32(&what, &h, samples, coded, &mut s32),
-                64 => skipped64 += 1,
+                64 => run64(&what, &h, samples, coded, &mut s64),
                 b => panic!("{what}: bits {b}"),
             }
             off += 40 + ns + h.coded_len;
             idx += 1;
         }
     }
-    eprintln!("32-bit: {s32:?}; 64-bit records not checked yet: {skipped64}");
+    eprintln!("32-bit: {s32:?}");
+    eprintln!("64-bit: {s64:?}");
     // guard against vectors silently going missing
     assert!(s32.matched >= 500 && s32.errors >= 3, "{s32:?}");
+    assert!(s64.matched >= 400 && s64.errors >= 3, "{s64:?}");
     assert_eq!(s32.matched, s32.round_trips);
+    assert_eq!(s64.matched, s64.round_trips + s64.not_decodable);
+    assert!(s64.not_decodable < 50, "{s64:?}");
 }
 
 /// The arguments the C++ asserts on or mishandles are refused, with
@@ -228,4 +309,22 @@ fn argument_errors32() {
     assert!(code(0, 1, 0, u32::MAX, 0, 0).is_ok());
     // stride below width is allowed: rows overlap
     assert!(code(29, 1, 8, 8, 4, 36).is_ok());
+}
+
+#[test]
+fn argument_errors64() {
+    let buf = vec![0x4000_0000_0000_0000u64; 64 * 64];
+    let code = |mm, np, w, h, st, len: usize| {
+        let mut out = Vec::new();
+        let r = encode_codeblock64(&buf[..len], mm, np, w, h, st, &mut out);
+        assert_eq!(out.len(), *r.as_ref().unwrap_or(&0) as usize);
+        r.map_err(|e| e.code())
+    };
+    assert_eq!(code(0, 3, 8, 8, 8, 64), Err(0x00020010));
+    assert_eq!(code(62, 1, 8, 8, 8, 64), Err(0x00020011));
+    assert!(code(61, 1, 8, 8, 8, 64).is_ok());
+    assert_eq!(code(0, 1, 2048, 2, 2048, 4096), Err(0x00020012));
+    assert_eq!(code(0, 1, 64, 64, 64, 4095), Err(0x00020013));
+    assert!(code(0, 1, 64, 64, 64, 4096).is_ok());
+    assert!(code(0, 1, 0, u32::MAX, 7, 0).is_ok());
 }

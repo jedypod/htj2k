@@ -12,8 +12,9 @@
 //! * [`decode_codeblock64`]: samples of up to 63 magnitude bits
 //!   (`ojph_decode_codeblock64`), used when a component needs more than
 //!   32-bit precision.
-//! * [`encode_codeblock32`]: the cleanup-pass encoder for 32-bit samples
-//!   (`ojph_encode_codeblock32`).
+//! * [`encode_codeblock32`] and [`encode_codeblock64`]: the cleanup-pass
+//!   encoders for 32- and 64-bit samples (`ojph_encode_codeblock32` and
+//!   `ojph_encode_codeblock64`).
 //!
 //! Samples are in sign-magnitude form: the MSB is the sign. Decoded
 //! magnitudes carry one extra fractional bit (the bin centre), as in
@@ -27,7 +28,7 @@ mod tables;
 
 pub use decoder32::decode_codeblock32;
 pub use decoder64::decode_codeblock64;
-pub use encoder::encode_codeblock32;
+pub use encoder::{encode_codeblock32, encode_codeblock64};
 
 /// Length of the `ui16 scratch[8 * 513]` array of the C++ decoders.
 pub(crate) const SCRATCH_LEN: usize = 8 * 513;

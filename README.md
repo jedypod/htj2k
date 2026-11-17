@@ -6,8 +6,10 @@ codestream codec in safe Rust, ported from
 
 Work in progress. Decoding works: `codestream::Codestream` reads a
 codestream held in memory and returns it line by line, following
-`ojph::codestream` (`read_headers`, `create`, `pull`). The encoder is not
-ported yet, and neither are OpenJPH's SIMD kernels.
+`ojph::codestream` (`read_headers`, `create`, `pull`). Of the encoder,
+only the HT code-block encoder is ported so far
+(`coding::encode_codeblock32` and `encode_codeblock64`); the codestream
+writer is not, and neither are OpenJPH's SIMD kernels.
 
 ## How it is checked
 
@@ -16,7 +18,8 @@ Every module is tested against output of the C++ it is translated from.
 `tests/data`; see `oracle/README.md`. The decoder reproduces OpenJPH's
 output sample for sample on all 161 codestreams there, which include
 16- and 32-bit signed samples under NLT type 3 in strips of four
-components with 128x32 blocks.
+components with 128x32 blocks. The block encoder reproduces OpenJPH's
+coded bytes for every recorded call in `tests/data/encoder`.
 
 ## Differences from OpenJPH
 
@@ -25,6 +28,10 @@ intended differences in behaviour:
 
 * No input makes it panic or read out of bounds. Where the C++ would, it
   returns an error.
+* The block encoders return an error for arguments on which the C++
+  asserts or has undefined behaviour: `num_passes` other than 1,
+  `missing_msbs` above 29 (32-bit) or 61 (64-bit), a width above 1024, or
+  a sample buffer too small.
 * `Codestream::set_memory_limit` bounds the memory a codestream can make
   the decoder allocate. The default is 4 GiB.
 * Code-block buffers are allocated at the size of the actual blocks, not
