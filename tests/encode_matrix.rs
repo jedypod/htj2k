@@ -12,7 +12,7 @@ mod common;
 
 use common::decode::decode_to_raw;
 use common::drive;
-use common::synth::{parse_matrix_manifest, EncArgs, MatrixCase};
+use common::synth::{fnv1a64, parse_matrix_manifest, EncArgs, MatrixCase};
 use std::path::{Path, PathBuf};
 
 fn matrix_dir() -> PathBuf {
@@ -159,6 +159,48 @@ fn decoder_round_trips_encoder_output() {
         }
     }
     assert_eq!((lossless, lossy), (143, 4));
+}
+
+/// The strips of `tests/data/strips` (`oracle/gen_strips.py`), made
+/// with OpenJPH's encoder at 300x8 to 300x200 and 64x8 to 64x32 with
+/// 128x32 blocks, RPCL, TLM and tile parts at resolutions, are
+/// reproduced byte for byte, and decode with the crate's decoder to
+/// the input.
+#[test]
+fn strip_codestreams_match_openjph() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/strips");
+    let text = std::fs::read_to_string(dir.join("MANIFEST.txt")).unwrap();
+    let (mut lossless, mut lossy) = (0, 0);
+    for case in parse_matrix_manifest(&text) {
+        let args = EncArgs::parse_command(&case.command).unwrap();
+        let mut out = Vec::new();
+        drive::encode(&args, &mut out).unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        let r = std::fs::read(dir.join(format!("{}.j2c", case.name))).unwrap();
+        assert!(
+            out == r,
+            "{}: {} bytes vs OpenJPH's {}, first difference at {:?}",
+            case.name,
+            out.len(),
+            r.len(),
+            out.iter().zip(&r).position(|(a, b)| a != b)
+        );
+        let got = decode_to_raw(&out).unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        assert_eq!(
+            Some(got.len()),
+            case.raw_bytes,
+            "{}: decoded size",
+            case.name
+        );
+        assert_eq!(Some(fnv1a64(&got)), case.raw_fnv, "{}: decode", case.name);
+        if case.is_lossless() {
+            assert!(got == EncArgs::to_raw(&args.synthesise()), "{}", case.name);
+            lossless += 1;
+        } else {
+            assert_eq!(case.status, "lossy", "{}", case.name);
+            lossy += 1;
+        }
+    }
+    assert_eq!((lossless, lossy), (11, 0));
 }
 
 /// The output vector is only appended to: a codestream written after
