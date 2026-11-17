@@ -1,0 +1,442 @@
+// This file is part of htj2k, a safe Rust port of OpenJPH
+// (https://github.com/aous72/OpenJPH), which is released under the
+// 2-Clause BSD license; see LICENSE-OPENJPH for the original copyright
+// notice and licence text, which also apply to this file.
+
+//! The codestream being written, after the write side of
+//! `ojph_codestream.cpp` and `ojph_codestream_local.cpp`.
+
+use crate::error::ojph_error;
+use crate::params::marker::{COM, SOC};
+use crate::params::tilepart_divisions::{
+    OJPH_TILEPART_COMPONENTS, OJPH_TILEPART_MASK, OJPH_TILEPART_NO_DIVISIONS,
+    OJPH_TILEPART_RESOLUTIONS,
+};
+use crate::params::{
+    CommentExchange, ParamAtk, ParamCap, ParamCod, ParamNlt, ParamQcd, ParamSiz, ParamTlm,
+    ProgressionOrder,
+};
+use crate::types::{div_ceil, Size};
+use crate::Result;
+
+/// The default for [`Encoder::set_memory_limit`]: 4 GiB.
+const DEFAULT_MEMORY_LIMIT: u64 = 1 << 32;
+
+/// Where an [`Encoder`] is in its sequence of calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    /// Parameters may be set; `write_headers` has not been called.
+    Setup,
+    /// The main header is written; lines can be exchanged.
+    Headers,
+    /// A call failed part way; the encoder cannot be used further.
+    Failed,
+}
+
+/// An HTJ2K codestream being encoded to memory.
+///
+/// The calls follow OpenJPH's `ojph::codestream` when it writes:
+///
+/// 1. [`Encoder::new`];
+/// 2. the parameters: [`access_siz_mut`](Self::access_siz_mut),
+///    [`access_cod_mut`](Self::access_cod_mut),
+///    [`access_qcd_mut`](Self::access_qcd_mut) and
+///    [`access_nlt_mut`](Self::access_nlt_mut), and optionally
+///    [`set_planar`](Self::set_planar),
+///    [`set_tilepart_divisions`](Self::set_tilepart_divisions),
+///    [`request_tlm_marker`](Self::request_tlm_marker),
+///    [`set_memory_limit`](Self::set_memory_limit) and
+///    [`set_version_comment`](Self::set_version_comment);
+/// 3. [`write_headers`](Self::write_headers), which checks the
+///    parameters, builds the tiles and appends the main header to a
+///    `Vec<u8>`.
+#[derive(Debug)]
+pub struct Encoder {
+    state: State,
+    planar: Option<bool>,
+    tilepart_div: u32,
+    need_tlm: bool,
+    memory_limit: u64,
+    version_comment: Option<Vec<u8>>,
+
+    num_tiles: Size,
+    num_comps: u32,
+    /// The number of lines and the width of each component.
+    comp_size: Vec<Size>,
+    /// Tile parts in all, for TLM.
+    num_tileparts: u32,
+
+    siz: ParamSiz,
+    cod: ParamCod,
+    cap: ParamCap,
+    qcd: ParamQcd,
+    tlm: ParamTlm,
+    nlt: ParamNlt,
+    atk: ParamAtk,
+}
+
+impl Default for Encoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Encoder {
+    /// The version comment written by default: this crate's name and
+    /// version, in the form of OpenJPH's `"OpenJPH Ver 0.33.0."`.
+    pub const DEFAULT_VERSION_COMMENT: &'static str =
+        concat!("htj2k Ver ", env!("CARGO_PKG_VERSION"), ".");
+
+    pub fn new() -> Self {
+        Encoder {
+            state: State::Setup,
+            planar: None,
+            tilepart_div: OJPH_TILEPART_NO_DIVISIONS,
+            need_tlm: false,
+            memory_limit: DEFAULT_MEMORY_LIMIT,
+            version_comment: Some(Self::DEFAULT_VERSION_COMMENT.as_bytes().to_vec()),
+            num_tiles: Size::default(),
+            num_comps: 0,
+            comp_size: Vec::new(),
+            num_tileparts: 0,
+            siz: ParamSiz::default(),
+            cod: ParamCod::default(),
+            cap: ParamCap::default(),
+            qcd: ParamQcd::default(),
+            tlm: ParamTlm::default(),
+            nlt: ParamNlt::default(),
+            atk: ParamAtk::default(),
+        }
+    }
+
+    /// The SIZ marker segment: image, tile and component sizes.
+    pub fn access_siz(&self) -> &ParamSiz {
+        &self.siz
+    }
+
+    /// The SIZ marker segment, to set before
+    /// [`write_headers`](Self::write_headers).
+    pub fn access_siz_mut(&mut self) -> &mut ParamSiz {
+        &mut self.siz
+    }
+
+    /// The COD marker segment (and its COC children): coding style.
+    pub fn access_cod(&self) -> &ParamCod {
+        &self.cod
+    }
+
+    pub fn access_cod_mut(&mut self) -> &mut ParamCod {
+        &mut self.cod
+    }
+
+    /// The QCD marker segment (and its QCC children): quantization.
+    pub fn access_qcd(&self) -> &ParamQcd {
+        &self.qcd
+    }
+
+    pub fn access_qcd_mut(&mut self) -> &mut ParamQcd {
+        &mut self.qcd
+    }
+
+    /// The NLT marker segments: non-linearity point transformations.
+    pub fn access_nlt(&self) -> &ParamNlt {
+        &self.nlt
+    }
+
+    pub fn access_nlt_mut(&mut self) -> &mut ParamNlt {
+        &mut self.nlt
+    }
+
+    /// Whether lines are exchanged one component at a time (all the lines
+    /// of component 0, then of component 1, ...), or one line of every
+    /// component in turn. Planar cannot be used with the colour
+    /// transform, and interleaved cannot be used when components differ
+    /// in height (subsampling).
+    ///
+    /// If this is never called the order is interleaved. (OpenJPH then
+    /// picks planar when the colour transform is used and interleaved
+    /// otherwise, which with the colour transform gives a wrong image
+    /// without an error.)
+    pub fn set_planar(&mut self, planar: bool) {
+        self.planar = Some(planar);
+    }
+
+    /// See [`set_planar`](Self::set_planar).
+    pub fn is_planar(&self) -> bool {
+        self.planar.unwrap_or(false)
+    }
+
+    /// Splits each tile into tile parts at resolutions, at components, or
+    /// both. [`write_headers`](Self::write_headers) adjusts the request to
+    /// the progression order, as OpenJPH does.
+    pub fn set_tilepart_divisions(&mut self, at_resolutions: bool, at_components: bool) {
+        let mut value = OJPH_TILEPART_NO_DIVISIONS;
+        if at_resolutions {
+            value |= OJPH_TILEPART_RESOLUTIONS;
+        }
+        if at_components {
+            value |= OJPH_TILEPART_COMPONENTS;
+        }
+        self.tilepart_div = value;
+    }
+
+    pub fn is_tilepart_division_at_resolutions(&self) -> bool {
+        self.tilepart_div & OJPH_TILEPART_RESOLUTIONS != 0
+    }
+
+    pub fn is_tilepart_division_at_components(&self) -> bool {
+        self.tilepart_div & OJPH_TILEPART_COMPONENTS != 0
+    }
+
+    /// Asks for a TLM marker segment, which lists the length of every tile
+    /// part.
+    pub fn request_tlm_marker(&mut self, needed: bool) {
+        self.need_tlm = needed;
+    }
+
+    pub fn is_tlm_requested(&self) -> bool {
+        self.need_tlm
+    }
+
+    /// Limits the memory the encoder may allocate for its tiles and the
+    /// coded data it holds until [`flush`](Self::flush). OpenJPH has no
+    /// such limit. The default is 4 GiB.
+    pub fn set_memory_limit(&mut self, bytes: u64) {
+        self.memory_limit = bytes;
+    }
+
+    /// The text of the COM marker segment that
+    /// [`write_headers`](Self::write_headers) writes before the caller's
+    /// comments, or `None` for no such segment. OpenJPH always writes
+    /// `"OpenJPH Ver <version>."`; the default here is
+    /// [`DEFAULT_VERSION_COMMENT`](Self::DEFAULT_VERSION_COMMENT). Pass
+    /// OpenJPH's string to produce its bytes exactly.
+    pub fn set_version_comment(&mut self, comment: Option<&str>) {
+        self.version_comment = comment.map(|s| s.as_bytes().to_vec());
+    }
+
+    /// Checks the parameters, builds the tiles and appends the main
+    /// header, from SOC to the last COM marker segment, to `out`.
+    /// `comments` are written as COM marker segments after the version
+    /// comment.
+    ///
+    /// Nothing is appended if this fails.
+    pub fn write_headers(&mut self, out: &mut Vec<u8>, comments: &[CommentExchange]) -> Result<()> {
+        if self.state != State::Setup {
+            return ojph_error!(0x00080001, "write_headers can only be called once");
+        }
+        // A failure leaves parameters half finalised; do not allow a retry.
+        self.state = State::Failed;
+        self.prepare()?;
+        self.write_main_header(out, comments);
+        self.state = State::Headers;
+        Ok(())
+    }
+
+    /// Everything `write_headers` does before it writes: the parameter
+    /// checks and finalisation, and the tile structure.
+    fn prepare(&mut self) -> Result<()> {
+        let num_comps = self.siz.get_num_components();
+        if num_comps == 0 {
+            return ojph_error!(0x00080002, "the image must have at least one component");
+        }
+        for c in 0..num_comps {
+            let d = self.siz.get_downsampling(c);
+            if d.x == 0 || d.y == 0 {
+                return ojph_error!(
+                    0x00080003,
+                    "component {} has no downsampling factor; set_component was not called for it",
+                    c
+                );
+            }
+        }
+
+        // finalize
+        self.siz.set_cod(&self.cod);
+        // set the tile size if it was not set by the user
+        let tile_size = self.siz.get_tile_size();
+        if tile_size.h == 0 && tile_size.w == 0 {
+            // OpenJPH adds the offset to the extent, which is already
+            // measured from the origin; the tile is larger than needed
+            // but the codestream is the same.
+            let img_offset = self.siz.get_image_offset();
+            let img_extent = self.siz.get_image_extent();
+            self.siz.set_tile_size(Size::new(
+                img_extent.x.wrapping_add(img_offset.x),
+                img_extent.y.wrapping_add(img_offset.y),
+            ));
+        }
+        self.siz.check_validity()?;
+        self.cod.check_validity(&self.siz)?;
+        self.cod.update_atk(&self.atk)?;
+        self.qcd.check_validity(&self.siz, &self.cod)?;
+        self.cap.check_validity(&self.cod, &self.qcd);
+        self.nlt.check_validity(&mut self.siz, &self.cod)?;
+        self.siz.link(&self.cod, None);
+
+        let Some(po) = self.cod.get_progression_order_enum() else {
+            return ojph_error!(0x00080004, "unknown progression order");
+        };
+        let td = &mut self.tilepart_div;
+        if (po == ProgressionOrder::Lrcp || po == ProgressionOrder::Rlcp)
+            && *td == OJPH_TILEPART_COMPONENTS
+        {
+            // OJPH_INFO 0x00030021: for LRCP and RLCP progression orders,
+            // tilepart divisions at the component level, means that we
+            // have a tilepart for every resolution and component.
+            *td |= OJPH_TILEPART_RESOLUTIONS;
+        }
+        if po == ProgressionOrder::Rpcl && (*td & OJPH_TILEPART_COMPONENTS) != 0 {
+            // OJPH_WARN 0x00030021: a tile part for every precinct
+            *td &= !OJPH_TILEPART_COMPONENTS;
+        }
+        if po == ProgressionOrder::Pcrl && *td != 0 {
+            // OJPH_WARN 0x00030022
+            *td = 0;
+        }
+        if po == ProgressionOrder::Cprl && (*td & OJPH_TILEPART_RESOLUTIONS) != 0 {
+            // OJPH_WARN 0x00030023
+            *td &= !OJPH_TILEPART_RESOLUTIONS;
+        }
+
+        let employ_color_transform = self.cod.is_employing_color_transform();
+        let planar = self.planar.unwrap_or(false);
+        if planar && employ_color_transform {
+            return ojph_error!(
+                0x00030021,
+                "the planar interface option cannot be used when colour transform is employed"
+            );
+        }
+
+        // The component sizes, and the checks of the exchange order that
+        // OpenJPH leaves to the caller (it loops forever on them).
+        let mut comp_size = Vec::with_capacity(num_comps as usize);
+        for c in 0..num_comps {
+            comp_size.push(Size::new(self.siz.get_width(c), self.siz.get_height(c)));
+        }
+        for (c, s) in comp_size.iter().enumerate() {
+            if s.h == 0 {
+                return ojph_error!(
+                    0x00080005,
+                    "component {} has no lines; it is subsampled more than the image is high",
+                    c
+                );
+            }
+            if !planar && s.h != comp_size[0].h {
+                return ojph_error!(
+                    0x00080006,
+                    "component {} has {} lines and component 0 has {}; components of different heights must be exchanged in planar mode",
+                    c,
+                    s.h,
+                    comp_size[0].h
+                );
+            }
+        }
+
+        // OpenJPH asserts `res_num <= num_decomps` in
+        // tile_comp::write_precincts when a layer-first progression
+        // without tile parts at components meets components with
+        // different numbers of decompositions.
+        let decomps: Vec<u32> = (0..num_comps)
+            .map(|c| self.cod.get_coc(c).get_num_decompositions())
+            .collect();
+        let max_decs = decomps.iter().copied().max().unwrap_or(0);
+        if (po == ProgressionOrder::Lrcp || po == ProgressionOrder::Rlcp)
+            && (self.tilepart_div & OJPH_TILEPART_COMPONENTS) == 0
+            && decomps.iter().any(|&d| d != max_decs)
+        {
+            return ojph_error!(
+                0x00080007,
+                "with the {} progression order, all components must have the same number of decompositions unless tile parts are divided at components",
+                po.as_str()
+            );
+        }
+
+        // pre_alloc: the tile grid
+        let sz = &self.siz;
+        let tile_size = sz.get_tile_size();
+        let num_tiles = Size::new(
+            div_ceil(
+                sz.get_image_extent().x.wrapping_sub(sz.get_tile_offset().x),
+                tile_size.w,
+            ),
+            div_ceil(
+                sz.get_image_extent().y.wrapping_sub(sz.get_tile_offset().y),
+                tile_size.h,
+            ),
+        );
+        if num_tiles.area() > 65535 {
+            return ojph_error!(0x00030011, "the number of tiles cannot exceed 65535");
+        }
+        if num_tiles.area() == 0 {
+            return ojph_error!(0x00030012, "the number of tiles cannot be 0");
+        }
+
+        let num_tileparts_per_tile = match self.tilepart_div & OJPH_TILEPART_MASK {
+            OJPH_TILEPART_COMPONENTS => num_comps,
+            OJPH_TILEPART_RESOLUTIONS => 1 + max_decs,
+            t if t == OJPH_TILEPART_COMPONENTS | OJPH_TILEPART_RESOLUTIONS => {
+                decomps.iter().map(|d| d + 1).sum()
+            }
+            _ => 1,
+        };
+        if num_tileparts_per_tile > 255 {
+            return ojph_error!(
+                0x000300D1,
+                "Trying to create {} tileparts; a tile cannot have more than 255 tile parts.",
+                num_tileparts_per_tile
+            );
+        }
+        let num_tileparts = num_tileparts_per_tile * num_tiles.area() as u32;
+        if self.need_tlm {
+            self.tlm.init(num_tileparts)?;
+        }
+
+        if let Some(v) = &self.version_comment {
+            if v.len() > 65531 {
+                return ojph_error!(
+                    0x00080008,
+                    "the version comment cannot be longer than 65531 bytes"
+                );
+            }
+        }
+
+        self.num_tiles = num_tiles;
+        self.num_comps = num_comps;
+        self.comp_size = comp_size;
+        self.num_tileparts = num_tileparts;
+        Ok(())
+    }
+
+    /// Writes SOC up to the comments.
+    fn write_main_header(&mut self, out: &mut Vec<u8>, comments: &[CommentExchange]) {
+        // Writing to a vector cannot fail; OpenJPH's "Error writing to
+        // file" errors have no counterpart.
+        put_u16(out, SOC);
+        self.siz.write(out);
+        self.cap.write(out);
+        self.cod.write(out);
+        self.cod.write_coc(out, self.num_comps);
+        self.qcd.write(out);
+        self.qcd.write_qcc(out, self.num_comps);
+        self.nlt.write(out);
+
+        if let Some(v) = &self.version_comment {
+            put_u16(out, COM);
+            put_u16(out, (v.len() + 4) as u16);
+            put_u16(out, 1); // General use (IS 8859-15:1999 (Latin) values)
+            out.extend_from_slice(v);
+        }
+        for c in comments {
+            let data = c.data();
+            put_u16(out, COM);
+            put_u16(out, (data.len() as u16).wrapping_add(4));
+            put_u16(out, c.get_Rcom());
+            out.extend_from_slice(data);
+        }
+    }
+}
+
+fn put_u16(out: &mut Vec<u8>, v: u16) {
+    out.extend_from_slice(&v.to_be_bytes());
+}

@@ -22,8 +22,10 @@ mod resolution;
 mod subband;
 mod tile;
 mod tile_comp;
+mod write;
 
 pub use codestream::Codestream;
+pub use write::Encoder;
 
 use crate::error::ojph_error;
 use crate::line::LineBuf;
@@ -64,7 +66,7 @@ impl Budget {
         if bytes > self.left {
             return ojph_error!(
                 0x00070001,
-                "decoding this codestream needs more memory than the limit allows"
+                "this codestream needs more memory than the limit allows"
             );
         }
         self.left -= bytes;
