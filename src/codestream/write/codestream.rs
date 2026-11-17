@@ -62,17 +62,21 @@ enum State {
 ///    once more, which hands out each line to fill and takes it back;
 /// 5. [`flush`](Self::flush), which appends the tiles and EOC.
 ///
+/// The parameters are fixed by `write_headers`: from then on every setter
+/// and every `access_*_mut` returns an error (0x0008000B) and changes
+/// nothing, so the stream being written cannot be altered half way.
+///
 /// ```
 /// use htj2k::codestream::Encoder;
 /// use htj2k::types::{Point, Size};
 ///
 /// let mut enc = Encoder::new();
-/// let siz = enc.access_siz_mut();
+/// let siz = enc.access_siz_mut()?;
 /// siz.set_image_extent(Point::new(64, 32));
 /// siz.set_tile_size(Size::new(64, 32));
 /// siz.set_num_components(1);
 /// siz.set_component(0, Point::new(1, 1), 16, true)?;
-/// enc.access_cod_mut().set_block_dims(64, 32)?;
+/// enc.access_cod_mut()?.set_block_dims(64, 32)?;
 ///
 /// let mut out = Vec::new();
 /// enc.write_headers(&mut out, &[])?;
@@ -167,8 +171,9 @@ impl Encoder {
 
     /// The SIZ marker segment, to set before
     /// [`write_headers`](Self::write_headers).
-    pub fn access_siz_mut(&mut self) -> &mut ParamSiz {
-        &mut self.siz
+    pub fn access_siz_mut(&mut self) -> Result<&mut ParamSiz> {
+        self.check_setup()?;
+        Ok(&mut self.siz)
     }
 
     /// The COD marker segment (and its COC children): coding style.
@@ -176,8 +181,11 @@ impl Encoder {
         &self.cod
     }
 
-    pub fn access_cod_mut(&mut self) -> &mut ParamCod {
-        &mut self.cod
+    /// The COD marker segment, to set before
+    /// [`write_headers`](Self::write_headers).
+    pub fn access_cod_mut(&mut self) -> Result<&mut ParamCod> {
+        self.check_setup()?;
+        Ok(&mut self.cod)
     }
 
     /// The QCD marker segment (and its QCC children): quantization.
@@ -185,8 +193,11 @@ impl Encoder {
         &self.qcd
     }
 
-    pub fn access_qcd_mut(&mut self) -> &mut ParamQcd {
-        &mut self.qcd
+    /// The QCD marker segment, to set before
+    /// [`write_headers`](Self::write_headers).
+    pub fn access_qcd_mut(&mut self) -> Result<&mut ParamQcd> {
+        self.check_setup()?;
+        Ok(&mut self.qcd)
     }
 
     /// The NLT marker segments: non-linearity point transformations.
@@ -194,8 +205,11 @@ impl Encoder {
         &self.nlt
     }
 
-    pub fn access_nlt_mut(&mut self) -> &mut ParamNlt {
-        &mut self.nlt
+    /// The NLT marker segments, to set before
+    /// [`write_headers`](Self::write_headers).
+    pub fn access_nlt_mut(&mut self) -> Result<&mut ParamNlt> {
+        self.check_setup()?;
+        Ok(&mut self.nlt)
     }
 
     /// Whether lines are exchanged one component at a time (all the lines
@@ -208,8 +222,10 @@ impl Encoder {
     /// picks planar when the colour transform is used and interleaved
     /// otherwise, which with the colour transform gives a wrong image
     /// without an error.)
-    pub fn set_planar(&mut self, planar: bool) {
+    pub fn set_planar(&mut self, planar: bool) -> Result<()> {
+        self.check_setup()?;
         self.planar = Some(planar);
+        Ok(())
     }
 
     /// See [`set_planar`](Self::set_planar).
@@ -220,7 +236,12 @@ impl Encoder {
     /// Splits each tile into tile parts at resolutions, at components, or
     /// both. [`write_headers`](Self::write_headers) adjusts the request to
     /// the progression order, as OpenJPH does.
-    pub fn set_tilepart_divisions(&mut self, at_resolutions: bool, at_components: bool) {
+    pub fn set_tilepart_divisions(
+        &mut self,
+        at_resolutions: bool,
+        at_components: bool,
+    ) -> Result<()> {
+        self.check_setup()?;
         let mut value = OJPH_TILEPART_NO_DIVISIONS;
         if at_resolutions {
             value |= OJPH_TILEPART_RESOLUTIONS;
@@ -229,6 +250,7 @@ impl Encoder {
             value |= OJPH_TILEPART_COMPONENTS;
         }
         self.tilepart_div = value;
+        Ok(())
     }
 
     pub fn is_tilepart_division_at_resolutions(&self) -> bool {
@@ -241,8 +263,10 @@ impl Encoder {
 
     /// Asks for a TLM marker segment, which lists the length of every tile
     /// part.
-    pub fn request_tlm_marker(&mut self, needed: bool) {
+    pub fn request_tlm_marker(&mut self, needed: bool) -> Result<()> {
+        self.check_setup()?;
         self.need_tlm = needed;
+        Ok(())
     }
 
     pub fn is_tlm_requested(&self) -> bool {
@@ -252,8 +276,10 @@ impl Encoder {
     /// Limits the memory the encoder may allocate for its tiles and the
     /// coded data it holds until [`flush`](Self::flush). OpenJPH has no
     /// such limit. The default is 4 GiB.
-    pub fn set_memory_limit(&mut self, bytes: u64) {
+    pub fn set_memory_limit(&mut self, bytes: u64) -> Result<()> {
+        self.check_setup()?;
         self.memory_limit = bytes;
+        Ok(())
     }
 
     /// The text of the COM marker segment that
@@ -262,8 +288,24 @@ impl Encoder {
     /// `"OpenJPH Ver <version>."`; the default here is
     /// [`DEFAULT_VERSION_COMMENT`](Self::DEFAULT_VERSION_COMMENT). Pass
     /// OpenJPH's string to produce its bytes exactly.
-    pub fn set_version_comment(&mut self, comment: Option<&str>) {
+    pub fn set_version_comment(&mut self, comment: Option<&str>) -> Result<()> {
+        self.check_setup()?;
         self.version_comment = comment.map(|s| s.as_bytes().to_vec());
+        Ok(())
+    }
+
+    /// The error (0x0008000B) that every setter and every `access_*_mut`
+    /// returns once [`write_headers`](Self::write_headers) has been
+    /// called, whether it succeeded or not. Such a call changes nothing.
+    /// (OpenJPH lets these calls change the stream being written.)
+    fn check_setup(&self) -> Result<()> {
+        if self.state != State::Setup {
+            return ojph_error!(
+                0x0008000B,
+                "the parameters can only be set before write_headers is called"
+            );
+        }
+        Ok(())
     }
 
     /// Checks the parameters, builds the tiles and appends the main

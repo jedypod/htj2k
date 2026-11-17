@@ -18,10 +18,10 @@ pub const OPENJPH_VERSION_COMMENT: &str = "OpenJPH Ver 0.33.0.";
 /// including) `write_headers`.
 pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
     let mut cs = Encoder::new();
-    cs.set_version_comment(Some(OPENJPH_VERSION_COMMENT));
+    cs.set_version_comment(Some(OPENJPH_VERSION_COMMENT))?;
     let (xs, ys) = a.extent();
     {
-        let siz = cs.access_siz_mut();
+        let siz = cs.access_siz_mut()?;
         siz.set_image_extent(Point::new(xs, ys));
         siz.set_image_offset(Point::new(a.img_off.0, a.img_off.1));
         match a.tile {
@@ -36,7 +36,7 @@ pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
         }
     }
     {
-        let cod = cs.access_cod_mut();
+        let cod = cs.access_cod_mut()?;
         cod.set_num_decomposition(a.levels)?;
         cod.set_block_dims(a.bw, a.bh)?;
         if !a.precincts.is_empty() {
@@ -53,21 +53,21 @@ pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
         }
     }
     if !a.reversible {
-        cs.access_qcd_mut().set_irrev_quant(a.qstep);
+        cs.access_qcd_mut()?.set_irrev_quant(a.qstep);
     }
     for c in 0..a.num_comps {
         let want = (a.nlt_all && a.is_signed) || a.nlt_comps.contains(&c);
         if want {
-            cs.access_nlt_mut()
+            cs.access_nlt_mut()?
                 .set_nonlinear_transform(c, nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_NLT)?;
         }
     }
-    cs.set_planar(a.planar);
+    cs.set_planar(a.planar)?;
     if a.tlm {
-        cs.request_tlm_marker(true);
+        cs.request_tlm_marker(true)?;
     }
     if a.tp_res || a.tp_comp {
-        cs.set_tilepart_divisions(a.tp_res, a.tp_comp);
+        cs.set_tilepart_divisions(a.tp_res, a.tp_comp)?;
     }
     Ok(cs)
 }

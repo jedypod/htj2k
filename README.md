@@ -88,6 +88,10 @@ The encoder differs as follows:
     comment longer than a COM segment can hold.
   * Calls out of order, such as `exchange` before `write_headers` or
     `flush` before every line is exchanged.
+  * Any setter or `access_*_mut` call after `write_headers`
+    (0x0008000B); the call changes nothing. In OpenJPH such calls
+    change the stream being written, which can leave it without tile
+    parts, with a wrong TLM, or with a wrong image.
 * A failed call leaves the output `Vec` as it was, and the encoder
   cannot be used further.
 * `exchange()` takes no arguments. Each call returns the next line to

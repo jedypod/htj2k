@@ -82,7 +82,7 @@ fn random_encoder(rng: &mut Rng) -> (Encoder, String) {
     let signed = rng.one_in(2);
     d += &format!("{w}x{h}+{ox},{oy} comps {num_comps} depth {depth} signed {signed}");
     {
-        let siz = enc.access_siz_mut();
+        let siz = enc.access_siz_mut().unwrap();
         siz.set_image_extent(Point::new(w + ox, h + oy));
         siz.set_image_offset(Point::new(ox, oy));
         if rng.one_in(3) {
@@ -114,7 +114,7 @@ fn random_encoder(rng: &mut Rng) -> (Encoder, String) {
         }
     }
     {
-        let cod = enc.access_cod_mut();
+        let cod = enc.access_cod_mut().unwrap();
         let levels = if rng.one_in(20) {
             rng.below(40)
         } else {
@@ -164,13 +164,14 @@ fn random_encoder(rng: &mut Rng) -> (Encoder, String) {
     if rng.one_in(3) {
         let q = [0.0, 1e-6, 0.0001, 0.01, 0.5, 2.0, f32::NAN][rng.below(7) as usize];
         d += &format!(" qstep {q}");
-        enc.access_qcd_mut().set_irrev_quant(q);
+        enc.access_qcd_mut().unwrap().set_irrev_quant(q);
     }
     for c in 0..num_comps {
         if rng.one_in(3) {
             d += &format!(" nlt{c}");
             let _ = enc
                 .access_nlt_mut()
+                .unwrap()
                 .set_nonlinear_transform(c, nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_NLT);
         }
     }
@@ -178,22 +179,22 @@ fn random_encoder(rng: &mut Rng) -> (Encoder, String) {
         0 => {}
         p => {
             d += &format!(" planar {}", p == 1);
-            enc.set_planar(p == 1);
+            enc.set_planar(p == 1).unwrap();
         }
     }
     if rng.one_in(2) {
         d += " tlm";
-        enc.request_tlm_marker(true);
+        enc.request_tlm_marker(true).unwrap();
     }
     let (tr, tc) = (rng.one_in(2), rng.one_in(2));
     if tr || tc {
         d += &format!(" tileparts {tr}/{tc}");
-        enc.set_tilepart_divisions(tr, tc);
+        enc.set_tilepart_divisions(tr, tc).unwrap();
     }
     if rng.one_in(5) {
         let limit = 1u64 << rng.range(8, 22);
         d += &format!(" limit {limit}");
-        enc.set_memory_limit(limit);
+        enc.set_memory_limit(limit).unwrap();
     }
     (enc, d)
 }
@@ -308,9 +309,9 @@ fn huge_images_are_refused_before_allocating() {
         for &&(w, h, n) in &sizes {
             let mut enc = Encoder::new();
             if let Some(l) = limit {
-                enc.set_memory_limit(l);
+                enc.set_memory_limit(l).unwrap();
             }
-            let siz = enc.access_siz_mut();
+            let siz = enc.access_siz_mut().unwrap();
             siz.set_image_extent(Point::new(w, h));
             siz.set_num_components(n);
             for c in 0..n {
@@ -329,7 +330,7 @@ fn huge_images_are_refused_before_allocating() {
 fn format_limits_are_errors_or_codestreams() {
     // more than 65535 tiles (Isot is 16 bits)
     let mut enc = Encoder::new();
-    let siz = enc.access_siz_mut();
+    let siz = enc.access_siz_mut().unwrap();
     siz.set_image_extent(Point::new(300, 300));
     siz.set_tile_size(Size::new(1, 1));
     siz.set_num_components(1);
@@ -339,17 +340,23 @@ fn format_limits_are_errors_or_codestreams() {
     // more than 255 tile parts in a tile (TNsot is 8 bits): 300
     // components, each with 1 decomposition, divided at both
     let mut enc = Encoder::new();
-    let siz = enc.access_siz_mut();
+    let siz = enc.access_siz_mut().unwrap();
     siz.set_image_extent(Point::new(4, 4));
     siz.set_num_components(300);
     for c in 0..300 {
         siz.set_component(c, Point::new(1, 1), 8, false).unwrap();
     }
-    enc.access_cod_mut().set_num_decomposition(1).unwrap();
-    enc.access_cod_mut().set_progression_order("CPRL").unwrap();
-    enc.set_planar(true);
-    enc.set_tilepart_divisions(true, true);
-    enc.request_tlm_marker(true);
+    enc.access_cod_mut()
+        .unwrap()
+        .set_num_decomposition(1)
+        .unwrap();
+    enc.access_cod_mut()
+        .unwrap()
+        .set_progression_order("CPRL")
+        .unwrap();
+    enc.set_planar(true).unwrap();
+    enc.set_tilepart_divisions(true, true).unwrap();
+    enc.request_tlm_marker(true).unwrap();
     let mut out = Vec::new();
     let r = catch_unwind(AssertUnwindSafe(|| -> htj2k::Result<()> {
         enc.write_headers(&mut out, &[])?;
@@ -362,14 +369,17 @@ fn format_limits_are_errors_or_codestreams() {
 
     // 16384 components, the most SIZ allows, through to a codestream
     let mut enc = Encoder::new();
-    let siz = enc.access_siz_mut();
+    let siz = enc.access_siz_mut().unwrap();
     siz.set_image_extent(Point::new(2, 1));
     siz.set_num_components(16384);
     for c in 0..16384 {
         siz.set_component(c, Point::new(1, 1), 8, false).unwrap();
     }
-    enc.access_cod_mut().set_num_decomposition(0).unwrap();
-    enc.set_planar(true);
+    enc.access_cod_mut()
+        .unwrap()
+        .set_num_decomposition(0)
+        .unwrap();
+    enc.set_planar(true).unwrap();
     let mut out = Vec::new();
     enc.write_headers(&mut out, &[]).unwrap();
     while let Some((_, l)) = enc.exchange().unwrap() {
@@ -382,7 +392,7 @@ fn format_limits_are_errors_or_codestreams() {
     // 65536 components: Csiz is 16 bits, and the count wraps to 0 as in
     // OpenJPH, so there are no components to set
     let mut enc = Encoder::new();
-    let siz = enc.access_siz_mut();
+    let siz = enc.access_siz_mut().unwrap();
     siz.set_image_extent(Point::new(2, 1));
     siz.set_num_components(65536);
     assert!(siz.set_component(0, Point::new(1, 1), 8, false).is_err());
@@ -396,7 +406,7 @@ fn format_limits_are_errors_or_codestreams() {
 #[test]
 fn precincts_set_before_decompositions() {
     let mut enc = small_encoder();
-    let cod = enc.access_cod_mut();
+    let cod = enc.access_cod_mut().unwrap();
     cod.set_num_decomposition(0).unwrap();
     cod.set_precinct_size(&[Size::new(16, 16)]).unwrap();
     cod.set_num_decomposition(2).unwrap();
@@ -406,7 +416,7 @@ fn precincts_set_before_decompositions() {
 
 fn small_encoder() -> Encoder {
     let mut enc = Encoder::new();
-    let siz = enc.access_siz_mut();
+    let siz = enc.access_siz_mut().unwrap();
     siz.set_image_extent(Point::new(8, 4));
     siz.set_num_components(1);
     siz.set_component(0, Point::new(1, 1), 8, false).unwrap();
@@ -421,7 +431,7 @@ fn comments() {
     let mut ok = CommentExchange::new();
     ok.set_string("hello").unwrap();
     let mut enc = small_encoder();
-    enc.set_version_comment(None);
+    enc.set_version_comment(None).unwrap();
     let mut out = Vec::new();
     enc.write_headers(&mut out, std::slice::from_ref(&ok))
         .unwrap();
@@ -435,6 +445,108 @@ fn comments() {
     let err = enc.write_headers(&mut out, &[ok, long]).unwrap_err();
     assert_eq!(err.code(), 0x0008000A);
     assert_eq!(out, b"keep");
+}
+
+/// Every setter and `access_*_mut` call `f` can make after
+/// `write_headers`, each expected to fail with 0x0008000B.
+type Setter = fn(&mut Encoder) -> htj2k::Result<()>;
+
+fn late_setters() -> Vec<(&'static str, Setter)> {
+    vec![
+        ("access_siz_mut", |e| e.access_siz_mut().map(|_| ())),
+        ("access_cod_mut", |e| e.access_cod_mut().map(|_| ())),
+        ("access_qcd_mut", |e| e.access_qcd_mut().map(|_| ())),
+        ("access_nlt_mut", |e| e.access_nlt_mut().map(|_| ())),
+        ("set_planar(true)", |e| e.set_planar(true)),
+        ("set_planar(false)", |e| e.set_planar(false)),
+        ("set_tilepart_divisions(true, true)", |e| {
+            e.set_tilepart_divisions(true, true)
+        }),
+        ("set_tilepart_divisions(true, false)", |e| {
+            e.set_tilepart_divisions(true, false)
+        }),
+        ("request_tlm_marker(true)", |e| e.request_tlm_marker(true)),
+        ("request_tlm_marker(false)", |e| e.request_tlm_marker(false)),
+        ("set_memory_limit(0)", |e| e.set_memory_limit(0)),
+        ("set_version_comment(None)", |e| e.set_version_comment(None)),
+    ]
+}
+
+/// The scenarios of the review: a setter called after `write_headers`
+/// (before any line, half way through, or after every line) used to
+/// change the stream being written. Now each call fails with 0x0008000B,
+/// and the codestream is the one the parameters at `write_headers` give.
+#[test]
+fn setters_after_write_headers_are_errors() {
+    use common::drive;
+    use common::synth::EncArgs;
+    let commands = [
+        // RPCL, then tile parts at resolutions and components: no SOT
+        "ojph_enc -o a.j2c --size 40x30 --comps 3 --levels 2 --block 8x8 --prog RPCL --seed 5",
+        // TLM requested late: a TLM with no entries
+        "ojph_enc -o a.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --seed 6",
+        // TLM, then tile parts late: more tile parts than TLM entries
+        "ojph_enc -o a.j2c --size 40x30 --comps 3 --tile 24x16 --levels 2 --block 8x8 --tlm --seed 7",
+        // RCT, then planar late: components overwrite each other's lines
+        "ojph_enc -o a.j2c --size 19x17 --comps 3 --rct 1 --planar 0 --levels 2 --block 8x8 --seed 8",
+    ];
+    for cmd in commands {
+        let args = EncArgs::parse_command(cmd).unwrap();
+        let img = args.synthesise();
+        let mut want = Vec::new();
+        drive::encode(&args, &mut want).unwrap();
+        for (name, f) in late_setters() {
+            // when: 0 = straight after write_headers, 1 = after the first
+            // line, 2 = after the last line, 3 = after flush
+            for when in 0..4 {
+                let mut out = Vec::new();
+                let mut cs = drive::headers(&args, &mut out).unwrap();
+                let check = |cs: &mut Encoder| {
+                    let err = f(cs).expect_err(name);
+                    assert_eq!(err.code(), 0x0008000B, "{cmd}: {name}");
+                };
+                if when == 0 {
+                    check(&mut cs);
+                }
+                let sizes = args.comp_sizes();
+                let mut row = vec![0usize; img.len()];
+                let mut lines = 0;
+                while let Some((c, line)) = cs.exchange().unwrap() {
+                    let c = c as usize;
+                    let w = sizes[c].0 as usize;
+                    let src = &img[c][row[c] * w..(row[c] + 1) * w];
+                    for (d, &s) in line.iter_mut().zip(src) {
+                        *d = s as u32 as i32;
+                    }
+                    row[c] += 1;
+                    lines += 1;
+                    if when == 1 && lines == 1 {
+                        check(&mut cs);
+                    }
+                }
+                if when == 2 {
+                    check(&mut cs);
+                }
+                cs.flush(&mut out).unwrap();
+                if when == 3 {
+                    check(&mut cs);
+                }
+                assert!(out == want, "{cmd}: {name} at {when} changed the stream");
+            }
+        }
+        assert_eq!(
+            decode_to_raw(&want).unwrap(),
+            EncArgs::to_raw(&img),
+            "{cmd}"
+        );
+    }
+
+    // and after a failed write_headers
+    let mut enc = Encoder::new();
+    assert!(enc.write_headers(&mut Vec::new(), &[]).is_err());
+    for (name, f) in late_setters() {
+        assert_eq!(f(&mut enc).expect_err(name).code(), 0x0008000B, "{name}");
+    }
 }
 
 /// Calls in the wrong order are errors, and the output is left alone.
