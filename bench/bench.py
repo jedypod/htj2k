@@ -28,7 +28,10 @@ the difference, as a percentage of it.
 Results go to DIR (default bench/results): results.csv, results.md and
 log.txt (the commands, perf output and `uptime` before and after each
 perf run). With --profile it also records `perf record` profiles of a
-few configurations and writes the top symbols to profile.txt.
+few configurations and writes the top symbols to profile.txt
+(--profile-only: the checks and the profiles, without perf stat).
+The set-up (synthesis, and the encode before decoding) is in the
+profiles; N is four times the perf stat N to keep it small.
 """
 
 import argparse
@@ -280,6 +283,8 @@ def main():
     ap.add_argument("--profile", action="store_true")
     ap.add_argument("--no-perf", action="store_true",
                     help="only run the correctness checks")
+    ap.add_argument("--profile-only", action="store_true",
+                    help="only the correctness checks and the profiles")
     ap.add_argument("--out", default=os.path.join(ROOT, "bench", "results"))
     a = ap.parse_args()
 
@@ -295,6 +300,9 @@ def main():
     if a.no_perf:
         return
     cpu = a.cpu if a.cpu is not None else pick_cpu(log)
+    if a.profile_only:
+        profile(cpu, cfgs, a.out, log)
+        return
 
     log.echo("== perf stat")
     rows = []
@@ -377,6 +385,36 @@ PROFILE_CONFIGS = [
 ]
 
 
+def demangle_v0(sym):
+    """The path of a Rust v0 symbol, `a::b::c`, without generic arguments.
+
+    Enough for reading a profile: identifiers are length-prefixed, and the
+    disambiguators (s..._), back-references (B..._) and constants (K..._)
+    between them are skipped. Other symbols are returned unchanged.
+    """
+    if not sym.startswith("_R"):
+        return sym
+    body = sym[2:].split(".llvm.")[0]
+    out, i = [], 0
+    while i < len(body):
+        c = body[i]
+        if c in "sBK":
+            j = body.find("_", i)
+            i = len(body) if j < 0 else j + 1
+        elif c.isdigit():
+            j = i
+            while j < len(body) and body[j].isdigit():
+                j += 1
+            n = int(body[i:j])
+            if j < len(body) and body[j] == "_":
+                j += 1
+            out.append(body[j:j + n])
+            i = j + n
+        else:
+            i += 1
+    return "::".join(out) if out else sym
+
+
 def profile(cpu, cfgs, out, log):
     """perf record of htj2k and OpenJPH generic on a few configurations."""
     log.echo("== perf record")
@@ -394,7 +432,19 @@ def profile(cpu, cfgs, out, log):
                      "-o", data, "--", path, op, str(n)] + shlex.split(opts), log)
                 rep = run(["perf", "report", "--stdio", "-i", data, "--no-children",
                            "--sort", "symbol", "--percent-limit", "1.5"], log)
-                lines = [l for l in rep.splitlines() if l.strip() and not l.startswith("#")]
+                lines = []
+                for l in rep.splitlines():
+                    if not l.strip() or l.startswith("#"):
+                        continue
+                    f = l.split()
+                    # "  12.34%  [.] symbol ..."
+                    if len(f) >= 3 and f[1] in ("[.]", "[k]"):
+                        while len(f) > 3 and f[-1] == "-":
+                            f.pop()
+                        sym = (demangle_v0(f[2]) if f[2].startswith("_R")
+                               else " ".join(f[2:]))
+                        l = f"{f[0]:>8}  {f[1]} {sym}"
+                    lines.append(l.rstrip())
                 txt.write(f"## {name} {op} {label} (N={n})\n\n")
                 txt.write("\n".join(lines[:12]) + "\n\n")
                 txt.flush()
