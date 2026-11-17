@@ -187,14 +187,16 @@ def uptime():
 
 def perf_stat(cpu, repeat, cmd, log):
     """Mean and relative stddev of the mean of each event, and the stdout."""
-    out_file = os.path.join(ROOT, "target", "bench_perf.csv")
+    # Relative to ROOT, where every command runs, so that log.txt holds
+    # no absolute paths.
+    out_file = os.path.join("target", "bench_perf.csv")
     full = ["taskset", "-c", str(cpu), "perf", "stat", "-x,", "-o", out_file,
             "-e", "cycles:u,instructions:u,task-clock", "-r", str(repeat),
             "--"] + cmd
     log("uptime before:", uptime())
     stdout = run(full, log)
     log("uptime after: ", uptime())
-    text = open(out_file).read()
+    text = open(os.path.join(ROOT, out_file)).read()
     log(text.strip())
     res = {}
     for line in text.splitlines():
@@ -419,7 +421,7 @@ def profile(cpu, cfgs, out, log):
     """perf record of htj2k and OpenJPH generic on a few configurations."""
     log.echo("== perf record")
     txt = open(os.path.join(out, "profile.txt"), "w")
-    data = os.path.join(ROOT, "target", "bench_perf.data")
+    data = os.path.join("target", "bench_perf.data")
     for name, samples, opts in cfgs:
         if name not in PROFILE_CONFIGS:
             continue

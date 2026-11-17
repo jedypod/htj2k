@@ -55,7 +55,7 @@ build_one() {  # name, extra cmake args
     echo "library flags: $(sed -n 's/^CXX_FLAGS = //p' "$fm")"
     echo "library defines: $defs"
     echo "harness flags: $flags"
-    echo "library: $lib"
+    echo "library: oracle/build/bench/${lib#"$OUT"/}"
   } >"$dir/FLAGS.txt"
   echo "built $OUT/bench_codec_$name"
 }
