@@ -48,6 +48,24 @@ pub fn rev_tx_to_cb32(
     sp: &[i32],
     dp: &mut [u32],
     k_max: u32,
+    delta_inv: f32,
+    count: u32,
+    max_val: &mut u32,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rev_tx_to_cb32(sp, dp, k_max, delta_inv, count, max_val);
+    #[cfg(not(feature = "simd"))]
+    rev_tx_to_cb32_scalar(sp, dp, k_max, delta_inv, count, max_val);
+}
+
+/// The scalar [`rev_tx_to_cb32`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rev_tx_to_cb32_scalar(
+    sp: &[i32],
+    dp: &mut [u32],
+    k_max: u32,
     _delta_inv: f32,
     count: u32,
     max_val: &mut u32,
@@ -97,6 +115,24 @@ pub fn rev_tx_to_cb64(
 pub fn irv_tx_to_cb32(
     sp: &[f32],
     dp: &mut [u32],
+    k_max: u32,
+    delta_inv: f32,
+    count: u32,
+    max_val: &mut u32,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_tx_to_cb32(sp, dp, k_max, delta_inv, count, max_val);
+    #[cfg(not(feature = "simd"))]
+    irv_tx_to_cb32_scalar(sp, dp, k_max, delta_inv, count, max_val);
+}
+
+/// The scalar [`irv_tx_to_cb32`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_tx_to_cb32_scalar(
+    sp: &[f32],
+    dp: &mut [u32],
     _k_max: u32,
     delta_inv: f32,
     count: u32,
@@ -117,7 +153,24 @@ pub fn irv_tx_to_cb32(
 /// `gen_rev_tx_from_cb32`: converts `count` sign-magnitude code-block
 /// samples back to reversible samples, shifting the magnitude right by
 /// `31 - k_max`. `delta` is unused.
-pub fn rev_tx_from_cb32(sp: &[u32], dp: &mut [i32], k_max: u32, _delta: f32, count: u32) {
+pub fn rev_tx_from_cb32(sp: &[u32], dp: &mut [i32], k_max: u32, delta: f32, count: u32) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rev_tx_from_cb32(sp, dp, k_max, delta, count);
+    #[cfg(not(feature = "simd"))]
+    rev_tx_from_cb32_scalar(sp, dp, k_max, delta, count);
+}
+
+/// The scalar [`rev_tx_from_cb32`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rev_tx_from_cb32_scalar(
+    sp: &[u32],
+    dp: &mut [i32],
+    k_max: u32,
+    _delta: f32,
+    count: u32,
+) {
     let n = count as usize;
     let shift = 31u32.wrapping_sub(k_max);
     for (d, &v) in dp[..n].iter_mut().zip(&sp[..n]) {
@@ -147,7 +200,24 @@ pub fn rev_tx_from_cb64(sp: &[u64], dp: &mut [i64], k_max: u32, _delta: f32, cou
 
 /// `gen_irv_tx_from_cb32`: dequantises `count` sign-magnitude code-block
 /// samples, `±(magnitude as f32) * delta`. `k_max` is unused.
-pub fn irv_tx_from_cb32(sp: &[u32], dp: &mut [f32], _k_max: u32, delta: f32, count: u32) {
+pub fn irv_tx_from_cb32(sp: &[u32], dp: &mut [f32], k_max: u32, delta: f32, count: u32) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_tx_from_cb32(sp, dp, k_max, delta, count);
+    #[cfg(not(feature = "simd"))]
+    irv_tx_from_cb32_scalar(sp, dp, k_max, delta, count);
+}
+
+/// The scalar [`irv_tx_from_cb32`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_tx_from_cb32_scalar(
+    sp: &[u32],
+    dp: &mut [f32],
+    _k_max: u32,
+    delta: f32,
+    count: u32,
+) {
     let n = count as usize;
     for (d, &v) in dp[..n].iter_mut().zip(&sp[..n]) {
         let val = (v & 0x7FFF_FFFF) as f32 * delta;

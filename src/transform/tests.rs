@@ -884,6 +884,70 @@ mod vectorised {
         }
     }
 
+    /// A code-block sample: sign-magnitude, of any magnitude.
+    fn cb_sample(rng: &mut Rng) -> u32 {
+        let r = rng.next();
+        match r % 8 {
+            0 => [0, 0x8000_0000, 0x7FFF_FFFF, 0xFFFF_FFFF, 1, 0x8000_0001][(r >> 8) as usize % 6],
+            _ => (r >> 32) as u32 >> ((r >> 8) % 32),
+        }
+    }
+
+    #[test]
+    fn tx_to_cb32() {
+        let mut rng = Rng(0x7478_6362);
+        for n in lengths() {
+            for k_max in [0, 1, 7, 15, 16, 29, 30, 31] {
+                let ints: Vec<i32> = (0..n).map(|_| int(&mut rng, 32 - k_max.min(30))).collect();
+                let (mut want, mut got) = (vec![1u32; n + 1], vec![1u32; n + 1]);
+                let mv0 = (rng.next() >> 40) as u32;
+                let (mut mv_want, mut mv_got) = (mv0, mv0);
+                rev_tx_to_cb32_scalar(&ints, &mut want, k_max, 0.0, n as u32, &mut mv_want);
+                v::rev_tx_to_cb32(&ints, &mut got, k_max, 0.0, n as u32, &mut mv_got);
+                assert_eq!(
+                    (want.clone(), mv_want),
+                    (got.clone(), mv_got),
+                    "rev {n} {k_max}"
+                );
+
+                let delta_inv = [1.0, 0.5, 1e3, 1e-3, 65536.0, 3.0e9][k_max as usize % 6];
+                let floats: Vec<f32> = (0..n).map(|_| float(&mut rng, 4.0, 2.0)).collect();
+                irv_tx_to_cb32_scalar(&floats, &mut want, k_max, delta_inv, n as u32, &mut mv_want);
+                v::irv_tx_to_cb32(&floats, &mut got, k_max, delta_inv, n as u32, &mut mv_got);
+                assert_eq!((&want, mv_want), (&got, mv_got), "irv {n} {delta_inv}");
+            }
+        }
+    }
+
+    #[test]
+    fn tx_from_cb32() {
+        let mut rng = Rng(0x6672_6f6d);
+        for n in lengths() {
+            let src: Vec<u32> = (0..n).map(|_| cb_sample(&mut rng)).collect();
+            for k_max in [0, 1, 7, 15, 16, 29, 30, 31] {
+                let (mut want, mut got) = (vec![7i32; n + 1], vec![7i32; n + 1]);
+                rev_tx_from_cb32_scalar(&src, &mut want, k_max, 0.0, n as u32);
+                v::rev_tx_from_cb32(&src, &mut got, k_max, 0.0, n as u32);
+                assert_eq!(want, got, "rev {n} {k_max}");
+            }
+            for delta in [
+                1.0f32,
+                0.5,
+                1e-3,
+                3.0e-9,
+                1e30,
+                f32::INFINITY,
+                f32::NAN,
+                -0.0,
+            ] {
+                let (mut want, mut got) = (vec![7f32; n + 1], vec![7f32; n + 1]);
+                irv_tx_from_cb32_scalar(&src, &mut want, 0, delta, n as u32);
+                v::irv_tx_from_cb32(&src, &mut got, 0, delta, n as u32);
+                assert_eq!(bits_of_f32s(&want), bits_of_f32s(&got), "irv {n} {delta}");
+            }
+        }
+    }
+
     #[test]
     fn irv_convert_to_float_nlt_precise_1step() {
         let recs = read_records("nlt.bin");

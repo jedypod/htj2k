@@ -253,6 +253,76 @@ pub(super) fn irv_convert_to_float_nlt2or4_precise_1step<const TYPE4: bool>(
     }
 }
 
+/// `gen_rev_tx_to_cb32` (see `codeblock_fun::rev_tx_to_cb32`).
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rev_tx_to_cb32(
+    sp: &[i32],
+    dp: &mut [u32],
+    k_max: u32,
+    _delta_inv: f32,
+    count: u32,
+    max_val: &mut u32,
+) {
+    let n = count as usize;
+    let shift = 31u32.wrapping_sub(k_max);
+    let mut tmax = *max_val;
+    for (d, &v) in dp[..n].iter_mut().zip(&sp[..n]) {
+        let sign = if v >= 0 { 0u32 } else { 0x8000_0000u32 };
+        let val = v.unsigned_abs().wrapping_shl(shift);
+        *d = sign | val;
+        tmax |= val;
+    }
+    *max_val = tmax;
+}
+
+/// `gen_irv_tx_to_cb32` (see `codeblock_fun::irv_tx_to_cb32`), with
+/// [`trunc_i32`] for the cast.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_tx_to_cb32(
+    sp: &[f32],
+    dp: &mut [u32],
+    _k_max: u32,
+    delta_inv: f32,
+    count: u32,
+    max_val: &mut u32,
+) {
+    let n = count as usize;
+    let mut tmax = *max_val;
+    for (d, &v) in dp[..n].iter_mut().zip(&sp[..n]) {
+        let t = trunc_i32(v * delta_inv);
+        let sign = if t >= 0 { 0u32 } else { 0x8000_0000u32 };
+        let val = t.unsigned_abs();
+        *d = sign | val;
+        tmax |= val;
+    }
+    *max_val = tmax;
+}
+
+/// `gen_rev_tx_from_cb32` (see `codeblock_fun::rev_tx_from_cb32`).
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rev_tx_from_cb32(sp: &[u32], dp: &mut [i32], k_max: u32, _delta: f32, count: u32) {
+    let n = count as usize;
+    let shift = 31u32.wrapping_sub(k_max);
+    for (d, &v) in dp[..n].iter_mut().zip(&sp[..n]) {
+        let val = ((v & 0x7FFF_FFFF).wrapping_shr(shift)) as i32;
+        *d = if v & 0x8000_0000 != 0 {
+            val.wrapping_neg()
+        } else {
+            val
+        };
+    }
+}
+
+/// `gen_irv_tx_from_cb32` (see `codeblock_fun::irv_tx_from_cb32`).
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_tx_from_cb32(sp: &[u32], dp: &mut [f32], _k_max: u32, delta: f32, count: u32) {
+    let n = count as usize;
+    for (d, &v) in dp[..n].iter_mut().zip(&sp[..n]) {
+        let val = (v & 0x7FFF_FFFF) as f32 * delta;
+        *d = if v & 0x8000_0000 != 0 { -val } else { val };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
