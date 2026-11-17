@@ -35,6 +35,15 @@ fn load_le_u32(data: &[u8], pos: usize) -> u32 {
     u32::from_le_bytes([b[0], b[1], b[2], b[3]])
 }
 
+/// Whether any of the 4 bytes of `v` is 0xFF: the zero-byte test
+/// `(x - 0x01..01) & !x & 0x80..80` on `!v`, which is exact for whether
+/// some byte is zero.
+#[inline(always)]
+fn has_ff_byte(v: u32) -> bool {
+    let x = !v;
+    x.wrapping_sub(0x0101_0101) & !x & 0x8080_8080 != 0
+}
+
 // ---------------------------------------------------------------------------
 // MEL
 // ---------------------------------------------------------------------------
@@ -492,9 +501,26 @@ impl<'a, const X: u8> Frwd<'a, X> {
     }
 
     /// `frwd_fetch<X>`: the next (at least) 32 bits.
+    ///
+    /// Fast path, inlined into the decoders: when 4 whole bytes remain, no
+    /// bit is pending removal (`unstuff == 0`) and none of the 4 is 0xFF,
+    /// unstuffing changes nothing, and [`Self::read`] would append the
+    /// 4 bytes as they are, 32 bits, leaving `unstuff` at 0. They are
+    /// appended here instead, and `read`, with its byte-by-byte
+    /// unstuffing, is left for the other cases.
     #[inline(always)]
     pub(crate) fn fetch(&mut self) -> u32 {
         if self.bits < 32 {
+            if self.size > 3 && self.unstuff == 0 {
+                let val = load_le_u32(self.data, self.pos);
+                if !has_ff_byte(val) {
+                    self.pos += 4;
+                    self.size -= 4;
+                    self.tmp |= (val as u64) << self.bits;
+                    self.bits += 32;
+                    return self.tmp as u32;
+                }
+            }
             self.read();
             if self.bits < 32 {
                 self.read();
@@ -535,11 +561,58 @@ impl<'a, const X: u8> Frwd<'a, X> {
     }
 
     /// `frwd_fetch64<X>`: at least 57 bits.
+    ///
+    /// Fast path: with 32 bits or fewer held, the loop below reads at
+    /// least 4 bytes. If none of the next 4 is 0xFF and no bit is pending
+    /// removal, each of them adds its 8 bits unchanged, so they are
+    /// appended at once and the loop reads the rest.
     #[inline(always)]
     pub(crate) fn fetch64(&mut self) -> u64 {
+        if self.bits <= 32 && self.size > 3 && self.unstuff == 0 {
+            let val = load_le_u32(self.data, self.pos);
+            if !has_ff_byte(val) {
+                self.pos += 4;
+                self.size -= 4;
+                self.tmp |= (val as u64) << self.bits;
+                self.bits += 32;
+            }
+        }
         while self.bits <= 56 {
             self.read8();
         }
         self.tmp
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_ff_byte;
+
+    /// `has_ff_byte` against a byte-by-byte test, with every value in each
+    /// byte position and the borderline values (0x00, 0x01, 0x7F, 0x80,
+    /// 0xFE, 0xFF) in the other three.
+    #[test]
+    fn has_ff_byte_matches_bytes() {
+        const EDGE: [u8; 6] = [0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF];
+        for pos in 0..4 {
+            for v in 0..=255u8 {
+                for a in EDGE {
+                    for b in EDGE {
+                        for c in EDGE {
+                            let mut others = [a, b, c].into_iter();
+                            let bytes: [u8; 4] = core::array::from_fn(|i| {
+                                if i == pos {
+                                    v
+                                } else {
+                                    others.next().unwrap_or(0)
+                                }
+                            });
+                            let x = u32::from_le_bytes(bytes);
+                            assert_eq!(has_ff_byte(x), bytes.contains(&0xFF), "{x:#010x}");
+                        }
+                    }
+                }
+            }
+        }
     }
 }
