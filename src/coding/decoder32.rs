@@ -8,7 +8,9 @@
 
 use super::readers::{Frwd, Mel, Rev};
 use super::tables::{UVLC_TBL0, UVLC_TBL1, VLC_TBL0, VLC_TBL1};
-use super::{check_args, put, xor, ScratchLayout, SCRATCH_LEN, V_N_SIZE};
+use super::{
+    check_args, put, whole_rows, xor, Clipped, RowPair, ScratchLayout, SCRATCH_LEN, V_N_SIZE,
+};
 
 /// Decodes one MagSgn sample of a quad (the block repeated four times per
 /// quad in the C++). Returns `(val, v_n)`; `v_n` is 0 for an insignificant
@@ -321,33 +323,29 @@ fn decode_vlc_mel32(
     }
 }
 
-/// Step 2 of the cleanup pass: decode the MagSgn segment. Returns `false`
-/// when a `U_q` exceeds `mmsbp2`.
-#[allow(clippy::too_many_arguments)]
-fn decode_magsgn32(
-    scratch: &[u16; SCRATCH_LEN],
-    data: &[u8],
-    dec: &mut [u32],
-    lcup: i32,
-    scup: i32,
+/// The MagSgn state carried from one row pair to the next.
+struct MagSgnRows<'a> {
+    scratch: &'a [u16; SCRATCH_LEN],
+    v_n_scratch: [u32; V_N_SIZE],
+    magsgn: Frwd<'a, 0xFF>,
+    sstr: usize,
     width: u32,
-    height: u32,
-    stride: u32,
     p: u32,
     mmsbp2: u32,
-    layout: ScratchLayout,
-) -> bool {
-    let sstr = layout.sstr;
-    let stride = stride as usize;
-    let mut v_n_scratch = [0u32; V_N_SIZE];
-    let mut magsgn = Frwd::<0xFF>::new(data, 0, lcup - scup);
+}
 
-    let mut y = 0u32;
-    while y == 0 || y < height {
+impl MagSgnRows<'_> {
+    /// Decodes the row pair starting at row `y` into `out`. Returns
+    /// `false` when a `U_q` exceeds `mmsbp2`.
+    #[inline(always)]
+    fn row_pair(&mut self, y: u32, out: &mut impl RowPair<u32>) -> bool {
+        let (scratch, width, p) = (self.scratch, self.width, self.p);
+        let v_n_scratch = &mut self.v_n_scratch;
+        let magsgn = &mut self.magsgn;
         let initial = y == 0;
-        let mut sp = (y >> 1) as usize * sstr;
+        let mut sp = (y >> 1) as usize * self.sstr;
         let mut vp = 0usize;
-        let mut dp = y as usize * stride;
+        let mut xi = 0usize;
         let mut prev_v_n = 0u32;
         let mut x = 0u32;
         while x < width {
@@ -363,34 +361,82 @@ fn decode_magsgn32(
                 let kappa = if gamma != 0 { emax } else { 1 };
                 u_q + kappa
             };
-            if big_u_q > mmsbp2 {
+            if big_u_q > self.mmsbp2 {
                 return false;
             }
 
-            let (val, _) = magsgn_sample(&mut magsgn, inf, 0, big_u_q, p);
-            put(dec, dp, val);
-            let (val, v_n) = magsgn_sample(&mut magsgn, inf, 1, big_u_q, p);
-            put(dec, dp + stride, val);
+            let (val, _) = magsgn_sample(magsgn, inf, 0, big_u_q, p);
+            out.put(0, xi, val);
+            let (val, v_n) = magsgn_sample(magsgn, inf, 1, big_u_q, p);
+            out.put(1, xi, val);
             v_n_scratch[vp] = prev_v_n | v_n;
             prev_v_n = 0;
-            dp += 1;
+            xi += 1;
             x += 1;
             if x >= width {
                 vp += 1;
                 break;
             }
 
-            let (val, _) = magsgn_sample(&mut magsgn, inf, 2, big_u_q, p);
-            put(dec, dp, val);
-            let (val, v_n) = magsgn_sample(&mut magsgn, inf, 3, big_u_q, p);
-            put(dec, dp + stride, val);
+            let (val, _) = magsgn_sample(magsgn, inf, 2, big_u_q, p);
+            out.put(0, xi, val);
+            let (val, v_n) = magsgn_sample(magsgn, inf, 3, big_u_q, p);
+            out.put(1, xi, val);
             prev_v_n = v_n;
-            dp += 1;
+            xi += 1;
             x += 1;
             sp += 2;
             vp += 1;
         }
         v_n_scratch[vp] = prev_v_n;
+        true
+    }
+}
+
+/// Step 2 of the cleanup pass: decode the MagSgn segment. Returns `false`
+/// when a `U_q` exceeds `mmsbp2`.
+///
+/// A row pair whose two rows lie wholly inside `dec` and do not overlap
+/// (`stride >= width`) is written through two slices of exactly `width`
+/// samples, without a bounds check per sample; any other (the row below
+/// an odd-height block, or a short `dec`) through [`put`], which drops
+/// the writes outside `dec`.
+#[allow(clippy::too_many_arguments)]
+fn decode_magsgn32(
+    scratch: &[u16; SCRATCH_LEN],
+    data: &[u8],
+    dec: &mut [u32],
+    lcup: i32,
+    scup: i32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    p: u32,
+    mmsbp2: u32,
+    layout: ScratchLayout,
+) -> bool {
+    let stride = stride as usize;
+    let w = width as usize;
+    let mut rows = MagSgnRows {
+        scratch,
+        v_n_scratch: [0u32; V_N_SIZE],
+        magsgn: Frwd::<0xFF>::new(data, 0, lcup - scup),
+        sstr: layout.sstr,
+        width,
+        p,
+        mmsbp2,
+    };
+
+    let mut y = 0u32;
+    while y == 0 || y < height {
+        let dp = y as usize * stride;
+        let ok = match whole_rows(dec, dp, stride, w) {
+            Some(mut r) => rows.row_pair(y, &mut r),
+            None => rows.row_pair(y, &mut Clipped { dec, dp, stride }),
+        };
+        if !ok {
+            return false;
+        }
         y += 2;
     }
     true

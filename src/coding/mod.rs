@@ -124,6 +124,61 @@ pub(crate) fn xor<T: Copy + core::ops::BitXorAssign>(dec: &mut [T], idx: usize, 
     }
 }
 
+/// Where a block decoder's MagSgn step stores the two rows of a row pair.
+pub(crate) trait RowPair<T> {
+    /// Stores the sample of column `x` in the first (`row == 0`) or the
+    /// second row.
+    fn put(&mut self, row: usize, x: usize, val: T);
+}
+
+/// Two rows wholly inside `decoded_data`, each exactly the block's width
+/// long, so a store needs no check beyond the slice's own.
+pub(crate) struct Rows<'a, T>(pub &'a mut [T], pub &'a mut [T]);
+
+impl<T: Copy> RowPair<T> for Rows<'_, T> {
+    #[inline(always)]
+    fn put(&mut self, row: usize, x: usize, val: T) {
+        if row == 0 {
+            self.0[x] = val;
+        } else {
+            self.1[x] = val;
+        }
+    }
+}
+
+/// Any other row pair, starting at index `dp` of `dec`: stores outside
+/// `dec` are dropped, as by [`put`].
+pub(crate) struct Clipped<'a, T> {
+    pub dec: &'a mut [T],
+    pub dp: usize,
+    pub stride: usize,
+}
+
+impl<T: Copy> RowPair<T> for Clipped<'_, T> {
+    #[inline(always)]
+    fn put(&mut self, row: usize, x: usize, val: T) {
+        put(self.dec, self.dp + row * self.stride + x, val);
+    }
+}
+
+/// The row pair of `dec` starting at index `dp`, `w` samples wide, as two
+/// slices when both rows lie wholly inside `dec` and do not overlap
+/// (`stride >= w`).
+#[inline(always)]
+pub(crate) fn whole_rows<T>(
+    dec: &mut [T],
+    dp: usize,
+    stride: usize,
+    w: usize,
+) -> Option<Rows<'_, T>> {
+    if stride >= w && dp.checked_add(stride + w).is_some_and(|e| e <= dec.len()) {
+        let (a, b) = dec[dp..dp + stride + w].split_at_mut(stride);
+        Some(Rows(&mut a[..w], &mut b[..w]))
+    } else {
+        None
+    }
+}
+
 /// Re-arranges quad significance (in the `rho` bits of the cleanup-pass
 /// records in `scratch`) into column significance, in place, as the first
 /// step of the SigProp pass. Returns `mstr`, the stride of the result.
