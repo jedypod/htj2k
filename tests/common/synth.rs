@@ -73,6 +73,9 @@ pub struct EncArgs {
     pub nlt_comps: Vec<u32>,
     /// One `(dx, dy)` per component, padded with `(1, 1)`.
     pub sub: Vec<(u32, u32)>,
+    /// `--comp-fmt`: one `(depth, signed)` per component, padded with
+    /// `(depth, is_signed)`.
+    pub fmt: Vec<(u32, bool)>,
     /// `--planar` resolved with `ojph_enc`'s default rule.
     pub planar: bool,
     pub seed: u64,
@@ -147,6 +150,7 @@ impl EncArgs {
             nlt_all: false,
             nlt_comps: Vec::new(),
             sub: Vec::new(),
+            fmt: Vec::new(),
             planar: false,
             seed: 1,
             pattern: "smooth".into(),
@@ -214,6 +218,12 @@ impl EncArgs {
                         a.sub.push(parse_pair(p, 'x')?);
                     }
                 }
+                "--comp-fmt" => {
+                    for p in val()?.split(',') {
+                        let (b, sg) = parse_pair(p, ':').map_err(|_| "bad --comp-fmt")?;
+                        a.fmt.push((b, sg != 0));
+                    }
+                }
                 "--planar" => planar = atoi(val()?),
                 "--seed" => a.seed = strtoull0(val()?),
                 "--pattern" => a.pattern = val()?.to_string(),
@@ -232,6 +242,12 @@ impl EncArgs {
         }
         while (a.sub.len() as u32) < a.num_comps {
             a.sub.push((1, 1));
+        }
+        while (a.fmt.len() as u32) < a.num_comps {
+            a.fmt.push((a.depth, a.is_signed));
+        }
+        if a.fmt.iter().any(|&(b, _)| !(1..=32).contains(&b)) {
+            return Err("depth must be 1..32".into());
         }
         let subsampled = a.sub[..a.num_comps as usize]
             .iter()
@@ -285,22 +301,28 @@ impl EncArgs {
             .collect()
     }
 
-    /// The legal sample range, `lo..=hi`.
-    pub fn range(&self) -> (i64, i64) {
-        if self.is_signed {
-            (-(1i64 << (self.depth - 1)), (1i64 << (self.depth - 1)) - 1)
+    /// The bit depth and signedness of component `c`.
+    pub fn format(&self, c: u32) -> (u32, bool) {
+        self.fmt[c as usize]
+    }
+
+    /// The legal sample range of component `c`, `lo..=hi`.
+    pub fn range(&self, c: u32) -> (i64, i64) {
+        let (depth, signed) = self.format(c);
+        if signed {
+            (-(1i64 << (depth - 1)), (1i64 << (depth - 1)) - 1)
         } else {
-            (0, (1i64 << self.depth) - 1)
+            (0, (1i64 << depth) - 1)
         }
     }
 
     /// The image `ojph_enc` encodes: `img[c][y * width_c + x]`.
     pub fn synthesise(&self) -> Vec<Vec<i64>> {
-        let (lo, hi) = self.range();
-        let span = (hi - lo) as u64 + 1; // <= 2^32
         let mut rng = SplitMix64::new(self.seed);
         let mut img = Vec::with_capacity(self.num_comps as usize);
-        for (cw, ch) in self.comp_sizes() {
+        for (c, (cw, ch)) in self.comp_sizes().into_iter().enumerate() {
+            let (lo, hi) = self.range(c as u32);
+            let span = (hi - lo) as u64 + 1; // <= 2^32
             let mut v = Vec::with_capacity(cw as usize * ch as usize);
             let cval = lo + (rng.next() % span) as i64;
             let ph = rng.next();

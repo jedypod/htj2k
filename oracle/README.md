@@ -67,7 +67,7 @@ without CMake. It never modifies the reference tree.
 * **`ojph_enc -o out.j2c [options]`** synthesises a deterministic image and
   writes a raw codestream (`.j2c`, no JP2/JPH boxes). Run `ojph_enc --help`
   for the options. They cover the size, components, depth (1 to 32) and
-  signedness, `--irrev` (9/7), `--qstep`, `--rct`, `--levels`, `--block`,
+  signedness (also per component, `--comp-fmt 16:1,32:1,32:0`), `--irrev` (9/7), `--qstep`, `--rct`, `--levels`, `--block`,
   `--precincts`, `--coc` (per-component levels and block size), `--prog`,
   `--tile`, `--tile-off`, `--img-off`, `--tlm`, `--tileparts R|C|RC`,
   `--nlt3` and `--nlt3-comps`, `--sub`, `--planar`, `--seed` and

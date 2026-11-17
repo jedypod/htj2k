@@ -32,7 +32,8 @@ pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
         siz.set_num_components(a.num_comps);
         for c in 0..a.num_comps {
             let (dx, dy) = a.sub[c as usize];
-            siz.set_component(c, Point::new(dx, dy), a.depth, a.is_signed)?;
+            let (depth, signed) = a.format(c);
+            siz.set_component(c, Point::new(dx, dy), depth, signed)?;
         }
     }
     {
@@ -56,7 +57,7 @@ pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
         cs.access_qcd_mut()?.set_irrev_quant(a.qstep);
     }
     for c in 0..a.num_comps {
-        let want = (a.nlt_all && a.is_signed) || a.nlt_comps.contains(&c);
+        let want = (a.nlt_all && a.format(c).1) || a.nlt_comps.contains(&c);
         if want {
             cs.access_nlt_mut()?
                 .set_nonlinear_transform(c, nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_NLT)?;

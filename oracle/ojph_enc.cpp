@@ -53,6 +53,8 @@ void usage() {
 "  --comps N          number of components, default 1\n"
 "  --depth B          bit depth 1..32 for every component, default 8\n"
 "  --signed 0|1       signedness for every component, default 0\n"
+"  --comp-fmt LIST    comma list of B:S (depth:signed) per component,\n"
+"                     overriding --depth/--signed (missing = those)\n"
 "  --irrev            irreversible 9/7 (default reversible 5/3)\n"
 "  --qstep F          irreversible base quantisation step (default 1/256)\n"
 "  --rct 0|1          colour transform (needs >= 3 comps), default 0\n"
@@ -116,6 +118,7 @@ int main(int argc, char** argv) {
   bool nlt_all = false;
   std::vector<uint32_t> nlt_comps;
   std::vector<std::pair<uint32_t, uint32_t>> sub;
+  std::vector<std::pair<uint32_t, bool>> fmt;
   int planar = -1;
   uint64_t seed = 1;
   std::string pattern = "smooth";
@@ -172,6 +175,13 @@ int main(int argc, char** argv) {
         sub.push_back({dx, dy});
       }
     }
+    else if (a == "--comp-fmt") {
+      for (auto& p : split(val(), ',')) {
+        uint32_t b, sg;
+        if (sscanf(p.c_str(), "%u:%u", &b, &sg) != 2) die("bad --comp-fmt");
+        fmt.push_back({b, sg != 0});
+      }
+    }
     else if (a == "--planar") planar = atoi(val());
     else if (a == "--seed") seed = strtoull(val(), nullptr, 0);
     else if (a == "--pattern") pattern = val();
@@ -184,6 +194,9 @@ int main(int argc, char** argv) {
       pattern != "zero")
     die("unknown pattern %s", pattern.c_str());
   while (sub.size() < num_comps) sub.push_back({1, 1});
+  while (fmt.size() < num_comps) fmt.push_back({depth, is_signed});
+  for (uint32_t c = 0; c < num_comps; ++c)
+    if (fmt[c].first < 1 || fmt[c].first > 32) die("depth must be 1..32");
   bool subsampled = false;
   for (uint32_t c = 0; c < num_comps; ++c)
     if (sub[c].first != 1 || sub[c].second != 1) subsampled = true;
@@ -197,16 +210,16 @@ int main(int argc, char** argv) {
     ch[c] = div_ceil(Ysiz, sub[c].second) - div_ceil(ioy, sub[c].second);
   }
 
-  // Legal sample range.
-  int64_t lo, hi;
-  if (is_signed) { lo = -((int64_t)1 << (depth - 1)); hi = ((int64_t)1 << (depth - 1)) - 1; }
-  else { lo = 0; hi = ((int64_t)1 << depth) - 1; }
-  const uint64_t span = (uint64_t)(hi - lo) + 1;  // <= 2^32
-
   // Synthesise the image: img[c][y*cw+x].
   std::vector<std::vector<int64_t>> img(num_comps);
   SplitMix64 rng(seed);
   for (uint32_t c = 0; c < num_comps; ++c) {
+    // Legal sample range of this component.
+    const uint32_t cdepth = fmt[c].first;
+    int64_t lo, hi;
+    if (fmt[c].second) { lo = -((int64_t)1 << (cdepth - 1)); hi = ((int64_t)1 << (cdepth - 1)) - 1; }
+    else { lo = 0; hi = ((int64_t)1 << cdepth) - 1; }
+    const uint64_t span = (uint64_t)(hi - lo) + 1;  // <= 2^32
     img[c].resize((size_t)cw[c] * ch[c]);
     int64_t cval = lo + (int64_t)(rng.next() % span);
     // gradient direction / phase per component
@@ -257,8 +270,8 @@ int main(int argc, char** argv) {
     siz.set_tile_offset(ojph::point(tox, toy));
     siz.set_num_components(num_comps);
     for (uint32_t c = 0; c < num_comps; ++c)
-      siz.set_component(c, ojph::point(sub[c].first, sub[c].second), depth,
-                        is_signed);
+      siz.set_component(c, ojph::point(sub[c].first, sub[c].second),
+                        fmt[c].first, fmt[c].second);
 
     ojph::param_cod cod = cs.access_cod();
     cod.set_num_decomposition(levels);
@@ -278,7 +291,7 @@ int main(int argc, char** argv) {
     ojph::param_nlt nlt = cs.access_nlt();
     for (uint32_t c = 0; c < num_comps; ++c) {
       bool want = false;
-      if (nlt_all && is_signed) want = true;
+      if (nlt_all && fmt[c].second) want = true;
       for (uint32_t n : nlt_comps) if (n == c) want = true;
       if (want)
         nlt.set_nonlinear_transform(
