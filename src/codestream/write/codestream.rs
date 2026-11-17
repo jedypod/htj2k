@@ -218,19 +218,25 @@ impl Encoder {
     /// transform, and interleaved cannot be used when components differ
     /// in height (subsampling).
     ///
-    /// If this is never called the order is interleaved. (OpenJPH then
-    /// picks planar when the colour transform is used and interleaved
-    /// otherwise, which with the colour transform gives a wrong image
-    /// without an error.)
+    /// If this is never called, [`write_headers`](Self::write_headers)
+    /// follows OpenJPH: interleaved without the colour transform, and
+    /// planar with it. Planar with the colour transform cannot be
+    /// encoded, so in that case `write_headers` fails with 0x00030021, as
+    /// it does after `set_planar(true)`; call `set_planar(false)` to use
+    /// the colour transform. (OpenJPH writes a wrong image instead.)
     pub fn set_planar(&mut self, planar: bool) -> Result<()> {
         self.check_setup()?;
         self.planar = Some(planar);
         Ok(())
     }
 
-    /// See [`set_planar`](Self::set_planar).
+    /// Whether the exchange is planar: as set by
+    /// [`set_planar`](Self::set_planar), or, if it was never called,
+    /// whether OpenJPH's rule would pick planar with the parameters as
+    /// they are now (true with the colour transform).
     pub fn is_planar(&self) -> bool {
-        self.planar.unwrap_or(false)
+        self.planar
+            .unwrap_or_else(|| self.cod.is_employing_color_transform())
     }
 
     /// Splits each tile into tile parts at resolutions, at components, or
@@ -404,13 +410,17 @@ impl Encoder {
         }
 
         let employ_color_transform = self.cod.is_employing_color_transform();
-        let planar = self.planar.unwrap_or(false);
+        // OpenJPH's default: planar with the colour transform, which it
+        // cannot encode correctly, and interleaved without. The first is
+        // refused as an explicit set_planar(true) is.
+        let planar = self.planar.unwrap_or(employ_color_transform);
         if planar && employ_color_transform {
             return ojph_error!(
                 0x00030021,
                 "the planar interface option cannot be used when colour transform is employed"
             );
         }
+        self.planar = Some(planar);
 
         // The component sizes, and the checks of the exchange order that
         // OpenJPH leaves to the caller (it loops forever on them).

@@ -99,9 +99,12 @@ The encoder differs as follows:
   previous one, so the encoder keeps its line buffers and the caller
   cannot pass back a line of the wrong size. OpenJPH passes the filled
   line back as an argument.
-* If `set_planar` is never called the exchange is interleaved. OpenJPH
-  then picks planar with a colour transform, which it cannot encode
-  correctly.
+* If `set_planar` is never called, the exchange is interleaved without
+  the colour transform, as in OpenJPH. With the colour transform OpenJPH
+  then picks planar, which it cannot encode correctly; `write_headers`
+  refuses that with 0x00030021, the error OpenJPH gives for an explicit
+  `set_planar(true)`. Call `set_planar(false)` to use the colour
+  transform.
 * `set_memory_limit` bounds the memory for the tiles and the coded data
   held until `flush`. The default is 4 GiB, and an image needing more
   is refused by `write_headers`. As in the decoder, the limit is

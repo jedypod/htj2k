@@ -414,6 +414,55 @@ fn precincts_set_before_decompositions() {
     assert_eq!(err.code(), 0x00080009);
 }
 
+/// Without `set_planar`, the exchange follows OpenJPH's rule
+/// (interleaved, or planar with the colour transform), except that
+/// planar with the colour transform is refused as an explicit
+/// `set_planar(true)` is.
+#[test]
+fn planar_default_follows_openjph() {
+    // 3 components of 4x3, the colour transform on or off
+    let encode = |rct: bool, planar: Option<bool>| -> htj2k::Result<Vec<u8>> {
+        let mut enc = Encoder::new();
+        let siz = enc.access_siz_mut()?;
+        siz.set_image_extent(Point::new(4, 3));
+        siz.set_num_components(3);
+        for c in 0..3 {
+            siz.set_component(c, Point::new(1, 1), 8, false)?;
+        }
+        enc.access_cod_mut()?.set_color_transform(rct);
+        if let Some(p) = planar {
+            enc.set_planar(p)?;
+        }
+        assert_eq!(enc.is_planar(), planar.unwrap_or(rct));
+        let mut out = b"keep".to_vec();
+        if let Err(e) = enc.write_headers(&mut out, &[]) {
+            assert_eq!(out, b"keep");
+            return Err(e);
+        }
+        let mut order = Vec::new();
+        while let Some((c, line)) = enc.exchange()? {
+            order.push(c);
+            line.fill(c as i32 * 40);
+        }
+        // interleaved: one line of each component in turn
+        assert_eq!(order, [0, 1, 2, 0, 1, 2, 0, 1, 2]);
+        enc.flush(&mut out)?;
+        Ok(out)
+    };
+    assert_eq!(
+        encode(false, None).unwrap(),
+        encode(false, Some(false)).unwrap()
+    );
+    assert_eq!(encode(true, None).unwrap_err().code(), 0x00030021);
+    assert_eq!(encode(true, Some(true)).unwrap_err().code(), 0x00030021);
+    let rct = encode(true, Some(false)).unwrap();
+    let raw = decode_to_raw(&rct[4..]).unwrap();
+    let want: Vec<u8> = (0..3)
+        .flat_map(|c: i32| std::iter::repeat_n((c * 40).to_le_bytes(), 12).flatten())
+        .collect();
+    assert_eq!(raw, want);
+}
+
 fn small_encoder() -> Encoder {
     let mut enc = Encoder::new();
     let siz = enc.access_siz_mut().unwrap();
