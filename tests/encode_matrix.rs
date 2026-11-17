@@ -87,3 +87,35 @@ fn codestreams_match_openjph() {
     assert!(failed.is_empty(), "{}", failed.join("\n"));
     assert_eq!(checked, 150);
 }
+
+/// Gate 4: every configuration OpenJPH refused, by an exception or an
+/// assertion, is refused here with an error, and nothing is appended to
+/// the output. Where OpenJPH gave an error code, ours is the same.
+#[test]
+fn refused_cases_return_errors() {
+    let mut checked = 0;
+    for case in cases().iter().filter(|c| c.is_refused()) {
+        let args = EncArgs::parse_command(&case.command).unwrap();
+        let prefix = b"prefix".to_vec();
+        let mut out = prefix.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drive::encode(&args, &mut out)
+        }));
+        let err = match result {
+            Err(_) => panic!("{}: panicked", case.name),
+            Ok(Ok(())) => panic!("{}: encoded what OpenJPH refused", case.name),
+            Ok(Err(e)) => e,
+        };
+        assert_eq!(out, prefix, "{}: output changed on error", case.name);
+        let ojph_code = case
+            .error
+            .as_deref()
+            .and_then(|t| t.strip_prefix("ojph error 0x"))
+            .and_then(|t| u32::from_str_radix(t.get(..8)?, 16).ok());
+        if let Some(code) = ojph_code {
+            assert_eq!(err.code(), code, "{}: {err}", case.name);
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, 9);
+}
