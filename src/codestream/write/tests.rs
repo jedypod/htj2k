@@ -208,3 +208,34 @@ fn block_encoder_inputs_match_openjph() {
     assert_eq!(matched, 287 + 168);
     eprintln!("{truncated} samples OpenJPH truncates are kept in the lv0 runs");
 }
+
+/// The output limit stops a strip of one row of code blocks in the
+/// middle of the row: with a limit of a third of the codestream's
+/// length, the push that codes the row fails with 0x00080070 before
+/// every block is coded.
+#[test]
+fn output_limit_stops_within_a_row_of_code_blocks() {
+    let strips = [
+        "--size 2048x32 --depth 16 --signed 1 --nlt3 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R",
+        "--size 1920x32 --comps 4 --depth 16 --signed 1 --nlt3 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R",
+    ];
+    for args in strips {
+        let words: Vec<&str> = args.split_whitespace().collect();
+        let a = EncArgs::parse(&words).unwrap();
+        let img = a.synthesise();
+        let mut full = Vec::new();
+        drive::encode(&a, &mut full).unwrap();
+        let all = calls_of(args).len();
+
+        let mut cs = drive::configure(&a).unwrap();
+        cs.set_output_limit(full.len() as u64 / 3).unwrap();
+        cs.write_headers(&mut Vec::new(), &drive::comments(&a).unwrap())
+            .unwrap();
+        record::start();
+        let pushed = drive::push_image(&mut cs, &a, &img);
+        let coded = record::take().len();
+        assert_eq!(pushed.unwrap_err().code(), 0x00080070, "{args}");
+        assert!(coded < all, "{args}: {coded} of {all} blocks coded");
+        assert!(coded > 0, "{args}");
+    }
+}

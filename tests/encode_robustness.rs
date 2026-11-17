@@ -232,20 +232,22 @@ fn expected_sizes(enc: &Encoder) -> Vec<(usize, usize)> {
 /// Returns what was encoded, or the code of the error that refused it.
 fn encode_random(rng: &mut Rng, desc: &mut String, in_range: bool) -> Result<Encoded, u32> {
     let mut enc = Encoder::new();
-    encode_random_with(&mut enc, rng, desc, in_range)
+    encode_random_with(&mut enc, rng, desc, in_range, u64::MAX)
 }
 
 /// [`encode_random`] with `enc`, which must be new or reset, and is left
-/// as the encoding leaves it.
+/// as the encoding leaves it, and an output limit of `limit` bytes.
 fn encode_random_with(
     enc: &mut Encoder,
     rng: &mut Rng,
     desc: &mut String,
     in_range: bool,
+    limit: u64,
 ) -> Result<Encoded, u32> {
     let (e, d) = random_encoder(rng, std::mem::take(enc));
     *enc = e;
     *desc = d;
+    enc.set_output_limit(limit).unwrap();
     let mut out = b"xyz".to_vec();
     if let Err(e) = enc.write_headers(&mut out, &[]) {
         assert_eq!(out, b"xyz", "write_headers wrote and failed");
@@ -446,13 +448,30 @@ fn random_configurations_through_one_encoder() {
         let fresh = catch_unwind(AssertUnwindSafe(|| {
             encode_random(&mut rng, &mut desc, in_range).map(|e| e.j2c)
         }));
+        // Half of the codestreams are written with an output limit of
+        // their length, which must change nothing, and a quarter with
+        // one byte less, which must fail; the encoder is reset after
+        // that, too.
+        let (limit, cut) = match &fresh {
+            Ok(Ok(j2c)) if i % 4 < 2 => (j2c.len() as u64, false),
+            Ok(Ok(j2c)) if i % 4 == 2 => (j2c.len() as u64 - 1, true),
+            _ => (u64::MAX, false),
+        };
         let mut enc = kept.take().unwrap_or_default();
         enc.reset();
         let reused = catch_unwind(AssertUnwindSafe(|| {
-            let r = encode_random_with(&mut enc, &mut twin, &mut String::new(), in_range);
+            let r = encode_random_with(&mut enc, &mut twin, &mut String::new(), in_range, limit);
             (r.map(|e| e.j2c), enc)
         }));
         match (fresh, reused) {
+            (Ok(_), Ok((reused, enc))) if cut => {
+                kept = Some(enc);
+                if reused != Err(0x00080070) {
+                    problems.push(format!("{i}: one byte less gave {reused:?}: {desc}"));
+                } else {
+                    same += 1;
+                }
+            }
             (Ok(fresh), Ok((reused, enc))) => {
                 kept = Some(enc);
                 if fresh != reused {

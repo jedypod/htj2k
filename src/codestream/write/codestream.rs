@@ -8,7 +8,7 @@
 
 use super::tile::Tile;
 use super::Ctx;
-use crate::codestream::Budget;
+use crate::codestream::{Budget, OUTPUT_LIMIT_ERROR};
 use crate::error::ojph_error;
 use crate::line::LineBuf;
 use crate::params::marker::{COM, EOC, SOC};
@@ -145,6 +145,10 @@ pub struct Encoder {
     tilepart_div: u32,
     need_tlm: bool,
     memory_limit: u64,
+    /// The longest codestream to write; `u64::MAX` for no limit.
+    output_limit: u64,
+    /// The length of the main header, set by `write_headers`.
+    header_bytes: u64,
     version_comment: Option<Vec<u8>>,
 
     num_tiles: Size,
@@ -199,6 +203,8 @@ impl Encoder {
             tilepart_div: OJPH_TILEPART_NO_DIVISIONS,
             need_tlm: false,
             memory_limit: DEFAULT_MEMORY_LIMIT,
+            output_limit: u64::MAX,
+            header_bytes: 0,
             version_comment: Some(comment),
             num_tiles: Size::default(),
             num_comps: 0,
@@ -368,6 +374,29 @@ impl Encoder {
         Ok(())
     }
 
+    /// Limits the length of the codestream, from SOC to EOC, to `bytes`
+    /// (not counting what the output vector held before). Once the
+    /// codestream would be longer, the call that finds it fails with
+    /// error 0x00080070 and the encoder stops: `write_headers` if the
+    /// main header and the other fixed parts are longer already;
+    /// `exchange` as soon as those and the code blocks coded so far are,
+    /// in the middle of a row of code blocks if need be, without coding
+    /// the rest of the image; and otherwise `flush`, which adds the
+    /// packet headers and knows the exact length before it writes. The
+    /// failing call appends nothing to the output vector, but the main
+    /// header that `write_headers` appended stays there: a caller who
+    /// falls back to storing the samples another way truncates the
+    /// vector to its length before `write_headers`.
+    /// [`reset`](Self::reset) makes the encoder usable again.
+    ///
+    /// The default is no limit (`u64::MAX`). A codestream that fits is
+    /// written exactly as without the limit. OpenJPH has no such limit.
+    pub fn set_output_limit(&mut self, bytes: u64) -> Result<()> {
+        self.check_setup()?;
+        self.output_limit = bytes;
+        Ok(())
+    }
+
     /// The text of the COM marker segment that
     /// [`write_headers`](Self::write_headers) writes before the caller's
     /// comments, or `None` for no such segment. OpenJPH always writes
@@ -426,7 +455,17 @@ impl Encoder {
             );
         }
         self.prepare()?;
+        let start = out.len();
         self.write_main_header(out, comments);
+        self.header_bytes = (out.len() - start) as u64;
+        if let Err(e) = self.check_output_limit(0) {
+            out.truncate(start);
+            return Err(e);
+        }
+        // Every coded byte goes into a packet, so the coded data can take
+        // what the fixed parts leave.
+        self.budget
+            .limit_coded(self.output_limit - self.fixed_bytes());
         // with no component that has lines, there is nothing to exchange
         self.state = if self.cur_comp < self.num_comps {
             State::Headers
@@ -791,6 +830,32 @@ impl Encoder {
         Ok(())
     }
 
+    /// The bytes of the codestream that do not depend on the coded data:
+    /// the main header, TLM, SOT and SOD of every tile part, and EOC.
+    fn fixed_bytes(&self) -> u64 {
+        let tlm = if self.need_tlm {
+            self.tlm.written_len()
+        } else {
+            0
+        };
+        self.header_bytes + tlm + 14 * u64::from(self.num_tileparts) + 2
+    }
+
+    /// Fails with 0x00080070 if the fixed parts of the codestream and
+    /// `data_bytes` of packets are more than the output limit allows.
+    fn check_output_limit(&self, data_bytes: u64) -> Result<()> {
+        let total = self.fixed_bytes().saturating_add(data_bytes);
+        if total > self.output_limit {
+            return ojph_error!(
+                OUTPUT_LIMIT_ERROR,
+                "the codestream needs at least {} bytes, more than the output limit of {}",
+                total,
+                self.output_limit
+            );
+        }
+        Ok(())
+    }
+
     /// Refuses (0x0008000D) parameter state that only the decoder uses
     /// or that the writer does not implement. The parameter objects are
     /// shared with the decoder, so `access_siz_mut` and `access_cod_mut`
@@ -971,6 +1036,9 @@ impl Encoder {
         for tile in self.mem.tiles.iter_mut() {
             tile.prepare_for_flush(&mut self.mem.precinct_scratch)?;
         }
+        let packets: u64 = self.mem.tiles.iter().map(Tile::num_bytes).sum();
+        self.check_output_limit(packets)?;
+        let start = out.len();
         if self.need_tlm {
             // write tlm
             for tile in &self.mem.tiles {
@@ -982,6 +1050,11 @@ impl Encoder {
             tile.flush(out, self.tilepart_div)?;
         }
         put_u16(out, EOC);
+        debug_assert_eq!(
+            self.header_bytes + (out.len() - start) as u64,
+            self.fixed_bytes() + packets,
+            "the codestream's length is not what the output limit was checked against"
+        );
         Ok(())
     }
 

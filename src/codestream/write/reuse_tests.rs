@@ -68,7 +68,12 @@ fn used(a: &EncArgs, img: &[Vec<i64>], run: Run) -> Encoder {
             }
         }
         Run::Failed => {
-            enc.budget = Budget::new(64);
+            // what is left after the tree, and the output limit, as
+            // write_headers sets them
+            let mut budget = Budget::new(enc.mem.charge + 64);
+            budget.take(enc.mem.charge).unwrap();
+            budget.limit_coded(u64::MAX);
+            enc.budget = budget;
             assert!(drive::push_image(&mut enc, a, img).is_err());
         }
     }

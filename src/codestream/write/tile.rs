@@ -383,6 +383,13 @@ impl Tile {
         Ok(())
     }
 
+    /// The bytes of all the packets of the tile, once
+    /// [`prepare_for_flush`](Self::prepare_for_flush) has coded their
+    /// headers.
+    pub(crate) fn num_bytes(&self) -> u64 {
+        self.num_bytes
+    }
+
     /// Adds a TLM entry for every tile part of the tile.
     pub(crate) fn fill_tlm(&self, tlm: &mut ParamTlm, tilepart_div: u32) -> Result<()> {
         let mut pair = |bytes: u64| -> Result<()> {

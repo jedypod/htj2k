@@ -213,7 +213,7 @@ impl Codeblock {
                 encode_codeblock64(buf, self.k_max - 1, 1, w, h, stride, coded)?
             }
         };
-        budget.take(len as u64)?;
+        budget.take_coded(len as u64)?;
         coded_cb.pass_length = [len, 0];
         coded_cb.data = Some(start);
         Ok(())

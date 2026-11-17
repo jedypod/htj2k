@@ -47,6 +47,10 @@ pub(crate) struct Build<'a> {
     pub resilient: bool,
 }
 
+/// The error of an encoder whose codestream would be longer than
+/// `Encoder::set_output_limit` allows.
+pub(crate) const OUTPUT_LIMIT_ERROR: u32 = 0x00080070;
+
 /// How much memory the decoder may still allocate, in bytes.
 ///
 /// Every buffer whose size derives from the codestream is taken from the
@@ -55,11 +59,38 @@ pub(crate) struct Build<'a> {
 pub(crate) struct Budget {
     limit: u64,
     left: u64,
+    /// The encoder's coded bytes that the output limit still allows.
+    coded_left: u64,
 }
 
 impl Budget {
     pub(crate) fn new(limit: u64) -> Self {
-        Budget { limit, left: limit }
+        Budget {
+            limit,
+            left: limit,
+            coded_left: u64::MAX,
+        }
+    }
+
+    /// Allows at most `bytes` more of coded data through
+    /// [`take_coded`](Self::take_coded).
+    pub(crate) fn limit_coded(&mut self, bytes: u64) {
+        self.coded_left = bytes;
+    }
+
+    /// Accounts for `bytes` bytes of coded data, which both the memory
+    /// limit and the output limit count, or fails if either would be
+    /// passed.
+    pub(crate) fn take_coded(&mut self, bytes: u64) -> Result<()> {
+        self.take(bytes)?;
+        if bytes > self.coded_left {
+            return ojph_error!(
+                OUTPUT_LIMIT_ERROR,
+                "the coded data is longer than the output limit allows"
+            );
+        }
+        self.coded_left -= bytes;
+        Ok(())
     }
 
     /// The bytes that may still be accounted for.

@@ -194,6 +194,13 @@ impl ParamTlm {
         }
     }
 
+    /// The bytes [`write`](Self::write) appends: 6 for each marker
+    /// segment and 6 for each pair.
+    pub(crate) fn written_len(&self) -> u64 {
+        let segments = self.num_pairs.div_ceil(Self::MAX_PAIRS_PER_SEG).max(1);
+        6 * u64::from(segments) + 6 * u64::from(self.num_pairs)
+    }
+
     pub fn write(&self, file: &mut Vec<u8>) -> bool {
         // C++ asserts next_pair_index == num_pairs
         let mut written = 0u32;
