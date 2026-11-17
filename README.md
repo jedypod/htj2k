@@ -76,9 +76,11 @@ intended differences in behaviour:
 The encoder differs as follows:
 
 * It returns an error where OpenJPH asserts, loops forever or wraps.
-  * LRCP or RLCP with components of different decomposition counts and
-    no tile parts at components; OpenJPH asserts in
-    `tile_comp::write_precincts`.
+  * LRCP or RLCP with components of different decomposition counts.
+    Without tile parts at components OpenJPH asserts in
+    `tile_comp::write_precincts` (0x00080007 here). With them it writes
+    a tile-part count (TNsot) and tile-part indices (TPsot) that no
+    decoder accepts, and that can wrap at 8 bits (0x0008000C here).
   * Interleaved exchange of components of different heights;
     OpenJPH's `exchange` cannot do it, and `ojph_enc` reports it.
   * Precincts 1 sample wide or high above resolution 0. This is left
@@ -120,10 +122,7 @@ The encoder differs as follows:
 * Known OpenJPH bugs are reproduced, not fixed, so the bytes stay the
   same. In particular, see `oracle/README.md`:
   * with no decompositions, the reversible path loses the minimum
-    sample;
-  * LRCP or RLCP with tile parts at components and per-component
-    decomposition counts writes a tile-part count, and tile-part
-    indices, that neither decoder accepts.
+    sample.
 
 ## Licence
 

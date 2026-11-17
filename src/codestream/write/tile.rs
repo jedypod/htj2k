@@ -425,7 +425,9 @@ impl Tile {
                     }
                 } else {
                     // OpenJPH counts num_comps * (max + 1) tile parts even
-                    // when some components have fewer resolutions
+                    // when some components have fewer resolutions; the
+                    // encoder refuses that case (0x0008000C), so every
+                    // component has every resolution here
                     let num_tileparts = num_comps * (max_decompositions + 1);
                     for r in 0..=max_decompositions {
                         for (ci, c) in comps.iter().enumerate() {

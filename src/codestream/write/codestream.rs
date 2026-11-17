@@ -447,21 +447,31 @@ impl Encoder {
             }
         }
 
+        // A layer-first progression cannot have components with different
+        // numbers of decompositions. Without tile parts at components
         // OpenJPH asserts `res_num <= num_decomps` in
-        // tile_comp::write_precincts when a layer-first progression
-        // without tile parts at components meets components with
-        // different numbers of decompositions.
+        // tile_comp::write_precincts. With them it writes the stream, but
+        // counts num_comps * (max + 1) tile parts in TNsot and numbers
+        // them as if every component had every resolution, so TNsot is
+        // wrong, TPsot skips numbers and either may wrap at 8 bits; no
+        // decoder accepts the result (OpenJPH's gives 0x00030091).
         let decomps: Vec<u32> = (0..num_comps)
             .map(|c| self.cod.get_coc(c).get_num_decompositions())
             .collect();
         let max_decs = decomps.iter().copied().max().unwrap_or(0);
         if (po == ProgressionOrder::Lrcp || po == ProgressionOrder::Rlcp)
-            && (self.tilepart_div & OJPH_TILEPART_COMPONENTS) == 0
             && decomps.iter().any(|&d| d != max_decs)
         {
+            if (self.tilepart_div & OJPH_TILEPART_COMPONENTS) == 0 {
+                return ojph_error!(
+                    0x00080007,
+                    "with the {} progression order, all components must have the same number of decompositions",
+                    po.as_str()
+                );
+            }
             return ojph_error!(
-                0x00080007,
-                "with the {} progression order, all components must have the same number of decompositions unless tile parts are divided at components",
+                0x0008000C,
+                "with the {} progression order and tile parts at components, all components must have the same number of decompositions; OpenJPH writes a tile-part count and tile-part indices that no decoder accepts",
                 po.as_str()
             );
         }

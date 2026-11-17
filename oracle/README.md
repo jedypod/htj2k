@@ -241,7 +241,8 @@ These are found by the matrix and kept in it on purpose.
     lack, and TPsot skips their numbers (here TNsot is 12, with 10 tile
     parts numbered 0 to 11 without 7 and 10).
   * `ojph_dec` rejects the result with 0x00030091, "wrong tile part
-    index", and so does the crate's decoder. The crate's encoder writes
-    the same bytes.
+    index", and so does the crate's decoder. With more components the
+    two counts can also wrap at 8 bits. The crate's encoder refuses
+    this configuration with 0x0008000C rather than write it.
 * **No multi-pass code blocks.** The OpenJPH encoder writes only the
   cleanup pass. See `tests/data/blocks/README.md`.

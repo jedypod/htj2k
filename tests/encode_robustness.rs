@@ -199,26 +199,9 @@ fn random_encoder(rng: &mut Rng) -> (Encoder, String) {
     (enc, d)
 }
 
-/// Whether OpenJPH would write a codestream that it cannot decode:
-/// LRCP or RLCP, tile parts at components, and components with
-/// different numbers of decompositions. TNsot counts a tile part for
-/// every resolution of the component with the most, but none is written
-/// for resolutions a component lacks, and TPsot skips their numbers.
-/// The encoder reproduces this, as it does OpenJPH's other bugs.
-fn openjph_tile_part_bug(enc: &Encoder) -> bool {
-    let cod = enc.access_cod();
-    let n = enc.access_siz().get_num_components();
-    let prog = cod.get_progression_order_as_string();
-    let d0 = cod.get_coc(0).get_num_decompositions();
-    (prog == "LRCP" || prog == "RLCP")
-        && enc.is_tilepart_division_at_components()
-        && (1..n).any(|c| cod.get_coc(c).get_num_decompositions() != d0)
-}
-
 /// Encodes one random configuration with random samples. Returns the
-/// codestream and whether it is one that OpenJPH writes but cannot
-/// decode, or the code of the error that refused it.
-fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<(Vec<u8>, bool), u32> {
+/// codestream, or the code of the error that refused it.
+fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<Vec<u8>, u32> {
     let (mut enc, d) = random_encoder(rng);
     *desc = d;
     let mut out = b"xyz".to_vec();
@@ -226,7 +209,6 @@ fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<(Vec<u8>, bool), u3
         assert_eq!(out, b"xyz", "write_headers wrote and failed");
         return Err(e.code());
     }
-    let known_bad = openjph_tile_part_bug(&enc);
     // 0: in a 16-bit range, 1: any i32, 2: zero, 3: extremes only
     let mode = rng.below(4);
     let mut lines = 0;
@@ -250,7 +232,7 @@ fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<(Vec<u8>, bool), u3
     }
     let before = out.len();
     match enc.flush(&mut out) {
-        Ok(()) => Ok((out[3..].to_vec(), known_bad)),
+        Ok(()) => Ok(out[3..].to_vec()),
         Err(e) => {
             assert_eq!(out.len(), before, "flush wrote and failed");
             Err(e.code())
@@ -262,7 +244,7 @@ fn encode_random(rng: &mut Rng, desc: &mut String) -> Result<(Vec<u8>, bool), u3
 fn random_configurations_never_panic() {
     let iterations = if cfg!(debug_assertions) { 1500 } else { 6000 };
     let mut rng = Rng(0x00C0_FFEE);
-    let (mut encoded, mut known_bad) = (0, 0);
+    let mut encoded = 0;
     let mut refused = std::collections::BTreeMap::<u32, u32>::new();
     let mut problems = Vec::new();
     for i in 0..iterations {
@@ -270,11 +252,10 @@ fn random_configurations_never_panic() {
         match catch_unwind(AssertUnwindSafe(|| encode_random(&mut rng, &mut desc))) {
             Err(_) => problems.push(format!("{i}: encoder panicked: {desc}")),
             Ok(Err(code)) => *refused.entry(code).or_default() += 1,
-            Ok(Ok((j2c, bad))) => {
+            Ok(Ok(j2c)) => {
                 encoded += 1;
                 match catch_unwind(|| decode_to_raw(&j2c)) {
                     Err(_) => problems.push(format!("{i}: decoder panicked: {desc}")),
-                    Ok(Err(e)) if bad && e.contains("0x00030091") => known_bad += 1,
                     Ok(Err(e)) => problems.push(format!("{i}: does not decode ({e}): {desc}")),
                     Ok(Ok(_)) => {}
                 }
@@ -282,7 +263,7 @@ fn random_configurations_never_panic() {
         }
     }
     eprintln!(
-        "{encoded} encoded ({known_bad} with OpenJPH's tile-part bug), {} refused, {} problems",
+        "{encoded} encoded, {} refused, {} problems",
         refused.values().sum::<u32>(),
         problems.len()
     );
@@ -412,6 +393,58 @@ fn precincts_set_before_decompositions() {
     cod.set_num_decomposition(2).unwrap();
     let err = enc.write_headers(&mut Vec::new(), &[]).unwrap_err();
     assert_eq!(err.code(), 0x00080009);
+}
+
+/// LRCP or RLCP with components of different decomposition counts is
+/// refused: without tile parts at components OpenJPH asserts
+/// (0x00080007), with them it writes a TNsot and TPsot no decoder
+/// accepts (0x0008000C). Equal counts still encode, with tile parts.
+#[test]
+fn layer_first_needs_equal_decompositions() {
+    use common::drive;
+    use common::synth::EncArgs;
+    let base = "ojph_enc -o a.j2c --size 33x27 --comps 3 --levels 3 --block 16x16";
+    for prog in ["LRCP", "RLCP"] {
+        for (tp, code) in [("", 0x00080007), ("C", 0x0008000C), ("RC", 0x0008000C)] {
+            let tp = if tp.is_empty() {
+                String::new()
+            } else {
+                format!(" --tileparts {tp}")
+            };
+            let cmd = format!("{base} --coc 1:1:4x8 --prog {prog}{tp}");
+            let args = EncArgs::parse_command(&cmd).unwrap();
+            let mut out = Vec::new();
+            let err = drive::encode(&args, &mut out).unwrap_err();
+            assert_eq!(err.code(), code, "{cmd}");
+            assert!(out.is_empty(), "{cmd}");
+
+            let cmd = format!("{base} --coc 1:3:4x8 --prog {prog} --tlm{tp}");
+            let args = EncArgs::parse_command(&cmd).unwrap();
+            let mut out = Vec::new();
+            drive::encode(&args, &mut out).unwrap();
+            assert_eq!(
+                decode_to_raw(&out).unwrap(),
+                EncArgs::to_raw(&args.synthesise()),
+                "{cmd}"
+            );
+        }
+    }
+    // The review's example: TNsot would be 600 and TPsot reach 500,
+    // both truncated to 8 bits, though the tile parts number 105.
+    let mut enc = Encoder::new();
+    let siz = enc.access_siz_mut().unwrap();
+    siz.set_image_extent(Point::new(4, 4));
+    siz.set_num_components(100);
+    for c in 0..100 {
+        siz.set_component(c, Point::new(1, 1), 8, false).unwrap();
+    }
+    let cod = enc.access_cod_mut().unwrap();
+    cod.set_num_decomposition(0).unwrap();
+    cod.set_num_decomposition_comp(7, 5).unwrap();
+    cod.set_progression_order("LRCP").unwrap();
+    enc.set_tilepart_divisions(false, true).unwrap();
+    let err = enc.write_headers(&mut Vec::new(), &[]).unwrap_err();
+    assert_eq!(err.code(), 0x0008000C);
 }
 
 /// Without `set_planar`, the exchange follows OpenJPH's rule
