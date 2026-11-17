@@ -46,8 +46,8 @@ pub fn decode_planes(j2c: &[u8]) -> Result<Vec<Plane>, String> {
         });
     }
     // As `ojph_dec`: interleaved for the colour transform, which planar
-    // `pull` returns uninverted for components 1 and 2, unless the
-    // heights differ, which needs planar.
+    // `pull` cannot invert (`create` refuses it), unless the heights
+    // differ, which needs planar and so fails at `create`.
     let same_heights = planes.iter().all(|p| p.height == planes[0].height);
     let planar = !(same_heights && cs.access_cod().is_employing_color_transform());
     cs.set_planar(planar);

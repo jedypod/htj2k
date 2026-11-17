@@ -154,7 +154,9 @@ impl<'a> Codestream<'a> {
 
     /// Chooses the order of lines from [`pull`](Self::pull). After
     /// [`read_headers`](Self::read_headers) it is planar unless the colour
-    /// transform is used.
+    /// transform is used. Planar with the colour transform is refused by
+    /// [`create`](Self::create): planar `pull` cannot invert the
+    /// transform, which needs a line of all three components at once.
     pub fn set_planar(&mut self, planar: bool) {
         self.planar = planar;
     }
@@ -366,6 +368,12 @@ impl<'a> Codestream<'a> {
         }
         if self.created {
             return ojph_error!(0x00070034, "create has already been called");
+        }
+        if self.planar && self.cod.is_employing_color_transform() {
+            return ojph_error!(
+                0x00070037,
+                "planar decoding cannot invert the colour transform; call set_planar(false)"
+            );
         }
         self.alloc()?;
         self.created = true;

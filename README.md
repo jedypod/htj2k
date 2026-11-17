@@ -64,6 +64,11 @@ intended differences in behaviour:
   asserts or has undefined behaviour: `num_passes` other than 1,
   `missing_msbs` above 29 (32-bit) or 61 (64-bit), a width above 1024, or
   a sample buffer too small.
+* `Codestream::create` refuses planar decoding of a codestream that
+  uses the colour transform (0x00070037). Planar `pull` cannot invert
+  the transform, which needs a line of all three components at once;
+  OpenJPH returns components 1 and 2 uninverted. Interleaved, the
+  default after `read_headers` for such a codestream, decodes it.
 * `Codestream::set_memory_limit` bounds the memory a codestream can make
   the decoder allocate. The default is 4 GiB.
 * Code-block buffers are allocated at the size of the actual blocks, not

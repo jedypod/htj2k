@@ -238,3 +238,55 @@ fn colour_components_of_different_widths() {
     let err = cs.create().expect_err("create must refuse the codestream");
     assert_eq!(err.code(), 0x00070026, "{err}");
 }
+
+/// Planar `pull` returns components 1 and 2 without inverting the colour
+/// transform, which needs a line of all three components at once, so
+/// `create` refuses planar decoding of a colour-transformed codestream.
+/// OpenJPH decodes it and returns the uninverted samples.
+#[test]
+fn planar_with_colour_transform_is_refused() {
+    use htj2k::codestream::Encoder;
+    use htj2k::types::Point;
+
+    let (w, h) = (37u32, 11u32);
+    let mut enc = Encoder::new();
+    let siz = enc.access_siz_mut().unwrap();
+    siz.set_image_extent(Point::new(w, h));
+    siz.set_num_components(3);
+    for c in 0..3 {
+        siz.set_component(c, Point::new(1, 1), 8, false).unwrap();
+    }
+    let cod = enc.access_cod_mut().unwrap();
+    cod.set_reversible(true);
+    cod.set_color_transform(true);
+    enc.set_planar(false).unwrap();
+    let mut j2c = Vec::new();
+    enc.write_headers(&mut j2c, &[]).unwrap();
+    let mut want = Vec::new();
+    let mut n = 0i32;
+    while let Some((_, line)) = enc.exchange().unwrap() {
+        for s in line.iter_mut() {
+            n = (n * 37 + 11) % 256;
+            *s = n;
+            want.push(n);
+        }
+    }
+    enc.flush(&mut j2c).unwrap();
+
+    let mut cs = Codestream::new();
+    cs.read_headers(&j2c).expect("headers");
+    cs.set_planar(true);
+    let err = cs.create().expect_err("create must refuse planar decoding");
+    assert_eq!(err.code(), 0x00070037, "{err}");
+
+    // the default after read_headers is interleaved here, and exact
+    let mut cs = Codestream::new();
+    cs.read_headers(&j2c).expect("headers");
+    assert!(!cs.is_planar());
+    cs.create().expect("create");
+    let mut got = Vec::new();
+    while let Some((_, line)) = cs.pull().expect("pull") {
+        got.extend_from_slice(&line.i32()[..w as usize]);
+    }
+    assert_eq!(got, want);
+}
