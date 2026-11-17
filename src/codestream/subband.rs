@@ -180,43 +180,18 @@ impl Subband {
         if self.empty {
             return;
         }
-        let log_pp = self.log_pp;
-        let band_num = self.band_num as u64;
-        let trx0 = res_rect.org.x as u64;
-        let try0 = res_rect.org.y as u64;
-        let trx1 = trx0 + res_rect.siz.w as u64;
-        let try1 = try0 + res_rect.siz.h as u64;
-        let pc_lft = (trx0 >> log_pp.w) << log_pp.w;
-        let pc_top = (try0 >> log_pp.h) << log_pp.h;
-        let x_shift = u32::from(has_horz_transform);
-        let y_shift = u32::from(has_vert_transform);
-        let xcb = self.xcb_prime;
-        let ycb = self.ycb_prime;
-        let mut coly = 0u32;
-        let mut colx = 0u32;
-        for y in 0..num_precincts.h as u64 {
-            let mut pcy0 = try0.max(pc_top + (y << log_pp.h));
-            let mut pcy1 = try1.min(pc_top + ((y + 1) << log_pp.h));
-            pcy0 = (pcy0 + (1 << y_shift) - 1 - (band_num >> 1)) >> y_shift;
-            pcy1 = (pcy1 + (1 << y_shift) - 1 - (band_num >> 1)) >> y_shift;
-            let yb = (((pcy1 + (1 << ycb) - 1) >> ycb) - (pcy0 >> ycb)) as u32;
-            colx = 0;
-            for x in 0..num_precincts.w as u64 {
-                let p = &mut precincts[(y * num_precincts.w as u64 + x) as usize];
-                let mut pcx0 = trx0.max(pc_lft + (x << log_pp.w));
-                let mut pcx1 = trx1.min(pc_lft + ((x + 1) << log_pp.w));
-                pcx0 = (pcx0 + (1 << x_shift) - 1 - (band_num & 1)) >> x_shift;
-                pcx1 = (pcx1 + (1 << x_shift) - 1 - (band_num & 1)) >> x_shift;
-                let xb = (((pcx1 + (1 << xcb) - 1) >> xcb) - (pcx0 >> xcb)) as u32;
-                let bp = &mut p.cb_idxs[self.band_num as usize];
-                bp.org.x = colx;
-                bp.org.y = coly;
-                bp.siz.w = xb;
-                bp.siz.h = yb;
-                colx += xb;
-            }
-            coly += yb;
-        }
+        let b = self.band_num as usize;
+        let (colx, coly) = cb_indices(
+            self.log_pp,
+            self.band_num,
+            self.xcb_prime,
+            self.ycb_prime,
+            num_precincts,
+            res_rect,
+            has_horz_transform,
+            has_vert_transform,
+            |i, r| precincts[i].cb_idxs[b] = r,
+        );
         debug_assert!(colx == self.num_blocks.w && coly == self.num_blocks.h);
     }
 
@@ -276,4 +251,59 @@ impl Subband {
 #[inline]
 pub(crate) fn ceil_shift(v: u32, shift: u32) -> u32 {
     ((v as u64 + (1u64 << shift) - 1) >> shift) as u32
+}
+
+/// `subband::get_cb_indices`: for each precinct of a resolution, in
+/// raster order, the rectangle of the subband's code blocks (in block
+/// units) that fall in it, passed to `set(precinct index, rect)`. Returns
+/// the number of block columns and rows covered, which is the subband's
+/// number of blocks. Shared by the decoder and the encoder.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn cb_indices(
+    log_pp: Size,
+    band_num: u32,
+    xcb: u32,
+    ycb: u32,
+    num_precincts: Size,
+    res_rect: Rect,
+    has_horz_transform: bool,
+    has_vert_transform: bool,
+    mut set: impl FnMut(usize, Rect),
+) -> (u32, u32) {
+    let band_num = band_num as u64;
+    let trx0 = res_rect.org.x as u64;
+    let try0 = res_rect.org.y as u64;
+    let trx1 = trx0 + res_rect.siz.w as u64;
+    let try1 = try0 + res_rect.siz.h as u64;
+    let pc_lft = (trx0 >> log_pp.w) << log_pp.w;
+    let pc_top = (try0 >> log_pp.h) << log_pp.h;
+    let x_shift = u32::from(has_horz_transform);
+    let y_shift = u32::from(has_vert_transform);
+    let mut coly = 0u32;
+    let mut colx = 0u32;
+    for y in 0..num_precincts.h as u64 {
+        let mut pcy0 = try0.max(pc_top + (y << log_pp.h));
+        let mut pcy1 = try1.min(pc_top + ((y + 1) << log_pp.h));
+        pcy0 = (pcy0 + (1 << y_shift) - 1 - (band_num >> 1)) >> y_shift;
+        pcy1 = (pcy1 + (1 << y_shift) - 1 - (band_num >> 1)) >> y_shift;
+        let yb = (((pcy1 + (1 << ycb) - 1) >> ycb) - (pcy0 >> ycb)) as u32;
+        colx = 0;
+        for x in 0..num_precincts.w as u64 {
+            let mut pcx0 = trx0.max(pc_lft + (x << log_pp.w));
+            let mut pcx1 = trx1.min(pc_lft + ((x + 1) << log_pp.w));
+            pcx0 = (pcx0 + (1 << x_shift) - 1 - (band_num & 1)) >> x_shift;
+            pcx1 = (pcx1 + (1 << x_shift) - 1 - (band_num & 1)) >> x_shift;
+            let xb = (((pcx1 + (1 << xcb) - 1) >> xcb) - (pcx0 >> xcb)) as u32;
+            set(
+                (y * num_precincts.w as u64 + x) as usize,
+                Rect {
+                    org: crate::types::Point::new(colx, coly),
+                    siz: Size::new(xb, yb),
+                },
+            );
+            colx += xb;
+        }
+        coly += yb;
+    }
+    (colx, coly)
 }
