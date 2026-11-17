@@ -60,7 +60,7 @@ MK=$OUT/Makefile
   printf 'obj/block_dump.o: %s\n\t%s %s -c $< -o $@\n' "$HERE/block_dump.cpp" "$CXX" "$CXXFLAGS"
   printf 'obj/enc_block_dump.o: %s\n\t%s %s -c $< -o $@\n' "$HERE/enc_block_dump.cpp" "$CXX" "$CXXFLAGS"
   printf 'libojph_oracle.a: $(OBJS) obj/block_dump.o obj/enc_block_dump.o\n\trm -f $@ && ar rcs $@ $^\n'
-  printf 'ojph_enc: %s libojph_oracle.a\n\t%s %s $< libojph_oracle.a -o $@ -lpthread\n' "$HERE/ojph_enc.cpp" "$CXX" "$CXXFLAGS"
+  printf 'ojph_enc: %s %s libojph_oracle.a\n\t%s %s $< libojph_oracle.a -o $@ -lpthread\n' "$HERE/ojph_enc.cpp" "$HERE/enc_setup.h" "$CXX" "$CXXFLAGS"
   printf 'ojph_dec: %s libojph_oracle.a\n\t%s %s $< libojph_oracle.a -o $@ -lpthread\n' "$HERE/ojph_dec.cpp" "$CXX" "$CXXFLAGS"
   printf 'enc_blocks_synth: %s libojph_oracle.a\n\t%s %s $< libojph_oracle.a -o $@ -lpthread\n' "$HERE/enc_blocks_synth.cpp" "$CXX" "$CXXFLAGS"
   printf 'all: ojph_enc ojph_dec enc_blocks_synth\n'
