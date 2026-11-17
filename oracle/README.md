@@ -12,16 +12,18 @@ oracle/regen.sh
 
 This builds the tools into `oracle/build/`, which git ignores, and then
 regenerates `tests/data/matrix`, `tests/data/strips`, `tests/data/blocks`,
-`tests/data/encoder` and `tests/data/profile`.
-It needs g++ (C++14), gcc, make and python3, and takes under a minute. The
+`tests/data/encoder`, `tests/data/profile` and `tests/data/ours`.
+It needs g++ (C++14), gcc, make, python3 and cargo, and takes a few
+minutes. The
 output is deterministic: two runs produce byte-identical files.
 
 You can also run the steps one at a time: `oracle/build.sh`, then
 `python3 oracle/gen_matrix.py`, `python3 oracle/gen_strips.py`,
-`python3 oracle/gen_blocks.py`, `python3 oracle/gen_enc_blocks.py` and
-`python3 oracle/gen_profile.py`. `gen_blocks.py` reads the output of
-the first two; `gen_enc_blocks.py` and `gen_profile.py` need only the
-build.
+`python3 oracle/gen_blocks.py`, `python3 oracle/gen_enc_blocks.py`,
+`python3 oracle/gen_profile.py` and `python3 oracle/gen_ours.py`.
+`gen_blocks.py` reads the output of the first two; `gen_enc_blocks.py`
+and `gen_profile.py` need only the build; `gen_ours.py` reads the
+matrix manifest and builds the crate's `encode_args` example with cargo.
 
 `gen_matrix.py` exits 1 whenever a reversible case fails to round-trip. In
 0.33.0 that always happens, because of the encoder issues listed under
@@ -179,6 +181,29 @@ The codestreams, decodes and encoder inputs are left in
 `oracle/build/profile/`, where the encoder test looks for the
 codestream to report the first byte that differs.
 
+### `tests/data/ours/MANIFEST.txt`
+
+`gen_ours.py` checks codestreams that the crate's encoder writes
+differently from OpenJPH, or that OpenJPH cannot write, against
+OpenJPH's decoder. Each case is an `ojph_enc` command line; the crate
+encodes it through `examples/encode_args.rs` (the same image and calls
+as the encoder tests), and `ojph_dec` decodes the result, which must
+equal the input:
+
+```
+name | status | j2c bytes | j2c_fnv1a64 | command
+```
+
+`tests/encode_ours.rs` re-encodes each case and requires the same size
+and hash, so the recorded verdict applies to what the encoder writes
+now, and decodes it with the crate's decoder too. After a deliberate
+change to such a codestream, rerun `gen_ours.py`. The codestreams are
+left in `oracle/build/ours/`.
+
+The cases are the reversible ones with no decompositions (`levels0_*`;
+see [Known issues](#known-issues)): every such case of the matrix, then
+40 random configurations.
+
 ### `tests/data/blocks/*.ojbk`
 
 These hold code-block decoder records. The byte layout and the coverage are
@@ -207,6 +232,15 @@ These are found by the matrix and kept in it on purpose.
     Pillow) decodes these codestreams to the same values as `ojph_dec`.
   * So the stored `.raw` is the correct decode of the codestream, and a
     decoder port should match it.
+  * For 32-bit unsigned samples the band also lacks the top bit of
+    about half of the samples, not only the minimum (none of the
+    matrix cases has this; `ojph_enc --levels 0 --depth 32 --pattern
+    noise` shows it).
+  * The crate's encoder writes one more bit-plane for this band
+    (`ParamQcd::set_rev_quant`), so for every reversible case with a
+    component at 0 decompositions its codestream differs from OpenJPH's
+    in QCD and in the coded blocks. These are checked by
+    `tests/data/ours` instead of byte for byte.
 * **`nlt3_unsigned`** is lossless since OpenJPH #421. In release 0.33.0,
   NLT type 3 on an unsigned reversible component left the lines
   unconverted on both the encoding and the decoding side, so this case

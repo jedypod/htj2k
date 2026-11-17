@@ -33,7 +33,11 @@ output sample for sample on all 161 codestreams there, which include
 components with 128x32 blocks.
 
 The encoder reproduces OpenJPH's codestreams byte for byte:
-* all 150 that `ojph_enc` writes in the parameter matrix (`tests/data/matrix`);
+* all 150 that `ojph_enc` writes in the parameter matrix
+  (`tests/data/matrix`), except the 5 reversible ones with no
+  decompositions, which differ on purpose (see below) and decode
+  losslessly with OpenJPH's decoder, as do 40 random configurations of
+  that kind (`tests/data/ours`);
 * all 11 in `tests/data/strips`, 300 samples wide and 8 to 200 lines
   high, or 64 wide, with four components under NLT type 3 and the RCT,
   or one, and 128x32 blocks;
@@ -136,10 +140,13 @@ The encoder differs as follows:
   precincts (`src/codestream/write`), so the decoder's structures and
   memory use are unchanged. It is not shared with the decoder, as
   OpenJPH's is.
-* Known OpenJPH bugs are reproduced, not fixed, so the bytes stay the
-  same. In particular, see `oracle/README.md`:
-  * with no decompositions, the reversible path loses the minimum
-    sample.
+* Reversible coding with no decompositions (for any component) writes
+  one more magnitude bit-plane in QCD than OpenJPH. OpenJPH's leaves one
+  too few there, so it loses the minimum sample (an all-black unsigned
+  image decodes mid-grey) and, for 32-bit unsigned samples, the top bit
+  of about half of them. These codestreams therefore differ from
+  OpenJPH's; they decode losslessly with OpenJPH's decoder and the
+  crate's (`tests/data/ours`, see `oracle/README.md`).
 
 ## Licence
 

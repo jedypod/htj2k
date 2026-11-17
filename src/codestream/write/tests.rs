@@ -127,12 +127,41 @@ fn calls_of(args: &str) -> Vec<record::Call> {
     calls
 }
 
+/// Whether `ours` is OpenJPH's call `theirs` with the encoder's extra
+/// bit-plane for reversible coding without decompositions (see
+/// `ParamQcd::set_rev_quant`): same block, `missing_msbs` one more, and
+/// each sample with the same sign and its magnitude one bit lower in the
+/// field, as K_max is one more. OpenJPH's field is ours shifted up one
+/// bit, so where our top magnitude bit is set OpenJPH lost it (the
+/// minimum sample, among others). Returns how many samples lost it.
+fn one_more_bitplane(ours: &record::Call, theirs: &record::Call) -> Option<usize> {
+    let sign = 1u64 << (ours.bits - 1);
+    if (ours.bits, ours.width, ours.height) != (theirs.bits, theirs.width, theirs.height)
+        || ours.missing_msbs != theirs.missing_msbs + 1
+        || ours.samples.len() != theirs.samples.len()
+    {
+        return None;
+    }
+    let mut lost = 0;
+    for (&o, &t) in ours.samples.iter().zip(&theirs.samples) {
+        let (om, tm) = (o & (sign - 1), t & (sign - 1));
+        if o & sign != t & sign || (om << 1) & (sign - 1) != tm {
+            return None;
+        }
+        lost += usize::from(om & (sign >> 1) != 0);
+    }
+    Some(lost)
+}
+
 /// Gate 2: every recorded call is made, with the same inputs, at the same
-/// position in the sequence of calls.
+/// position in the sequence of calls. The runs without decompositions
+/// (`lv0_*`) are compared after [`one_more_bitplane`]: there the encoder
+/// departs from OpenJPH on purpose, so the minimum sample survives.
 #[test]
 fn block_encoder_inputs_match_openjph() {
     let rec = recorded();
     let mut matched = 0;
+    let mut truncated = 0;
     for &(name, args) in RUNS {
         let calls = calls_of(args);
         let mut keys: Vec<usize> = rec
@@ -150,6 +179,14 @@ fn block_encoder_inputs_match_openjph() {
                     calls.len()
                 );
             };
+            if name.starts_with("lv0") {
+                match one_more_bitplane(ours, &r.call) {
+                    Some(lost) => truncated += lost,
+                    None => panic!("{name}: call {k} is not OpenJPH's with one more bit-plane"),
+                }
+                matched += 1;
+                continue;
+            }
             assert!(
                 *ours == r.call,
                 "{name}: call {k} ({} record {}) differs: ours {}-bit {}x{} mm {}, OpenJPH {}-bit {}x{} mm {}",
@@ -169,4 +206,5 @@ fn block_encoder_inputs_match_openjph() {
     }
     // every record of enc32.ojbe (287) and enc64.ojbe (168)
     assert_eq!(matched, 287 + 168);
+    eprintln!("{truncated} samples OpenJPH truncates are kept in the lv0 runs");
 }

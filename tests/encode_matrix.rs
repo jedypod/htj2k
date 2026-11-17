@@ -30,12 +30,17 @@ fn reference(case: &MatrixCase) -> Vec<u8> {
 
 /// Gate 1: the main header, from SOC to the last COM, is the start of
 /// OpenJPH's codestream, and what follows it there is a TLM marker
-/// segment (written by `flush`) or the first SOT.
+/// segment (written by `flush`) or the first SOT. The reversible cases
+/// with 0 decompositions are left out: their QCD differs on purpose
+/// (see gate 3).
 #[test]
 fn main_headers_match_openjph() {
     let mut checked = 0;
     for case in cases().iter().filter(|c| !c.is_refused()) {
         let args = EncArgs::parse_command(&case.command).unwrap();
+        if args.levels0_reversible() {
+            continue;
+        }
         let mut out = Vec::new();
         if let Err(e) = drive::headers(&args, &mut out) {
             panic!("{}: write_headers failed: {e}", case.name);
@@ -55,20 +60,29 @@ fn main_headers_match_openjph() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 150);
+    assert_eq!(checked, 145);
 }
 
-/// Gate 3: every codestream OpenJPH wrote, the three MISMATCH cases
-/// included, is reproduced byte for byte.
+/// Gate 3: every codestream OpenJPH wrote is reproduced byte for byte,
+/// except the reversible ones with 0 decompositions, where OpenJPH's QCD
+/// leaves one bit-plane too few and loses the minimum sample (the three
+/// MISMATCH cases). There the encoder writes one more bit-plane, so the
+/// codestream must differ; that it decodes losslessly with both decoders
+/// is gate 8 (`tests/encode_ours.rs`).
 #[test]
 fn codestreams_match_openjph() {
     let mut failed = Vec::new();
-    let mut checked = 0;
+    let (mut checked, mut levels0) = (0, 0);
     for case in cases().iter().filter(|c| !c.is_refused()) {
         let args = EncArgs::parse_command(&case.command).unwrap();
         let mut out = Vec::new();
         match drive::encode(&args, &mut out) {
             Err(e) => failed.push(format!("{}: {e}", case.name)),
+            Ok(()) if args.levels0_reversible() => {
+                assert!(out != reference(case), "{}: OpenJPH's bytes", case.name);
+                assert!(case.is_lossless() || case.is_mismatch(), "{}", case.name);
+                levels0 += 1;
+            }
             Ok(()) => {
                 let r = reference(case);
                 if out != r {
@@ -86,7 +100,7 @@ fn codestreams_match_openjph() {
         checked += 1;
     }
     assert!(failed.is_empty(), "{}", failed.join("\n"));
-    assert_eq!(checked, 150);
+    assert_eq!((checked, levels0), (150, 5));
 }
 
 /// Gate 4: every configuration OpenJPH refused, by an exception or an
@@ -123,13 +137,13 @@ fn refused_cases_return_errors() {
 
 /// Gate 5: our decoder gives back the input of every lossless case from
 /// our codestream, and every lossy case to within OpenJPH's error. The
-/// MISMATCH cases, which OpenJPH's decoder does not round-trip either,
-/// are left out.
+/// MISMATCH cases, which OpenJPH's own codestreams do not round-trip,
+/// are lossless here too.
 #[test]
 fn decoder_round_trips_encoder_output() {
     let mut lossless = 0;
     let mut lossy = 0;
-    for case in cases().iter().filter(|c| c.is_lossless() || c.is_lossy()) {
+    for case in cases().iter().filter(|c| !c.is_refused()) {
         let args = EncArgs::parse_command(&case.command).unwrap();
         let img = args.synthesise();
         let mut out = Vec::new();
@@ -137,7 +151,7 @@ fn decoder_round_trips_encoder_output() {
         let got = decode_to_raw(&out).unwrap_or_else(|e| panic!("{}: {e}", case.name));
         let want = EncArgs::to_raw(&img);
         assert_eq!(got.len(), want.len(), "{}: decoded size", case.name);
-        if case.is_lossless() {
+        if case.is_lossless() || case.is_mismatch() {
             assert!(got == want, "{}: decoded image differs", case.name);
             lossless += 1;
         } else {
@@ -158,7 +172,7 @@ fn decoder_round_trips_encoder_output() {
             lossy += 1;
         }
     }
-    assert_eq!((lossless, lossy), (143, 4));
+    assert_eq!((lossless, lossy), (146, 4));
 }
 
 /// The strips of `tests/data/strips` (`oracle/gen_strips.py`), made
@@ -209,7 +223,16 @@ fn strip_codestreams_match_openjph() {
 #[test]
 fn output_vector_is_appended_to_and_reusable() {
     let all = cases();
-    let picked: Vec<&MatrixCase> = all.iter().filter(|c| !c.is_refused()).step_by(17).collect();
+    let picked: Vec<&MatrixCase> = all
+        .iter()
+        .filter(|c| !c.is_refused())
+        .filter(|c| {
+            !EncArgs::parse_command(&c.command)
+                .unwrap()
+                .levels0_reversible()
+        })
+        .step_by(17)
+        .collect();
     let mut out = b"leading bytes".to_vec();
     for case in &picked {
         let args = EncArgs::parse_command(&case.command).unwrap();

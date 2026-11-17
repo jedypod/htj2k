@@ -258,6 +258,13 @@ impl EncArgs {
         }
     }
 
+    /// Reversible, with some component at 0 decompositions: the crate's
+    /// encoder then writes one more bit-plane than OpenJPH, so its
+    /// codestream differs (see `oracle/gen_ours.py`).
+    pub fn levels0_reversible(&self) -> bool {
+        self.reversible && (self.levels == 0 || self.cocs.iter().any(|c| c.levels == 0))
+    }
+
     /// `Xsiz`, `Ysiz`: the image offset plus the size.
     pub fn extent(&self) -> (u32, u32) {
         (self.img_off.0 + self.width, self.img_off.1 + self.height)

@@ -1,0 +1,50 @@
+# Codestreams the crate's encoder writes differently from OpenJPH,
+# or that OpenJPH cannot write, encoded by examples/encode_args.rs and
+# decoded with oracle/ojph_dec by oracle/gen_ours.py.  Columns:
+#   name | status | j2c bytes | j2c_fnv1a64 | command
+# status: lossless = ojph_dec's decode equals the encoder input.
+levels0_matrix_levels0_32x32 | lossless | 1105 | f6685d42dc5b4741 | ojph_enc -o levels0_matrix_levels0_32x32.j2c --size 32x32 --levels 0 --depth 8 --seed 20
+levels0_matrix_levels0_noise_33x31 | lossless | 1531 | 77afe572f7f8ff6c | ojph_enc -o levels0_matrix_levels0_noise_33x31.j2c --size 33x31 --levels 0 --depth 10 --pattern noise --seed 21
+levels0_matrix_blk4x1024_37x61 | lossless | 2403 | a385ce6ddc98fcc4 | ojph_enc -o levels0_matrix_blk4x1024_37x61.j2c --size 37x61 --block 4x1024 --levels 0 --depth 8 --seed 36
+levels0_matrix_coc_lv0_rpcl | lossless | 2348 | 8e18a999ec1dccf8 | ojph_enc -o levels0_matrix_coc_lv0_rpcl.j2c --size 33x27 --comps 3 --levels 3 --block 16x16 --coc 1:1:4x8 --coc 2:0:32x32 --prog RPCL --seed 950
+levels0_matrix_size_1x1 | lossless | 123 | e9e0ac9b6c768ca9 | ojph_enc -o levels0_matrix_size_1x1.j2c --size 1x1 --levels 0 --seed 1100
+levels0_random00 | lossless | 6326 | 6baf882dcbe60e66 | ojph_enc -o levels0_random00.j2c --size 44x33 --levels 0 --depth 10 --signed 0 --comps 3 --block 16x16 --pattern noise --prog CPRL --seed 198006
+levels0_random01 | lossless | 19533 | 8aacde63108c0c3f | ojph_enc -o levels0_random01.j2c --size 32x37 --levels 0 --depth 31 --signed 1 --comps 4 --block 32x8 --pattern const --prog CPRL --seed 374149 --tile 31x16
+levels0_random02 | lossless | 4145 | b3b5270ecc9834fa | ojph_enc -o levels0_random02.j2c --size 27x12 --levels 0 --depth 28 --signed 0 --comps 3 --block 8x8 --pattern noise --prog LRCP --seed 985243 --rct 1 --planar 0 --tile 12x11
+levels0_random03 | lossless | 2151 | 9961909a52048c6d | ojph_enc -o levels0_random03.j2c --size 15x11 --levels 0 --depth 30 --signed 0 --comps 3 --block 32x8 --pattern noise --prog RLCP --seed 472211 --rct 1 --planar 0
+levels0_random04 | lossless | 3256 | cb746da010bb8b40 | ojph_enc -o levels0_random04.j2c --size 41x19 --levels 0 --depth 7 --signed 0 --comps 4 --block 64x64 --pattern noise --prog PCRL --seed 407773
+levels0_random05 | lossless | 8735 | 61a24ab0c845886f | ojph_enc -o levels0_random05.j2c --size 52x40 --levels 0 --depth 7 --signed 1 --comps 3 --block 32x8 --pattern noise --prog PCRL --seed 976911 --rct 1 --planar 0 --img-off 3,1 --tile 5x23
+levels0_random06 | lossless | 2000 | eb1c8a885529b483 | ojph_enc -o levels0_random06.j2c --size 27x24 --levels 0 --depth 10 --signed 1 --comps 2 --block 32x8 --pattern noise --prog PCRL --seed 614338 --nlt3
+levels0_random07 | lossless | 375 | 6f057814a89a01aa | ojph_enc -o levels0_random07.j2c --size 40x1 --levels 0 --depth 7 --signed 0 --comps 4 --block 32x8 --pattern noise --prog LRCP --seed 961664
+levels0_random08 | lossless | 182 | e28fd40d65300a84 | ojph_enc -o levels0_random08.j2c --size 1x7 --levels 0 --depth 7 --signed 1 --comps 4 --block 32x8 --pattern const --prog PCRL --seed 666817 --rct 1 --planar 0
+levels0_random09 | lossless | 7402 | 560bc6e37b822158 | ojph_enc -o levels0_random09.j2c --size 35x40 --levels 0 --depth 16 --signed 0 --comps 2 --block 4x4 --pattern noise --prog LRCP --seed 728071 --tile 26x8
+levels0_random10 | lossless | 770 | d6be47625ced5f58 | ojph_enc -o levels0_random10.j2c --size 32x17 --levels 0 --depth 2 --signed 0 --comps 3 --block 32x8 --pattern noise --prog CPRL --seed 426161 --rct 1 --planar 0
+levels0_random11 | lossless | 872 | daf822f9d033cd6d | ojph_enc -o levels0_random11.j2c --size 45x5 --levels 0 --depth 7 --signed 1 --comps 3 --block 32x8 --pattern smooth --prog LRCP --seed 922451 --img-off 2,0 --tile 22x5
+levels0_random12 | lossless | 1185 | 468a6568e0c4386f | ojph_enc -o levels0_random12.j2c --size 8x36 --levels 0 --depth 28 --signed 1 --comps 1 --block 64x64 --pattern const --prog RPCL --seed 756918 --nlt3 --img-off 1,1
+levels0_random13 | lossless | 3253 | 8781285a6559aa7a | ojph_enc -o levels0_random13.j2c --size 18x23 --levels 0 --depth 28 --signed 1 --comps 2 --block 16x16 --pattern noise --prog RLCP --seed 58960 --tile 22x15
+levels0_random14 | lossless | 196 | ee8c4da31fa1666d | ojph_enc -o levels0_random14.j2c --size 69x2 --levels 0 --depth 2 --signed 1 --comps 1 --block 8x8 --pattern noise --prog RLCP --seed 314342 --img-off 0,2
+levels0_random15 | lossless | 2701 | b48def9eea87cb03 | ojph_enc -o levels0_random15.j2c --size 40x8 --levels 0 --depth 16 --signed 0 --comps 4 --block 8x8 --pattern smooth --prog RLCP --seed 237080 --rct 1 --planar 0
+levels0_random16 | lossless | 158 | 40a8044f271e1bbb | ojph_enc -o levels0_random16.j2c --size 5x18 --levels 0 --depth 2 --signed 1 --comps 1 --block 32x8 --pattern const --prog RLCP --seed 423469
+levels0_random17 | lossless | 1518 | 169d53177cbdf318 | ojph_enc -o levels0_random17.j2c --size 9x24 --levels 0 --depth 24 --signed 0 --comps 2 --block 32x8 --pattern const --prog LRCP --seed 500844
+levels0_random18 | lossless | 4353 | 83477c73c1f80db6 | ojph_enc -o levels0_random18.j2c --size 27x39 --levels 0 --depth 30 --signed 0 --comps 1 --block 8x8 --pattern noise --prog RLCP --seed 536704
+levels0_random19 | lossless | 10734 | f2bf51a1fc1c881b | ojph_enc -o levels0_random19.j2c --size 48x26 --levels 0 --depth 30 --signed 1 --comps 2 --block 4x4 --pattern smooth --prog PCRL --seed 720519 --nlt3
+levels0_random20 | lossless | 1024 | 1bd15ab2ae55d26b | ojph_enc -o levels0_random20.j2c --size 39x17 --levels 0 --depth 10 --signed 1 --comps 1 --block 16x16 --pattern const --prog PCRL --seed 370966 --img-off 3,3
+levels0_random21 | lossless | 172 | 3ef9c6f94c4ccc6c | ojph_enc -o levels0_random21.j2c --size 11x4 --levels 0 --depth 2 --signed 0 --comps 3 --block 16x16 --pattern const --prog RPCL --seed 438053 --rct 1 --planar 0 --tile 20x27
+levels0_random22 | lossless | 1432 | 156895493f6f7922 | ojph_enc -o levels0_random22.j2c --size 21x17 --levels 0 --depth 28 --signed 1 --comps 1 --block 32x8 --pattern const --prog PCRL --seed 102744
+levels0_random23 | lossless | 401 | df6cb67621979910 | ojph_enc -o levels0_random23.j2c --size 6x34 --levels 0 --depth 2 --signed 0 --comps 2 --block 4x4 --pattern noise --prog RLCP --seed 813923 --img-off 1,2
+levels0_random24 | lossless | 877 | 292683d39ed02d85 | ojph_enc -o levels0_random24.j2c --size 9x20 --levels 0 --depth 31 --signed 1 --comps 1 --block 32x8 --pattern noise --prog LRCP --seed 194987 --nlt3
+levels0_random25 | lossless | 2125 | 28b5463ff55dc092 | ojph_enc -o levels0_random25.j2c --size 39x14 --levels 0 --depth 30 --signed 0 --comps 1 --block 64x64 --pattern const --prog RLCP --seed 667920
+levels0_random26 | lossless | 787 | 69c8dc0a56fbaa91 | ojph_enc -o levels0_random26.j2c --size 46x25 --levels 0 --depth 2 --signed 0 --comps 1 --block 4x4 --pattern noise --prog RPCL --seed 481796
+levels0_random27 | lossless | 1883 | 6bbb8daf078e4114 | ojph_enc -o levels0_random27.j2c --size 59x26 --levels 0 --depth 7 --signed 0 --comps 1 --block 4x4 --pattern smooth --prog LRCP --seed 424151
+levels0_random28 | lossless | 5188 | f2f8d474d9fcfb32 | ojph_enc -o levels0_random28.j2c --size 47x25 --levels 0 --depth 32 --signed 1 --comps 1 --block 32x8 --pattern noise --prog CPRL --seed 911387 --nlt3 --img-off 1,1 --tile 30x22
+levels0_random29 | lossless | 2272 | d78141e3058a854e | ojph_enc -o levels0_random29.j2c --size 34x24 --levels 0 --depth 12 --signed 0 --comps 2 --block 64x64 --pattern const --prog PCRL --seed 901372 --img-off 0,3 --tile 35x24
+levels0_random30 | lossless | 5753 | e5434d958821762c | ojph_enc -o levels0_random30.j2c --size 18x36 --levels 0 --depth 32 --signed 0 --comps 2 --block 16x16 --pattern noise --prog RPCL --seed 678830 --img-off 3,2
+levels0_random31 | lossless | 592 | 65c800d6988b34f9 | ojph_enc -o levels0_random31.j2c --size 11x11 --levels 0 --depth 30 --signed 1 --comps 1 --block 16x16 --pattern smooth --prog RLCP --seed 568938
+levels0_random32 | lossless | 591 | f98d35c654e1bf95 | ojph_enc -o levels0_random32.j2c --size 53x2 --levels 0 --depth 31 --signed 0 --comps 1 --block 64x64 --pattern noise --prog CPRL --seed 817129 --tile 28x30
+levels0_random33 | lossless | 1845 | 8fbe44b5a10ac63e | ojph_enc -o levels0_random33.j2c --size 9x34 --levels 0 --depth 10 --signed 1 --comps 3 --block 4x4 --pattern smooth --prog RPCL --seed 668144 --nlt3 --tile 28x24
+levels0_random34 | lossless | 749 | 704074504b9f09ec | ojph_enc -o levels0_random34.j2c --size 27x4 --levels 0 --depth 10 --signed 0 --comps 4 --block 64x64 --pattern const --prog RPCL --seed 23251
+levels0_random35 | lossless | 19488 | 2d227f3df2f803a8 | ojph_enc -o levels0_random35.j2c --size 68x33 --levels 0 --depth 31 --signed 1 --comps 2 --block 32x8 --pattern noise --prog CPRL --seed 512517 --nlt3 --img-off 0,3 --tile 9x20
+levels0_random36 | lossless | 9407 | 8e2b2c6628fcffd4 | ojph_enc -o levels0_random36.j2c --size 36x22 --levels 0 --depth 31 --signed 0 --comps 3 --block 64x64 --pattern const --prog LRCP --seed 536313 --rct 1 --planar 0
+levels0_random37 | lossless | 1276 | 5ef8f9d7af03d12d | ojph_enc -o levels0_random37.j2c --size 44x3 --levels 0 --depth 31 --signed 1 --comps 2 --block 16x16 --pattern noise --prog RPCL --seed 970664 --nlt3 --img-off 0,0
+levels0_random38 | lossless | 9234 | 2fff6d0478e124ae | ojph_enc -o levels0_random38.j2c --size 21x32 --levels 0 --depth 31 --signed 1 --comps 3 --block 4x4 --pattern noise --prog CPRL --seed 300612 --nlt3 --img-off 2,3
+levels0_random39 | lossless | 4919 | 7965a30f11e09d30 | ojph_enc -o levels0_random39.j2c --size 54x6 --levels 0 --depth 30 --signed 1 --comps 4 --block 16x16 --pattern const --prog LRCP --seed 303784 --rct 1 --planar 0 --tile 14x21

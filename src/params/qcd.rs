@@ -403,6 +403,16 @@ impl ParamQcd {
         let mut s = 0usize;
         let bibo_l = bibo_gains::get_bibo_gain_l(num_decomps, true) as f64;
         let mut x = ((bibo_l * bibo_l).ln() / std::f64::consts::LN_2).ceil() as u32;
+        // OpenJPH departs here: the magnitude bit-planes are b + x - 1,
+        // one short of what a B-bit sample needs (-2^(B-1) has magnitude
+        // 2^(B-1)), which every band makes up by rounding its gain up.
+        // With no decompositions the gain is exactly 1, so x would be 0
+        // and the minimum sample would be coded as 0. One more bit-plane
+        // keeps it. (After the RCT, b already has its extra bit and the
+        // ranges fit, but the band is treated the same for simplicity.)
+        if num_decomps == 0 {
+            x = x.max(1);
+        }
         self.set_sp_u8(s, b.wrapping_add(x) as u8);
         s += 1;
         let mut max_b_plus_x = b.wrapping_add(x);

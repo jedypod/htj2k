@@ -5,6 +5,7 @@
 #   tests/data/blocks  (gen_blocks.py; reads the two directories above)
 #   tests/data/encoder (gen_enc_blocks.py)
 #   tests/data/profile (gen_profile.py)
+#   tests/data/ours    (gen_ours.py; builds examples/encode_args with cargo)
 # Exits non-zero if the build fails, a strip fails to encode, decode
 # or round-trip, or
 # decoder or encoder block generation fails, or a profile case does
@@ -21,3 +22,4 @@ python3 "$HERE/gen_strips.py"
 python3 "$HERE/gen_blocks.py"
 python3 "$HERE/gen_enc_blocks.py"
 python3 "$HERE/gen_profile.py"
+python3 "$HERE/gen_ours.py"
