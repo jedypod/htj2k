@@ -105,7 +105,8 @@ fn matrix() {
 }
 
 /// The strips made with OpenJPH's encoder: 300 samples wide, 8 to 200
-/// lines high, with 128x32 blocks, NLT type 3 and the RCT.
+/// lines high, with 128x32 blocks, NLT type 3 and the RCT, or NLT type
+/// 4 and the ICT.
 #[test]
 fn strips() {
     check_dir("strips", 4);

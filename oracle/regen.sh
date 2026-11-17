@@ -7,7 +7,7 @@
 #   tests/data/profile (gen_profile.py)
 #   tests/data/ours    (gen_ours.py; builds examples/encode_args with cargo)
 # Exits non-zero if the build fails, a strip fails to encode, decode
-# or round-trip, or
+# or (if reversible) round-trip, or
 # decoder or encoder block generation fails, or a profile case does
 # not encode, decode, or (if reversible) round-trip.  gen_matrix.py exits 1
 # whenever any reversible case does not round-trip; it currently always

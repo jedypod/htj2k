@@ -160,22 +160,27 @@ FNV-1a-64 (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) of the
 
 ### `tests/data/strips/MANIFEST.txt`
 
-`gen_strips.py` encodes 11 images with `ojph_enc` and decodes them with
+`gen_strips.py` encodes 13 images with `ojph_enc` and decodes them with
 `ojph_dec`, as decoder vectors at sizes the matrix avoids. All use one
 tile, RPCL, 128x32 code blocks, 5 decompositions, TLM and tile parts at
-resolutions, and all are reversible:
+resolutions:
 
 * 16-bit signed samples with NLT type 3 and the RCT on four
   components, 300 samples wide and 200, 32 (smooth and noise) and 8
   lines high, and the same with 32-bit signed samples at 64, 32 and 8
   lines;
 * one 16-bit signed component with NLT type 3, 64 wide and 32 or 8
-  high, smooth and constant.
+  high, smooth and constant;
+* two irreversible ones: the ICT and NLT type 4 on three 16-bit
+  components with a Qfactor and a reversible fourth with NLT type 3,
+  at 300x32, and three 32-bit components with an explicit step at
+  300x8.
 
 The manifest has the matrix layout. Every `.j2c` is committed, but only
 the decodes named in `COMMIT_RAW` (the 300x8 and 64-wide ones); the
 others, about 2 MB, are checked by hash, and all of them are left in
-`oracle/build/strips/`.
+`oracle/build/strips/`. `tests/decode.rs` decodes every strip, and
+`tests/encode_matrix.rs` encodes every one and requires OpenJPH's bytes.
 
 ### `tests/data/profile/MANIFEST.txt`
 

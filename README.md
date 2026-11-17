@@ -28,9 +28,9 @@ kernels are not ported.
 Every module is tested against output of the C++ it is translated from.
 `oracle/` builds OpenJPH's generic code and regenerates the vectors in
 `tests/data`; see `oracle/README.md`. The decoder reproduces OpenJPH's
-output sample for sample on all 209 codestreams there, which include
-16- and 32-bit signed samples under NLT type 3 in strips of four
-components with 128x32 blocks.
+output sample for sample on all 211 codestreams there, which include
+16- and 32-bit signed samples under NLT type 3 or 4 in strips of three
+or four components with 128x32 blocks.
 
 The encoder reproduces OpenJPH's codestreams byte for byte:
 * all 198 that `ojph_enc` writes in the parameter matrix
@@ -39,9 +39,9 @@ The encoder reproduces OpenJPH's codestreams byte for byte:
   decompositions, which differ on purpose (see below) and decode
   losslessly with OpenJPH's decoder, as do 40 random configurations of
   that kind (`tests/data/ours`);
-* all 11 in `tests/data/strips`, 300 samples wide and 8 to 200 lines
-  high, or 64 wide, with four components under NLT type 3 and the RCT,
-  or one, and 128x32 blocks;
+* all 13 in `tests/data/strips`, 300 samples wide and 8 to 200 lines
+  high, or 64 wide, with three or four components under NLT type 3 and
+  the RCT or NLT type 4 and the ICT, or one, and 128x32 blocks;
 * 353 more at large sizes and over quality sweeps
   (`tests/data/profile`): short, wide images from 8192x256 down to
   8192x1 and 1x256 with 128x32 blocks, RPCL, TLM and tile parts at

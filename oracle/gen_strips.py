@@ -2,12 +2,13 @@
 """Generates the strip codestreams in tests/data/strips/.
 
 These are decoder vectors at sizes the matrix avoids: images 300 samples
-wide and 8 to 200 lines high (64 for 32-bit samples) with four
+wide and 8 to 200 lines high (64 for 32-bit samples) with three or four
 components, and 64 samples wide with one, coded with one tile, RPCL, 128x32 code blocks, 5
-decompositions, a TLM marker and tile parts at resolutions. All are
+decompositions, a TLM marker and tile parts at resolutions. Most are
 reversible, with 16-bit or 32-bit signed samples under NLT type 3 and
-the RCT on four components. Each is encoded with ojph_enc and decoded
-with ojph_dec, and must round-trip.
+the RCT on four components; two are irreversible with the ICT and NLT
+type 4. Each is encoded with ojph_enc and decoded with ojph_dec, and the
+reversible ones must round-trip.
 
 Every codestream is committed, but only the decodes in COMMIT_RAW are
 (the rest would add about 2 MB); the manifest keeps the size and
@@ -30,7 +31,8 @@ RCT4 = ["--comps", "4", "--rct", "1", "--planar", "0"]
 
 # The decodes small enough to commit.
 COMMIT_RAW = {"s16_rct_4c_300x8", "s32_rct_4c_300x8", "s16_1c_64x32",
-              "s16_1c_64x8", "s16_1c_const_64x32", "s16_1c_const_64x8"}
+              "s16_1c_64x8", "s16_1c_const_64x32", "s16_1c_const_64x8",
+              "ict_s32_nlt4_3c_300x8"}
 
 
 def cases():
@@ -55,6 +57,15 @@ def cases():
     add("s16_1c_const_64x32", "64x32", S16, "--pattern", "const",
         seed=6023)
     add("s16_1c_const_64x8", "64x8", S16, "--pattern", "const", seed=6024)
+    add("ict_s16_nlt4_4c_300x32", "300x32",
+        ["--comps", "4", "--depth", "16", "--signed", "1", "--irrev",
+         "--rct", "1", "--rev-comps", "3", "--nlt3-comps", "3", "--nlt4",
+         "0:513", "--nlt4", "1:513", "--nlt4", "2:513", "--qfactor", "90"],
+        seed=6031)
+    add("ict_s32_nlt4_3c_300x8", "300x8",
+        ["--comps", "3", "--depth", "32", "--signed", "1", "--irrev",
+         "--rct", "1", "--nlt4", "0:257", "--nlt4", "1:257", "--nlt4",
+         "2:257", "--qstep", "0.0004"], seed=6032)
     return c
 
 

@@ -179,7 +179,7 @@ fn decoder_round_trips_encoder_output() {
 /// with OpenJPH's encoder at 300x8 to 300x200 and 64x8 to 64x32 with
 /// 128x32 blocks, RPCL, TLM and tile parts at resolutions, are
 /// reproduced byte for byte, and decode with the crate's decoder to
-/// the input.
+/// the input (reversible) or to OpenJPH's decode (irreversible).
 #[test]
 fn strip_codestreams_match_openjph() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/strips");
@@ -214,7 +214,7 @@ fn strip_codestreams_match_openjph() {
             lossy += 1;
         }
     }
-    assert_eq!((lossless, lossy), (11, 0));
+    assert_eq!((lossless, lossy), (11, 2));
 }
 
 /// The output vector is only appended to: a codestream written after
