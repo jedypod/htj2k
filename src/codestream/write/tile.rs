@@ -404,8 +404,17 @@ impl Tile {
         }
 
         let comps = &mut self.comps;
-        // This is how OpenJPH starts its search for the smallest point.
-        let far = Point::new(i32::MAX as u32, i32::MAX as u32);
+        // Whether a precinct at `cur` comes before the smallest found so
+        // far, in raster order on the canvas. OpenJPH starts its searches
+        // from INT_MAX, so no precinct at or beyond 2^31 - 1 is ever
+        // smaller and it keeps the first candidate's index (component or
+        // resolution 0, which may have run out) until the internal error
+        // at flush. Starting from no point at all gives the same order
+        // below 2^31 - 1 and the right one beyond it.
+        let before = |cur: Point, smallest: Option<Point>| match smallest {
+            None => true,
+            Some(s) => cur.y < s.y || (cur.y == s.y && cur.x < s.x),
+        };
         // sequence the writing of precincts according to progression order
         match self.prog_order {
             ProgressionOrder::Lrcp | ProgressionOrder::Rlcp => {
@@ -448,16 +457,13 @@ impl Tile {
                     }
                     loop {
                         let mut found = None;
-                        let mut smallest = far;
+                        let mut smallest = None;
                         for (ci, c) in comps.iter().enumerate() {
                             let Some(cur) = c.get_top_left_precinct(r) else {
                                 continue;
                             };
-                            if found.is_none() {
-                                found = Some(0);
-                            }
-                            if cur.y < smallest.y || (cur.y == smallest.y && cur.x < smallest.x) {
-                                smallest = cur;
+                            if before(cur, smallest) {
+                                smallest = Some(cur);
                                 found = Some(ci);
                             }
                         }
@@ -469,28 +475,25 @@ impl Tile {
                 }
             }
             ProgressionOrder::Pcrl => loop {
-                let mut found = None;
                 let (mut comp_num, mut res_num) = (0usize, 0u32);
-                let mut smallest = far;
+                let mut smallest: Option<Point> = None;
                 for (ci, c) in comps.iter().enumerate() {
                     for r in 0..=c.get_num_decompositions() {
                         let Some(cur) = c.get_top_left_precinct(r) else {
                             continue;
                         };
-                        found = Some(());
-                        let same = cur.y == smallest.y && cur.x == smallest.x;
-                        if cur.y < smallest.y
-                            || (cur.y == smallest.y && cur.x < smallest.x)
-                            || (same && ci < comp_num)
-                            || (same && ci == comp_num && r < res_num)
-                        {
-                            smallest = cur;
+                        // Components are visited in order and resolutions
+                        // upwards, so OpenJPH's tie-breaks on a smaller
+                        // component or resolution at the same point never
+                        // apply.
+                        if before(cur, smallest) {
+                            smallest = Some(cur);
                             comp_num = ci;
                             res_num = r;
                         }
                     }
                 }
-                if found.is_none() {
+                if smallest.is_none() {
                     break;
                 }
                 comps[comp_num].write_one_precinct(res_num, out)?;
@@ -501,21 +504,19 @@ impl Tile {
                         tile_part(out, c.get_num_bytes(), ci as u32, num_comps)?;
                     }
                     loop {
-                        let mut found = false;
                         let mut res_num = 0;
-                        let mut smallest = far;
+                        let mut smallest = None;
                         for r in 0..=max_decompositions {
                             // does the resolution exist?
                             let Some(cur) = c.get_top_left_precinct(r) else {
                                 continue;
                             };
-                            found = true;
-                            if cur.y < smallest.y || (cur.y == smallest.y && cur.x < smallest.x) {
-                                smallest = cur;
+                            if before(cur, smallest) {
+                                smallest = Some(cur);
                                 res_num = r;
                             }
                         }
-                        if !found {
+                        if smallest.is_none() {
                             break;
                         }
                         c.write_one_precinct(res_num, out)?;

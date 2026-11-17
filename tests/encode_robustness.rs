@@ -395,6 +395,46 @@ fn precincts_set_before_decompositions() {
     assert_eq!(err.code(), 0x00080009);
 }
 
+/// Canvas coordinates at and beyond 2^31, in every progression order:
+/// the spatial orders search for the precinct nearest the top left,
+/// which OpenJPH starts from INT_MAX, so beyond it nothing was found and
+/// flush failed (0x00080024) once component or resolution 0 ran out.
+#[test]
+fn canvas_beyond_2_31() {
+    use common::drive;
+    use common::synth::EncArgs;
+    // image offset, and a tile grid offset whose first tile meets it
+    let offsets = [
+        ("2147483647,2147483646", "2147483640,2147483640"),
+        ("3000000000,3000000005", "2999999995,2999999999"),
+        ("5,4294967200", "0,4294967195"),
+    ];
+    let mut checked = 0;
+    for (off, tile_off) in offsets {
+        for prog in ["LRCP", "RLCP", "RPCL", "PCRL", "CPRL"] {
+            for extra in [
+                "--comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16".to_string(),
+                format!("--comps 3 --levels 3 --block 8x8 --sub 1x1,2x2,2x1 --planar 1 --tile 16x8 --tile-off {tile_off}"),
+                "--comps 2 --levels 2 --block 4x4 --coc 1:1:4x4".to_string(),
+            ] {
+                if extra.contains("--coc") && prog.ends_with("CP") {
+                    continue; // refused: unequal decompositions
+                }
+                let cmd = format!(
+                    "ojph_enc -o a.j2c --size 37x29 --img-off {off} --prog {prog} {extra} --seed 9"
+                );
+                let args = EncArgs::parse_command(&cmd).unwrap();
+                let mut out = Vec::new();
+                drive::encode(&args, &mut out).unwrap_or_else(|e| panic!("{cmd}: {e}"));
+                let got = decode_to_raw(&out).unwrap_or_else(|e| panic!("{cmd}: {e}"));
+                assert!(got == EncArgs::to_raw(&args.synthesise()), "{cmd}");
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 3 * 5 * 3 - 3 * 2);
+}
+
 /// The parameter objects are shared with the decoder, so
 /// `access_siz_mut` and friends reach decoder-side calls (`read`,
 /// `set_skipped_resolutions`, `employ_color_transform(u8)`,

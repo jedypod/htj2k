@@ -103,6 +103,11 @@ The encoder differs as follows:
     (0x0008000B); the call changes nothing. In OpenJPH such calls
     change the stream being written, which can leave it without tile
     parts, with a wrong TLM, or with a wrong image.
+* Canvas coordinates of 2^31 and more work in every progression order.
+  OpenJPH's encoder and decoder search for the next precinct starting
+  from `INT_MAX`, so with RPCL, PCRL or CPRL they assert on such images;
+  here both sides search without a sentinel, which gives the same order
+  below 2^31.
 * A failed call leaves the output `Vec` as it was, and the encoder
   cannot be used further.
 * `exchange()` takes no arguments. Each call returns the next line to
