@@ -27,6 +27,12 @@ intended differences in behaviour:
   returns an error.
 * `Codestream::set_memory_limit` bounds the memory a codestream can make
   the decoder allocate. The default is 4 GiB.
+* Code-block buffers are allocated at the size of the actual blocks, not
+  the nominal size as in OpenJPH, so short images and chunks, small
+  tiles and subband edges take much less memory. A chunk 32 lines high
+  needs about 350 bytes per column of width per component with 64-bit
+  samples and 5 decomposition levels, for any block size; OpenJPH's
+  sizing would take 23 bytes per column times the nominal block height.
 * The 64-bit block decoder computes the value of a sample found
   significant in the SigProp pass with a 64-bit shift. OpenJPH 0.33.0
   shifts in 32 bits, which is wrong for `missing_msbs` of 29 or less. Blocks
