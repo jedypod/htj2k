@@ -370,12 +370,15 @@ impl Encoder {
         if tile_size.h == 0 && tile_size.w == 0 {
             // OpenJPH adds the offset to the extent, which is already
             // measured from the origin; the tile is larger than needed
-            // but the codestream is the same.
+            // but the codestream is the same. When the sum does not fit
+            // in 32 bits OpenJPH wraps it, splits the image into tiles
+            // that miss it and refuses a legal image; saturating gives
+            // one tile reaching the edge of the canvas instead.
             let img_offset = self.siz.get_image_offset();
             let img_extent = self.siz.get_image_extent();
             self.siz.set_tile_size(Size::new(
-                img_extent.x.wrapping_add(img_offset.x),
-                img_extent.y.wrapping_add(img_offset.y),
+                img_extent.x.saturating_add(img_offset.x),
+                img_extent.y.saturating_add(img_offset.y),
             ));
         }
         self.siz.check_validity()?;

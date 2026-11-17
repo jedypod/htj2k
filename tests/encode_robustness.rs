@@ -395,6 +395,53 @@ fn precincts_set_before_decompositions() {
     assert_eq!(err.code(), 0x00080009);
 }
 
+/// With no tile size set, the tile is extent + offset, as in OpenJPH.
+/// Where that sum does not fit in 32 bits OpenJPH wraps it and refuses a
+/// legal image ("a tile lies outside the image"); here the tile reaches
+/// the edge of the canvas and the image encodes.
+#[test]
+fn default_tile_size_does_not_wrap() {
+    for (ext, off) in [
+        // the review's 65535-wide image ending at the edge of the canvas
+        ((u32::MAX, 3), (0xFFFF_0000, 1)),
+        // wraps in y, not in x
+        ((40, u32::MAX), (7, u32::MAX - 20)),
+        // extent + offset is exactly 2^32
+        ((0x8000_0000 + 77, 2), (0x8000_0000 - 77, 0)),
+    ] {
+        let mut enc = Encoder::new();
+        let siz = enc.access_siz_mut().unwrap();
+        siz.set_image_extent(Point::new(ext.0, ext.1));
+        siz.set_image_offset(Point::new(off.0, off.1));
+        siz.set_num_components(1);
+        siz.set_component(0, Point::new(1, 1), 12, false).unwrap();
+        let cod = enc.access_cod_mut().unwrap();
+        cod.set_num_decomposition(3).unwrap();
+        cod.set_reversible(true);
+        let mut out = Vec::new();
+        enc.write_headers(&mut out, &[]).unwrap();
+        let (w, h) = ((ext.0 - off.0) as usize, (ext.1 - off.1) as usize);
+        let mut want = Vec::new();
+        let mut n = 0u32;
+        while let Some((_, line)) = enc.exchange().unwrap() {
+            assert_eq!(line.len(), w);
+            for s in line.iter_mut() {
+                n = n.wrapping_mul(1_103_515_245).wrapping_add(12345);
+                *s = (n >> 20) as i32;
+                want.extend_from_slice(&s.to_le_bytes());
+            }
+        }
+        enc.flush(&mut out).unwrap();
+        assert_eq!(want.len(), w * h * 4);
+        let got = decode_to_raw(&out).unwrap();
+        let first = got.iter().zip(&want).position(|(a, b)| a != b);
+        assert!(
+            got == want,
+            "{ext:?} {off:?}: first difference at {first:?}"
+        );
+    }
+}
+
 /// Canvas coordinates at and beyond 2^31, in every progression order:
 /// the spatial orders search for the precinct nearest the top left,
 /// which OpenJPH starts from INT_MAX, so beyond it nothing was found and
