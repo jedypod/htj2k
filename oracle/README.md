@@ -115,6 +115,20 @@ without CMake. It never modifies the reference tree.
     dumps those lines, and it would stop with an error if a float line came
     back.
 
+* **`bench_codec check|enc N|dec N [options]`** is the OpenJPH side of
+  the benchmark in `bench/` (the crate's side is
+  `examples/bench_codec.rs`). It takes `ojph_enc`'s options without
+  `-o`, synthesises the same image once, and then encodes it N times to
+  a `mem_outfile`, or decodes it N times from a `mem_infile`, printing
+  the size and FNV-1a-64 of the codestream and of the decoded samples.
+  It is not built by `build.sh`: `build_bench.sh` builds OpenJPH twice
+  with its own CMake build, as static Release libraries, generic
+  (`OJPH_DISABLE_SIMD=ON`) and with SIMD (the defaults, dispatched at
+  run time), and links `oracle/build/bench/bench_codec_generic` and
+  `bench_codec_simd` with the same `-O3 -DNDEBUG`. `ojph_enc` and
+  `bench_codec` share their option parsing, synthesis and parameter
+  calls through `enc_setup.h`.
+
 * **`enc_blocks_synth`** calls the two block encoders directly, through the
   dumping wrappers, with synthetic code blocks: all-zero blocks, every
   supported `missing_msbs`, edge sizes and blocks large enough to fill the
