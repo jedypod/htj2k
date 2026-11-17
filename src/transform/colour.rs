@@ -119,7 +119,7 @@ pub(super) fn nlt_bias(bit_depth: u32) -> u32 {
 
 /// `(si32)(1ULL << (bit_depth - 1))`.
 #[inline(always)]
-fn half_of(bit_depth: u32) -> i32 {
+pub(super) fn half_of(bit_depth: u32) -> i32 {
     1u64.wrapping_shl(bit_depth.wrapping_sub(1)) as i32
 }
 
@@ -165,6 +165,38 @@ pub fn rev_convert(
     shift: i64,
     width: u32,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rev_convert(
+        src_line,
+        src_line_offset,
+        dst_line,
+        dst_line_offset,
+        shift,
+        width,
+    );
+    #[cfg(not(feature = "simd"))]
+    rev_convert_body(
+        src_line,
+        src_line_offset,
+        dst_line,
+        dst_line_offset,
+        shift,
+        width,
+    );
+}
+
+/// The body of [`rev_convert`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rev_convert_body(
+    src_line: &LineBuf,
+    src_line_offset: u32,
+    dst_line: &mut LineBuf,
+    dst_line_offset: u32,
+    shift: i64,
+    width: u32,
+) {
     let (so, doff, w) = (
         src_line_offset as usize,
         dst_line_offset as usize,
@@ -197,6 +229,38 @@ pub fn rev_convert(
 /// binary-complement nonlinearity: non-negative samples are copied, a
 /// negative sample `v` becomes `-v - shift`. Arithmetic wraps.
 pub fn rev_convert_nlt_type3(
+    src_line: &LineBuf,
+    src_line_offset: u32,
+    dst_line: &mut LineBuf,
+    dst_line_offset: u32,
+    shift: i64,
+    width: u32,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rev_convert_nlt_type3(
+        src_line,
+        src_line_offset,
+        dst_line,
+        dst_line_offset,
+        shift,
+        width,
+    );
+    #[cfg(not(feature = "simd"))]
+    rev_convert_nlt_type3_body(
+        src_line,
+        src_line_offset,
+        dst_line,
+        dst_line_offset,
+        shift,
+        width,
+    );
+}
+
+/// The body of [`rev_convert_nlt_type3`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rev_convert_nlt_type3_body(
     src_line: &LineBuf,
     src_line_offset: u32,
     dst_line: &mut LineBuf,
@@ -285,7 +349,9 @@ pub fn rev_decode_nlt(
 // ---------------------------------------------------------------------------
 
 /// `local_gen_irv_convert_to_integer_nlt0or3`.
-fn irv_convert_to_integer_nlt0or3<const NLT_TYPE3: bool>(
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_convert_to_integer_nlt0or3<const NLT_TYPE3: bool>(
     src_line: &LineBuf,
     dst_line: &mut LineBuf,
     dst_line_offset: u32,
@@ -343,6 +409,16 @@ pub fn irv_convert_to_integer(
     is_signed: bool,
     width: u32,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_convert_to_integer_nlt0or3::<false>(
+        src_line,
+        dst_line,
+        dst_line_offset,
+        bit_depth,
+        is_signed,
+        width,
+    );
+    #[cfg(not(feature = "simd"))]
     irv_convert_to_integer_nlt0or3::<false>(
         src_line,
         dst_line,
@@ -363,6 +439,16 @@ pub fn irv_convert_to_integer_nlt_type3(
     is_signed: bool,
     width: u32,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_convert_to_integer_nlt0or3::<true>(
+        src_line,
+        dst_line,
+        dst_line_offset,
+        bit_depth,
+        is_signed,
+        width,
+    );
+    #[cfg(not(feature = "simd"))]
     irv_convert_to_integer_nlt0or3::<true>(
         src_line,
         dst_line,
@@ -374,6 +460,8 @@ pub fn irv_convert_to_integer_nlt_type3(
 }
 
 /// `local_gen_irv_convert_to_float_nlt0or3`.
+// inlined into the AVX2 version of its callers with the `simd` feature
+#[cfg_attr(feature = "simd", inline(always))]
 fn irv_convert_to_float_nlt0or3<const NLT_TYPE3: bool>(
     src_line: &LineBuf,
     src_line_offset: u32,
@@ -418,6 +506,38 @@ pub fn irv_convert_to_float(
     is_signed: bool,
     width: u32,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_convert_to_float(
+        src_line,
+        src_line_offset,
+        dst_line,
+        bit_depth,
+        is_signed,
+        width,
+    );
+    #[cfg(not(feature = "simd"))]
+    irv_convert_to_float_body(
+        src_line,
+        src_line_offset,
+        dst_line,
+        bit_depth,
+        is_signed,
+        width,
+    );
+}
+
+/// The body of [`irv_convert_to_float`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_convert_to_float_body(
+    src_line: &LineBuf,
+    src_line_offset: u32,
+    dst_line: &mut LineBuf,
+    bit_depth: u32,
+    is_signed: bool,
+    width: u32,
+) {
     irv_convert_to_float_nlt0or3::<false>(
         src_line,
         src_line_offset,
@@ -431,6 +551,38 @@ pub fn irv_convert_to_float(
 /// `gen_irv_convert_to_float_nlt_type3`: as [`irv_convert_to_float`], but
 /// first undoes the binary-complement nonlinearity on signed samples.
 pub fn irv_convert_to_float_nlt_type3(
+    src_line: &LineBuf,
+    src_line_offset: u32,
+    dst_line: &mut LineBuf,
+    bit_depth: u32,
+    is_signed: bool,
+    width: u32,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::irv_convert_to_float_nlt_type3(
+        src_line,
+        src_line_offset,
+        dst_line,
+        bit_depth,
+        is_signed,
+        width,
+    );
+    #[cfg(not(feature = "simd"))]
+    irv_convert_to_float_nlt_type3_body(
+        src_line,
+        src_line_offset,
+        dst_line,
+        bit_depth,
+        is_signed,
+        width,
+    );
+}
+
+/// The body of [`irv_convert_to_float_nlt_type3`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn irv_convert_to_float_nlt_type3_body(
     src_line: &LineBuf,
     src_line_offset: u32,
     dst_line: &mut LineBuf,
@@ -752,6 +904,25 @@ pub fn rct_forward(
     cr: &mut LineBuf,
     repeat: u32,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rct_forward(r, g, b, y, cb, cr, repeat);
+    #[cfg(not(feature = "simd"))]
+    rct_forward_body(r, g, b, y, cb, cr, repeat);
+}
+
+/// The body of [`rct_forward`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rct_forward_body(
+    r: &LineBuf,
+    g: &LineBuf,
+    b: &LineBuf,
+    y: &mut LineBuf,
+    cb: &mut LineBuf,
+    cr: &mut LineBuf,
+    repeat: u32,
+) {
     let n = repeat as usize;
     let (rp, gp, bp) = (&r.i32()[..n], &g.i32()[..n], &b.i32()[..n]);
     if y.is_i32() {
@@ -785,6 +956,25 @@ pub fn rct_forward(
 /// are 32-bit, or `y`, `cb`, `cr` are 64-bit and `r`, `g`, `b` 32-bit
 /// (selected by `y`; results truncated to `i32`). Arithmetic wraps.
 pub fn rct_backward(
+    y: &LineBuf,
+    cb: &LineBuf,
+    cr: &LineBuf,
+    r: &mut LineBuf,
+    g: &mut LineBuf,
+    b: &mut LineBuf,
+    repeat: u32,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::rct_backward(y, cb, cr, r, g, b, repeat);
+    #[cfg(not(feature = "simd"))]
+    rct_backward_body(y, cb, cr, r, g, b, repeat);
+}
+
+/// The body of [`rct_backward`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn rct_backward_body(
     y: &LineBuf,
     cb: &LineBuf,
     cr: &LineBuf,
@@ -831,6 +1021,25 @@ pub fn ict_forward(
     cr: &mut [f32],
     repeat: u32,
 ) {
+    #[cfg(feature = "simd")]
+    super::vectorised::ict_forward(r, g, b, y, cb, cr, repeat);
+    #[cfg(not(feature = "simd"))]
+    ict_forward_body(r, g, b, y, cb, cr, repeat);
+}
+
+/// The body of [`ict_forward`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn ict_forward_body(
+    r: &[f32],
+    g: &[f32],
+    b: &[f32],
+    y: &mut [f32],
+    cb: &mut [f32],
+    cr: &mut [f32],
+    repeat: u32,
+) {
     use ct_cnst::*;
     let n = repeat as usize;
     let (r, g, b) = (&r[..n], &g[..n], &b[..n]);
@@ -845,6 +1054,25 @@ pub fn ict_forward(
 
 /// `gen_ict_backward`: the inverse of [`ict_forward`].
 pub fn ict_backward(
+    y: &[f32],
+    cb: &[f32],
+    cr: &[f32],
+    r: &mut [f32],
+    g: &mut [f32],
+    b: &mut [f32],
+    repeat: u32,
+) {
+    #[cfg(feature = "simd")]
+    super::vectorised::ict_backward(y, cb, cr, r, g, b, repeat);
+    #[cfg(not(feature = "simd"))]
+    ict_backward_body(y, cb, cr, r, g, b, repeat);
+}
+
+/// The body of [`ict_backward`].
+#[inline(always)]
+// only the tests call it with the `simd` feature
+#[cfg_attr(feature = "simd", allow(dead_code))]
+pub(super) fn ict_backward_body(
     y: &[f32],
     cb: &[f32],
     cr: &[f32],

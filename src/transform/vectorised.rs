@@ -30,7 +30,9 @@
 //! `#[target_feature]` caller, so builds that enable AVX2 at compile time
 //! (`-C target-cpu=native`) vectorise them too.
 
-use super::colour::{binary_complement, nlt_bias, nlt_to_float_t, ojph_max, ojph_min, NltLut};
+use super::colour::{
+    binary_complement, half_of, nlt_bias, nlt_to_float_t, ojph_max, ojph_min, NltLut,
+};
 use crate::line::LineBuf;
 use crate::params::{LiftingStep, ParamAtk};
 use multiversion::multiversion;
@@ -402,6 +404,53 @@ mod avx2 {
     }
 }
 
+/// `local_gen_irv_convert_to_integer_nlt0or3` (see
+/// `colour::irv_convert_to_integer_nlt0or3`), with [`round_i32`] for
+/// `ojph_round`.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_convert_to_integer_nlt0or3<const NLT_TYPE3: bool>(
+    src_line: &LineBuf,
+    dst_line: &mut LineBuf,
+    dst_line_offset: u32,
+    bit_depth: u32,
+    is_signed: bool,
+    width: u32,
+) {
+    let (doff, w) = (dst_line_offset as usize, width as usize);
+    let sp = &src_line.f32()[..w];
+    let dp = &mut dst_line.i32_mut()[doff..doff + w];
+    let sh = 32u32.wrapping_sub(bit_depth);
+    let neg_limit = i32::MIN.wrapping_shr(sh);
+    let mul = 1u64.wrapping_shl(bit_depth) as f32;
+    let fl_up_lim = -(neg_limit as f32); // val < upper
+    let fl_low_lim = neg_limit as f32; // val >= lower
+    let s32_up_lim = i32::MAX.wrapping_shr(sh);
+    let s32_low_lim = i32::MIN.wrapping_shr(sh);
+
+    if is_signed {
+        let bias = nlt_bias(bit_depth);
+        for (d, &s) in dp.iter_mut().zip(sp) {
+            let t = s * mul;
+            let mut v = round_i32(t);
+            v = if t >= fl_low_lim { v } else { s32_low_lim };
+            v = if t < fl_up_lim { v } else { s32_up_lim };
+            if NLT_TYPE3 {
+                v = binary_complement(v, bias);
+            }
+            *d = v;
+        }
+    } else {
+        let half = half_of(bit_depth);
+        for (d, &s) in dp.iter_mut().zip(sp) {
+            let t = s * mul;
+            let mut v = round_i32(t);
+            v = if t >= fl_low_lim { v } else { s32_low_lim };
+            v = if t < fl_up_lim { v } else { s32_up_lim };
+            *d = v.wrapping_add(half);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Wavelet: the scalar kernels as they are, compiled by multiversion
 // ---------------------------------------------------------------------------
@@ -488,6 +537,146 @@ pub(super) fn irv_horz_syn(
     even: bool,
 ) {
     super::wavelet::irv_horz_syn_body(atk, dst, lsrc, hsrc, width, even);
+}
+
+// ---------------------------------------------------------------------------
+// Colour: the scalar kernels as they are, compiled by multiversion
+// ---------------------------------------------------------------------------
+
+/// [`super::colour::rev_convert`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rev_convert(
+    src_line: &LineBuf,
+    src_line_offset: u32,
+    dst_line: &mut LineBuf,
+    dst_line_offset: u32,
+    shift: i64,
+    width: u32,
+) {
+    super::colour::rev_convert_body(
+        src_line,
+        src_line_offset,
+        dst_line,
+        dst_line_offset,
+        shift,
+        width,
+    );
+}
+
+/// [`super::colour::rev_convert_nlt_type3`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rev_convert_nlt_type3(
+    src_line: &LineBuf,
+    src_line_offset: u32,
+    dst_line: &mut LineBuf,
+    dst_line_offset: u32,
+    shift: i64,
+    width: u32,
+) {
+    super::colour::rev_convert_nlt_type3_body(
+        src_line,
+        src_line_offset,
+        dst_line,
+        dst_line_offset,
+        shift,
+        width,
+    );
+}
+
+/// [`super::colour::irv_convert_to_float`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_convert_to_float(
+    src_line: &LineBuf,
+    src_line_offset: u32,
+    dst_line: &mut LineBuf,
+    bit_depth: u32,
+    is_signed: bool,
+    width: u32,
+) {
+    super::colour::irv_convert_to_float_body(
+        src_line,
+        src_line_offset,
+        dst_line,
+        bit_depth,
+        is_signed,
+        width,
+    );
+}
+
+/// [`super::colour::irv_convert_to_float_nlt_type3`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn irv_convert_to_float_nlt_type3(
+    src_line: &LineBuf,
+    src_line_offset: u32,
+    dst_line: &mut LineBuf,
+    bit_depth: u32,
+    is_signed: bool,
+    width: u32,
+) {
+    super::colour::irv_convert_to_float_nlt_type3_body(
+        src_line,
+        src_line_offset,
+        dst_line,
+        bit_depth,
+        is_signed,
+        width,
+    );
+}
+
+/// [`super::colour::rct_forward`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rct_forward(
+    r: &LineBuf,
+    g: &LineBuf,
+    b: &LineBuf,
+    y: &mut LineBuf,
+    cb: &mut LineBuf,
+    cr: &mut LineBuf,
+    repeat: u32,
+) {
+    super::colour::rct_forward_body(r, g, b, y, cb, cr, repeat);
+}
+
+/// [`super::colour::rct_backward`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn rct_backward(
+    y: &LineBuf,
+    cb: &LineBuf,
+    cr: &LineBuf,
+    r: &mut LineBuf,
+    g: &mut LineBuf,
+    b: &mut LineBuf,
+    repeat: u32,
+) {
+    super::colour::rct_backward_body(y, cb, cr, r, g, b, repeat);
+}
+
+/// [`super::colour::ict_forward`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn ict_forward(
+    r: &[f32],
+    g: &[f32],
+    b: &[f32],
+    y: &mut [f32],
+    cb: &mut [f32],
+    cr: &mut [f32],
+    repeat: u32,
+) {
+    super::colour::ict_forward_body(r, g, b, y, cb, cr, repeat);
+}
+
+/// [`super::colour::ict_backward`], compiled for AVX2 too.
+#[multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
+pub(super) fn ict_backward(
+    y: &[f32],
+    cb: &[f32],
+    cr: &[f32],
+    r: &mut [f32],
+    g: &mut [f32],
+    b: &mut [f32],
+    repeat: u32,
+) {
+    super::colour::ict_backward_body(y, cb, cr, r, g, b, repeat);
 }
 
 #[cfg(test)]

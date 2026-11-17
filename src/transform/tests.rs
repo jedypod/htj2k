@@ -1082,6 +1082,126 @@ mod vectorised {
         }
     }
 
+    /// The colour kernels (vectorised or compiled by multiversion)
+    /// against their scalar bodies.
+    #[test]
+    fn colour() {
+        let mut rng = Rng(0x636f_6c6f);
+        for n in lengths() {
+            let off = (rng.next() % 4) as u32;
+            let w = n as u32;
+            // reversible conversions, all three line combinations
+            for (sk, dk) in [(0u8, 0u8), (0, 1), (1, 0)] {
+                let src = rand_line(&mut rng, sk, n + 4, if sk == 1 { 50 } else { 32 });
+                let dst = rand_line(&mut rng, dk, n + 4, 8);
+                let shift = rng.signed(40);
+                for nlt3 in [false, true] {
+                    let (mut a, mut b) = (dst.clone(), dst.clone());
+                    if nlt3 {
+                        rev_convert_nlt_type3_body(&src, off, &mut a, off, shift, w);
+                        v::rev_convert_nlt_type3(&src, off, &mut b, off, shift, w);
+                    } else {
+                        rev_convert_body(&src, off, &mut a, off, shift, w);
+                        v::rev_convert(&src, off, &mut b, off, shift, w);
+                    }
+                    assert_eq!(a, b, "rev_convert {sk}{dk} nlt3 {nlt3} {n}");
+                }
+            }
+            for bit_depth in [1, 2, 8, 12, 16, 17, 24, 31, 32] {
+                for signed in [false, true] {
+                    // integers to floats
+                    let src = rand_line(&mut rng, 0, n + 4, bit_depth.max(2));
+                    let dst = LineBuf::new_f32(n + 1, 1);
+                    let (mut a, mut b) = (dst.clone(), dst.clone());
+                    irv_convert_to_float_body(&src, off, &mut a, bit_depth, signed, w);
+                    v::irv_convert_to_float(&src, off, &mut b, bit_depth, signed, w);
+                    assert_eq!(
+                        bits_of_line(&a),
+                        bits_of_line(&b),
+                        "to_float {bit_depth} {n}"
+                    );
+                    let (mut a, mut b) = (dst.clone(), dst);
+                    irv_convert_to_float_nlt_type3_body(&src, off, &mut a, bit_depth, signed, w);
+                    v::irv_convert_to_float_nlt_type3(&src, off, &mut b, bit_depth, signed, w);
+                    assert_eq!(
+                        bits_of_line(&a),
+                        bits_of_line(&b),
+                        "to_float3 {bit_depth} {n}"
+                    );
+                    // floats to integers
+                    let vals: Vec<f32> = (0..n).map(|_| float(&mut rng, 0.7, 4096.0)).collect();
+                    let src = f32_line(&vals);
+                    let dst = rand_line(&mut rng, 0, n + 4, 8);
+                    let (mut a, mut b) = (dst.clone(), dst.clone());
+                    irv_convert_to_integer_nlt0or3::<false>(
+                        &src, &mut a, off, bit_depth, signed, w,
+                    );
+                    v::irv_convert_to_integer_nlt0or3::<false>(
+                        &src, &mut b, off, bit_depth, signed, w,
+                    );
+                    assert_eq!(a, b, "to_integer {bit_depth} {signed} {n}");
+                    let (mut a, mut b) = (dst.clone(), dst);
+                    irv_convert_to_integer_nlt0or3::<true>(&src, &mut a, off, bit_depth, signed, w);
+                    v::irv_convert_to_integer_nlt0or3::<true>(
+                        &src, &mut b, off, bit_depth, signed, w,
+                    );
+                    assert_eq!(a, b, "to_integer3 {bit_depth} {signed} {n}");
+                }
+            }
+            // colour transforms
+            for kind in [0u8, 1] {
+                let ins: Vec<LineBuf> = (0..3).map(|_| rand_line(&mut rng, 0, n, 31)).collect();
+                let outs: Vec<LineBuf> = (0..3).map(|_| rand_line(&mut rng, kind, n, 8)).collect();
+                let (mut a, mut b) = (outs.clone(), outs.clone());
+                let [a0, a1, a2] = &mut a[..] else {
+                    unreachable!()
+                };
+                rct_forward_body(&ins[0], &ins[1], &ins[2], a0, a1, a2, w);
+                let [b0, b1, b2] = &mut b[..] else {
+                    unreachable!()
+                };
+                v::rct_forward(&ins[0], &ins[1], &ins[2], b0, b1, b2, w);
+                assert_eq!(a, b, "rct_forward {kind} {n}");
+                let ys: Vec<LineBuf> = (0..3)
+                    .map(|_| rand_line(&mut rng, kind, n, if kind == 1 { 50 } else { 31 }))
+                    .collect();
+                let outs: Vec<LineBuf> = (0..3).map(|_| rand_line(&mut rng, 0, n, 8)).collect();
+                let (mut a, mut b) = (outs.clone(), outs);
+                let [a0, a1, a2] = &mut a[..] else {
+                    unreachable!()
+                };
+                rct_backward_body(&ys[0], &ys[1], &ys[2], a0, a1, a2, w);
+                let [b0, b1, b2] = &mut b[..] else {
+                    unreachable!()
+                };
+                v::rct_backward(&ys[0], &ys[1], &ys[2], b0, b1, b2, w);
+                assert_eq!(a, b, "rct_backward {kind} {n}");
+            }
+            let ins: Vec<Vec<f32>> = (0..3)
+                .map(|_| (0..n).map(|_| float(&mut rng, 1.0, 4096.0)).collect())
+                .collect();
+            for backward in [false, true] {
+                let (mut a, mut b) = (vec![vec![0f32; n]; 3], vec![vec![0f32; n]; 3]);
+                let [a0, a1, a2] = &mut a[..] else {
+                    unreachable!()
+                };
+                let [b0, b1, b2] = &mut b[..] else {
+                    unreachable!()
+                };
+                if backward {
+                    ict_backward_body(&ins[0], &ins[1], &ins[2], a0, a1, a2, w);
+                    v::ict_backward(&ins[0], &ins[1], &ins[2], b0, b1, b2, w);
+                } else {
+                    ict_forward_body(&ins[0], &ins[1], &ins[2], a0, a1, a2, w);
+                    v::ict_forward(&ins[0], &ins[1], &ins[2], b0, b1, b2, w);
+                }
+                for (x, y) in a.iter().zip(&b) {
+                    assert_eq!(bits_of_f32s(x), bits_of_f32s(y), "ict {backward} {n}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn irv_convert_to_float_nlt_precise_1step() {
         let recs = read_records("nlt.bin");
