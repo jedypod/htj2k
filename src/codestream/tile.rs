@@ -510,7 +510,7 @@ impl Tile {
 }
 
 /// The view of an NLT record that the LUT kernels take.
-fn nlt_lut(rec: &NltRec) -> NltLut<'_> {
+pub(crate) fn nlt_lut(rec: &NltRec) -> NltLut<'_> {
     fn from<T>(table: &[T], offset: usize) -> &[T] {
         table.get(offset..).unwrap_or(&[])
     }

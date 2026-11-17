@@ -6,7 +6,11 @@
 //! The codestream being written, after the write side of
 //! `ojph_codestream.cpp` and `ojph_codestream_local.cpp`.
 
+use super::tile::Tile;
+use super::Ctx;
+use crate::codestream::Budget;
 use crate::error::ojph_error;
+use crate::line::LineBuf;
 use crate::params::marker::{COM, SOC};
 use crate::params::tilepart_divisions::{
     OJPH_TILEPART_COMPONENTS, OJPH_TILEPART_MASK, OJPH_TILEPART_NO_DIVISIONS,
@@ -16,7 +20,7 @@ use crate::params::{
     CommentExchange, ParamAtk, ParamCap, ParamCod, ParamNlt, ParamQcd, ParamSiz, ParamTlm,
     ProgressionOrder,
 };
-use crate::types::{div_ceil, Size};
+use crate::types::{div_ceil, Point, Rect, Size};
 use crate::Result;
 
 /// The default for [`Encoder::set_memory_limit`]: 4 GiB.
@@ -27,8 +31,10 @@ const DEFAULT_MEMORY_LIMIT: u64 = 1 << 32;
 enum State {
     /// Parameters may be set; `write_headers` has not been called.
     Setup,
-    /// The main header is written; lines can be exchanged.
+    /// The main header is written; lines are being exchanged.
     Headers,
+    /// Every line has been pushed; the codestream can be flushed.
+    Pushed,
     /// A call failed part way; the encoder cannot be used further.
     Failed,
 }
@@ -49,7 +55,9 @@ enum State {
 ///    [`set_version_comment`](Self::set_version_comment);
 /// 3. [`write_headers`](Self::write_headers), which checks the
 ///    parameters, builds the tiles and appends the main header to a
-///    `Vec<u8>`.
+///    `Vec<u8>`;
+/// 4. [`exchange`](Self::exchange), once per line of every component and
+///    once more, which hands out each line to fill and takes it back.
 #[derive(Debug)]
 pub struct Encoder {
     state: State,
@@ -65,6 +73,15 @@ pub struct Encoder {
     comp_size: Vec<Size>,
     /// Tile parts in all, for TLM.
     num_tileparts: u32,
+    tiles: Vec<Tile>,
+    /// The lines handed out by `exchange`, one per component.
+    lines: Vec<LineBuf>,
+    /// True once `exchange` has handed out a line it has not taken back.
+    handed_out: bool,
+    cur_comp: u32,
+    cur_line: u32,
+    cur_tile_row: u32,
+    budget: Budget,
 
     siz: ParamSiz,
     cod: ParamCod,
@@ -99,6 +116,13 @@ impl Encoder {
             num_comps: 0,
             comp_size: Vec::new(),
             num_tileparts: 0,
+            tiles: Vec::new(),
+            lines: Vec::new(),
+            handed_out: false,
+            cur_comp: 0,
+            cur_line: 0,
+            cur_tile_row: 0,
+            budget: Budget::new(DEFAULT_MEMORY_LIMIT),
             siz: ParamSiz::default(),
             cod: ParamCod::default(),
             cap: ParamCap::default(),
@@ -401,11 +425,176 @@ impl Encoder {
             }
         }
 
+        // finalize_alloc: the tiles, and the lines exchanged with the
+        // caller
+        let mut budget = Budget::new(self.memory_limit);
+        let ctx = Ctx {
+            siz: &self.siz,
+            cod: &self.cod,
+            qcd: &self.qcd,
+            nlt: &self.nlt,
+        };
+        let sz = ctx.siz;
+        let (image_offset, image_extent) = (sz.get_image_offset(), sz.get_image_extent());
+        let tile_offset = sz.get_tile_offset();
+        budget.take(num_tiles.area() * std::mem::size_of::<Tile>() as u64)?;
+        let mut tiles = Vec::with_capacity(num_tiles.area() as usize);
+        // The grid is worked out in 64 bits; OpenJPH lets the far edge of
+        // the last tile wrap.
+        for y in 0..num_tiles.h as u64 {
+            let y0 = tile_offset.y as u64 + y * tile_size.h as u64;
+            let y1 = y0 + tile_size.h as u64; // end of tile
+            let org_y = y0.max(image_offset.y as u64);
+            let end_y = y1.min(image_extent.y as u64);
+            let mut offset = 0;
+            for x in 0..num_tiles.w as u64 {
+                let x0 = tile_offset.x as u64 + x * tile_size.w as u64;
+                let x1 = x0 + tile_size.w as u64;
+                let org_x = x0.max(image_offset.x as u64);
+                let end_x = x1.min(image_extent.x as u64);
+                if end_x < org_x || end_y < org_y {
+                    return ojph_error!(0x00070032, "a tile lies outside the image");
+                }
+                let tile_rect = Rect {
+                    org: Point::new(org_x as u32, org_y as u32),
+                    siz: Size::new((end_x - org_x) as u32, (end_y - org_y) as u32),
+                };
+                let idx = (y * num_tiles.w as u64 + x) as u16;
+                tiles.push(Tile::new(&ctx, &mut budget, tile_rect, idx, &mut offset)?);
+            }
+        }
+        let mut lines = Vec::with_capacity(num_comps as usize);
+        for s in &comp_size {
+            lines.push(budget.line_i32(s.w as usize, 0)?);
+        }
+
         self.num_tiles = num_tiles;
         self.num_comps = num_comps;
         self.comp_size = comp_size;
         self.num_tileparts = num_tileparts;
+        self.tiles = tiles;
+        self.lines = lines;
+        self.budget = budget;
+        self.cur_comp = 0;
+        self.cur_line = 0;
+        self.cur_tile_row = 0;
+        self.handed_out = false;
         Ok(())
+    }
+
+    /// Exchanges lines with the caller, after OpenJPH's
+    /// `exchange(line, next_component)`.
+    ///
+    /// Each call returns the number of a component and a line of it to
+    /// fill: its samples, as many as the component is wide, left to
+    /// right. The next call takes that line back and encodes it (OpenJPH
+    /// passes the line back as an argument; here the encoder keeps it, so
+    /// it cannot be swapped for one of the wrong size or kind). After the
+    /// last line has been taken back the call returns `None`, so every
+    /// line is pushed by
+    ///
+    /// ```ignore
+    /// while let Some((comp, samples)) = encoder.exchange()? {
+    ///     fill(comp, samples);
+    /// }
+    /// ```
+    ///
+    /// In planar mode every line of component 0 is asked for first, then
+    /// those of component 1, and so on; otherwise one line of each
+    /// component in turn. Samples are the image's values: `0 .. 2^B` for
+    /// an unsigned component of depth `B`, `-2^(B-1) .. 2^(B-1)` for a
+    /// signed one. An unsigned 32-bit sample above `i32::MAX` is passed as
+    /// its bit pattern (`u32 as i32`), as OpenJPH's `exchange` takes it.
+    pub fn exchange(&mut self) -> Result<Option<(u32, &mut [i32])>> {
+        match self.state {
+            State::Headers => {}
+            State::Pushed => return Ok(None),
+            State::Setup => {
+                return ojph_error!(0x00080040, "write_headers must be called before exchange")
+            }
+            State::Failed => {
+                return ojph_error!(0x00080041, "the encoder has failed and cannot be used")
+            }
+        }
+        if self.handed_out {
+            if let Err(e) = self.push_line() {
+                self.state = State::Failed;
+                return Err(e);
+            }
+            if self.advance() {
+                self.handed_out = false;
+                self.state = State::Pushed;
+                return Ok(None);
+            }
+        }
+        self.handed_out = true;
+        let c = self.cur_comp as usize;
+        let w = self.comp_size[c].w as usize;
+        Ok(Some((self.cur_comp, &mut self.lines[c].i32_mut()[..w])))
+    }
+
+    /// Pushes the line of component `cur_comp` to the tiles of the
+    /// current row of tiles; `tile::push` over a row in OpenJPH.
+    fn push_line(&mut self) -> Result<()> {
+        let c = self.cur_comp;
+        let line = &self.lines[c as usize];
+        let mut failures = 0;
+        loop {
+            let mut success = true;
+            let row = self.cur_tile_row as usize * self.num_tiles.w as usize;
+            for tile in &mut self.tiles[row..row + self.num_tiles.w as usize] {
+                if !tile.push(line, c, &mut self.budget)? {
+                    success = false;
+                    break;
+                }
+            }
+            if !success {
+                self.cur_tile_row += 1;
+            }
+            if self.cur_tile_row >= self.num_tiles.h {
+                self.cur_tile_row = 0;
+            }
+            if success {
+                return Ok(());
+            }
+            // OpenJPH loops forever once no row of tiles takes the line.
+            failures += 1;
+            if failures > self.num_tiles.h {
+                return ojph_error!(
+                    0x00080042,
+                    "internal error: no tile takes line {} of component {}",
+                    self.cur_line,
+                    c
+                );
+            }
+        }
+    }
+
+    /// Moves on to the next line to ask for; true when there is none.
+    fn advance(&mut self) -> bool {
+        if self.is_planar() {
+            // process one component at a time
+            self.cur_line += 1;
+            if self.cur_line >= self.comp_size[self.cur_comp as usize].h {
+                self.cur_line = 0;
+                self.cur_tile_row = 0;
+                self.cur_comp += 1;
+                if self.cur_comp >= self.num_comps {
+                    return true;
+                }
+            }
+        } else {
+            // process all components for a line
+            self.cur_comp += 1;
+            if self.cur_comp >= self.num_comps {
+                self.cur_comp = 0;
+                self.cur_line += 1;
+                if self.cur_line >= self.comp_size[0].h {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Writes SOC up to the comments.

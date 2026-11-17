@@ -78,3 +78,31 @@ pub fn headers(a: &EncArgs, out: &mut Vec<u8>) -> htj2k::Result<Encoder> {
     cs.write_headers(out, &[] as &[CommentExchange])?;
     Ok(cs)
 }
+
+/// Feeds `img` (from [`EncArgs::synthesise`]) to `cs` through
+/// `exchange`, as `ojph_enc` does: unsigned 32-bit values above
+/// `i32::MAX` go in as their bit pattern.
+pub fn push_image(cs: &mut Encoder, a: &EncArgs, img: &[Vec<i64>]) -> htj2k::Result<()> {
+    let sizes = a.comp_sizes();
+    let mut row = vec![0usize; img.len()];
+    while let Some((c, line)) = cs.exchange()? {
+        let c = c as usize;
+        let w = sizes[c].0 as usize;
+        assert!(
+            row[c] < sizes[c].1 as usize,
+            "exchange asked for too many lines"
+        );
+        let src = &img[c][row[c] * w..(row[c] + 1) * w];
+        for (d, &s) in line.iter_mut().zip(src) {
+            *d = s as u32 as i32;
+        }
+        row[c] += 1;
+    }
+    for (c, r) in row.iter().enumerate() {
+        assert_eq!(
+            *r, sizes[c].1 as usize,
+            "component {c} was not fully exchanged"
+        );
+    }
+    Ok(())
+}

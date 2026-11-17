@@ -13,7 +13,31 @@
 //! its own tree here, with the same names and the same structure as the
 //! C++ write paths. Neither side pays for the other's state.
 
+// The packet-writing half of the tree comes with `flush`.
+#![allow(dead_code)]
+
+mod codeblock;
 #[allow(clippy::module_inception)]
 mod codestream;
+mod precinct;
+mod resolution;
+mod subband;
+mod tile;
+mod tile_comp;
+
+#[cfg(test)]
+mod tests;
 
 pub use codestream::Encoder;
+
+use crate::params::{ParamCod, ParamNlt, ParamQcd, ParamSiz};
+
+/// The parameters every part of the tree is built from; the
+/// `codestream*` that OpenJPH passes to each `finalize_alloc`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Ctx<'a> {
+    pub siz: &'a ParamSiz,
+    pub cod: &'a ParamCod,
+    pub qcd: &'a ParamQcd,
+    pub nlt: &'a ParamNlt,
+}

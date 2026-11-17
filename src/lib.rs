@@ -8,6 +8,11 @@
 
 #![forbid(unsafe_code)]
 
+// Lets the unit tests share helpers with the integration tests, which
+// name the crate `htj2k`.
+#[cfg(test)]
+extern crate self as htj2k;
+
 mod error;
 pub mod file;
 pub mod line;
