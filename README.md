@@ -120,9 +120,12 @@ The encoder differs as follows:
     (0x0008000B); the call changes nothing. In OpenJPH such calls
     change the stream being written, which can leave it without tile
     parts, with a wrong TLM, or with a wrong image.
-* With no tile size set, the tile is the image extent plus its offset,
-  as in OpenJPH. Where that sum does not fit in 32 bits OpenJPH wraps it
-  and refuses the image; here the tile reaches the edge of the canvas.
+  * A tile grid that OpenJPH's decoder cannot count (0x0008000E).
+    OpenJPH computes the number of tiles as (extent - tile offset +
+    tile size - 1) / tile size in 32 bits; where that wraps, its
+    decoder finds no tiles. This includes the default tile (extent plus
+    offset) when that sum does not fit in 32 bits, which OpenJPH's
+    encoder wraps and refuses with a misleading error.
 * Canvas coordinates of 2^31 and more work in every progression order.
   OpenJPH's encoder and decoder search for the next precinct starting
   from `INT_MAX`, so with RPCL, PCRL or CPRL they assert on such images;

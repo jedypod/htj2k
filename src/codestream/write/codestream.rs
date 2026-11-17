@@ -383,15 +383,21 @@ impl Encoder {
             // OpenJPH adds the offset to the extent, which is already
             // measured from the origin; the tile is larger than needed
             // but the codestream is the same. When the sum does not fit
-            // in 32 bits OpenJPH wraps it, splits the image into tiles
-            // that miss it and refuses a legal image; saturating gives
-            // one tile reaching the edge of the canvas instead.
+            // in 32 bits OpenJPH wraps it and refuses the image with a
+            // misleading error. No default tile size helps: OpenJPH's
+            // decoder cannot count tiles that large (below), so refuse.
             let img_offset = self.siz.get_image_offset();
             let img_extent = self.siz.get_image_extent();
-            self.siz.set_tile_size(Size::new(
-                img_extent.x.saturating_add(img_offset.x),
-                img_extent.y.saturating_add(img_offset.y),
-            ));
+            let (Some(w), Some(h)) = (
+                img_extent.x.checked_add(img_offset.x),
+                img_extent.y.checked_add(img_offset.y),
+            ) else {
+                return ojph_error!(
+                    0x0008000E,
+                    "image extent plus image offset does not fit in 32 bits, so there is no default tile size OpenJPH can decode; set a tile size"
+                );
+            };
+            self.siz.set_tile_size(Size::new(w, h));
         }
         self.siz.check_validity()?;
         self.cod.check_validity(&self.siz)?;
@@ -535,6 +541,27 @@ impl Encoder {
         // pre_alloc: the tile grid
         let sz = &self.siz;
         let tile_size = sz.get_tile_size();
+        // OpenJPH counts tiles as (extent - tile offset + tile size - 1)
+        // / tile size in 32 bits. Where that sum wraps, its decoder finds
+        // the wrong number of tiles (usually 0) and cannot read the
+        // codestream, though the codestream is valid, so refuse it.
+        for (span, t) in [
+            (
+                sz.get_image_extent().x.wrapping_sub(sz.get_tile_offset().x),
+                tile_size.w,
+            ),
+            (
+                sz.get_image_extent().y.wrapping_sub(sz.get_tile_offset().y),
+                tile_size.h,
+            ),
+        ] {
+            if t > 0 && u64::from(span) + u64::from(t) - 1 > u64::from(u32::MAX) {
+                return ojph_error!(
+                    0x0008000E,
+                    "extent - tile offset + tile size - 1 does not fit in 32 bits, which OpenJPH's decoder cannot read"
+                );
+            }
+        }
         let num_tiles = Size::new(
             div_ceil(
                 sz.get_image_extent().x.wrapping_sub(sz.get_tile_offset().x),

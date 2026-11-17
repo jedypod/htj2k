@@ -529,36 +529,36 @@ fn precincts_set_before_decompositions() {
     assert_eq!(err.code(), 0x00080009);
 }
 
-/// With no tile size set, the tile is extent + offset, as in OpenJPH.
-/// Where that sum does not fit in 32 bits OpenJPH wraps it and refuses a
-/// legal image ("a tile lies outside the image"); here the tile reaches
-/// the edge of the canvas and the image encodes.
+/// OpenJPH counts tiles as (extent - tile offset + tile size - 1) / tile
+/// size in 32 bits, so its decoder cannot read a codestream where that
+/// sum wraps. Such tile grids are refused (0x0008000E): the default tile
+/// (extent + offset) when that sum does not fit in 32 bits, and explicit
+/// tile sizes past the limit. At the limit the image still encodes.
 #[test]
-fn default_tile_size_does_not_wrap() {
-    for (ext, off) in [
-        // the review's 65535-wide image ending at the edge of the canvas
-        ((u32::MAX, 3), (0xFFFF_0000, 1)),
-        // wraps in y, not in x
-        ((40, u32::MAX), (7, u32::MAX - 20)),
-        // extent + offset is exactly 2^32
-        ((0x8000_0000 + 77, 2), (0x8000_0000 - 77, 0)),
-    ] {
+fn tile_grids_openjph_cannot_count_are_refused() {
+    fn encode(
+        ext: (u32, u32),
+        off: (u32, u32),
+        tile: Option<((u32, u32), (u32, u32))>,
+    ) -> Result<(Vec<u8>, Vec<u8>), u32> {
         let mut enc = Encoder::new();
         let siz = enc.access_siz_mut().unwrap();
         siz.set_image_extent(Point::new(ext.0, ext.1));
         siz.set_image_offset(Point::new(off.0, off.1));
+        if let Some((size, toff)) = tile {
+            siz.set_tile_size(Size::new(size.0, size.1));
+            siz.set_tile_offset(Point::new(toff.0, toff.1));
+        }
         siz.set_num_components(1);
         siz.set_component(0, Point::new(1, 1), 12, false).unwrap();
         let cod = enc.access_cod_mut().unwrap();
         cod.set_num_decomposition(3).unwrap();
         cod.set_reversible(true);
         let mut out = Vec::new();
-        enc.write_headers(&mut out, &[]).unwrap();
-        let (w, h) = ((ext.0 - off.0) as usize, (ext.1 - off.1) as usize);
+        enc.write_headers(&mut out, &[]).map_err(|e| e.code())?;
         let mut want = Vec::new();
         let mut n = 0u32;
         while let Some((_, line)) = enc.exchange().unwrap() {
-            assert_eq!(line.len(), w);
             for s in line.iter_mut() {
                 n = n.wrapping_mul(1_103_515_245).wrapping_add(12345);
                 *s = (n >> 20) as i32;
@@ -566,13 +566,42 @@ fn default_tile_size_does_not_wrap() {
             }
         }
         enc.flush(&mut out).unwrap();
-        assert_eq!(want.len(), w * h * 4);
-        let got = decode_to_raw(&out).unwrap();
-        let first = got.iter().zip(&want).position(|(a, b)| a != b);
-        assert!(
-            got == want,
-            "{ext:?} {off:?}: first difference at {first:?}"
-        );
+        Ok((out, want))
+    }
+
+    // default tile: extent + offset does not fit, in x, in y, and at
+    // exactly 2^32
+    for (ext, off) in [
+        ((u32::MAX, 3), (0xFFFF_0000, 1)),
+        ((40, u32::MAX), (7, u32::MAX - 20)),
+        ((0x8000_0000 + 77, 2), (0x8000_0000 - 77, 0)),
+    ] {
+        let err = encode(ext, off, None).expect_err("default tile must be refused");
+        assert_eq!(err, 0x0008000E, "{ext:?} {off:?}");
+    }
+
+    // explicit tile size: span 2^31 from the tile offset; a tile of 2^31
+    // is at the limit, one more is past it, in x and in y
+    let ext = 0x8000_0010;
+    let off = 0x8000_0000;
+    for (size, ok) in [(0x8000_0000, true), (0x8000_0001, false)] {
+        for axis_x in [true, false] {
+            let (e, o, t, toff) = if axis_x {
+                ((ext, 9), (off, 0), (size, 9), (0x10, 0))
+            } else {
+                ((9, ext), (0, off), (9, size), (0, 0x10))
+            };
+            match encode(e, o, Some((t, toff))) {
+                Ok((out, want)) => {
+                    assert!(ok, "size {size:#x} x={axis_x} must be refused");
+                    assert_eq!(decode_to_raw(&out).unwrap(), want);
+                }
+                Err(code) => {
+                    assert!(!ok, "size {size:#x} x={axis_x}: {code:#x}");
+                    assert_eq!(code, 0x0008000E);
+                }
+            }
+        }
     }
 }
 
@@ -580,6 +609,8 @@ fn default_tile_size_does_not_wrap() {
 /// the spatial orders search for the precinct nearest the top left,
 /// which OpenJPH starts from INT_MAX, so beyond it nothing was found and
 /// flush failed (0x00080024) once component or resolution 0 ran out.
+/// Every case sets a tile size: the default tile (extent + offset) does
+/// not fit in 32 bits at these offsets and is refused (0x0008000E).
 #[test]
 fn canvas_beyond_2_31() {
     use common::drive;
@@ -594,9 +625,9 @@ fn canvas_beyond_2_31() {
     for (off, tile_off) in offsets {
         for prog in ["LRCP", "RLCP", "RPCL", "PCRL", "CPRL"] {
             for extra in [
-                "--comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16".to_string(),
+                format!("--comps 3 --levels 2 --block 8x8 --precincts 8x8,16x16 --tile 64x64 --tile-off {tile_off}"),
                 format!("--comps 3 --levels 3 --block 8x8 --sub 1x1,2x2,2x1 --planar 1 --tile 16x8 --tile-off {tile_off}"),
-                "--comps 2 --levels 2 --block 4x4 --coc 1:1:4x4".to_string(),
+                format!("--comps 2 --levels 2 --block 4x4 --coc 1:1:4x4 --tile 64x64 --tile-off {tile_off}"),
             ] {
                 if extra.contains("--coc") && prog.ends_with("CP") {
                     continue; // refused: unequal decompositions
