@@ -48,10 +48,11 @@ pub(crate) struct Resolution {
     child_res: Option<Box<Resolution>>,
     pub(crate) precincts: Vec<Precinct>,
     num_precincts: Size,
+    /// Used for the spatial progression orders.
+    cur_precinct_loc: Point,
+    /// The bytes of this resolution's packets, for tile-part lengths.
+    num_bytes: u64,
     atk: ParamAtk,
-    /// Whether there is a wavelet transform: always both directions
-    /// above resolution 0 (the encoder cannot be given a DFS segment).
-    has_transform: bool,
     cur_line: u32,
     rows_to_produce: u32,
     vert_even: bool,
@@ -205,8 +206,9 @@ impl Resolution {
             child_res,
             precincts,
             num_precincts,
+            cur_precinct_loc: Point::new(0, 0),
+            num_bytes: 0,
             atk,
-            has_transform,
             cur_line: 0,
             rows_to_produce: res_rect.siz.h,
             vert_even: (res_rect.org.y & 1) == 0,
@@ -222,8 +224,68 @@ impl Resolution {
         self.child_res.as_deref_mut()
     }
 
-    pub(crate) fn num_precincts(&self) -> Size {
-        self.num_precincts
+    /// Codes the packet headers of this resolution and the ones below,
+    /// and returns the bytes of all their packets.
+    pub(crate) fn prepare_precinct(&mut self, scratch: &mut Vec<u8>) -> Result<u64> {
+        let mut lower_resolutions_bytes = 0;
+        if self.res_num != 0 {
+            let Some(child) = self.child_res.as_deref_mut() else {
+                return ojph_error!(0x00080022, "internal error: missing resolution");
+            };
+            lower_resolutions_bytes = child.prepare_precinct(scratch)?;
+        }
+        self.num_bytes = 0;
+        for p in self.precincts.iter_mut() {
+            self.num_bytes += p.prepare_precinct(&self.bands, scratch)?;
+        }
+        Ok(self.num_bytes + lower_resolutions_bytes)
+    }
+
+    /// Appends every packet of this resolution.
+    pub(crate) fn write_precincts(&self, out: &mut Vec<u8>) -> Result<()> {
+        for p in &self.precincts {
+            p.write(&self.bands, out)?;
+        }
+        Ok(())
+    }
+
+    /// The top left corner of the next precinct to write, if any is left.
+    pub(crate) fn get_top_left_precinct(&self) -> Option<Point> {
+        let idx = self.cur_precinct_loc.x as u64
+            + self.cur_precinct_loc.y as u64 * self.num_precincts.w as u64;
+        if idx < self.num_precincts.area() {
+            Some(self.precincts[idx as usize].img_point)
+        } else {
+            None
+        }
+    }
+
+    /// Appends the next precinct's packet.
+    pub(crate) fn write_one_precinct(&mut self, out: &mut Vec<u8>) -> Result<()> {
+        let idx = self.cur_precinct_loc.x as u64
+            + self.cur_precinct_loc.y as u64 * self.num_precincts.w as u64;
+        let Some(p) = self.precincts.get(idx as usize) else {
+            return ojph_error!(0x00080024, "internal error: no precinct left to write");
+        };
+        p.write(&self.bands, out)?;
+        self.cur_precinct_loc.x += 1;
+        if self.cur_precinct_loc.x >= self.num_precincts.w {
+            self.cur_precinct_loc.x = 0;
+            self.cur_precinct_loc.y += 1;
+        }
+        Ok(())
+    }
+
+    /// The bytes of resolution `resolution_num`'s packets, if it is this
+    /// one or below; 0 otherwise.
+    pub(crate) fn get_num_bytes(&self, resolution_num: u32) -> u64 {
+        if self.res_num == resolution_num {
+            return self.num_bytes;
+        }
+        match self.child_res.as_deref() {
+            Some(child) if resolution_num < self.res_num => child.get_num_bytes(resolution_num),
+            _ => 0,
+        }
     }
 
     /// The line to fill before [`push_line`](Self::push_line).

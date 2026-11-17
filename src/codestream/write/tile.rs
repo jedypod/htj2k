@@ -13,7 +13,11 @@ use crate::codestream::tile::nlt_lut;
 use crate::codestream::Budget;
 use crate::error::ojph_error;
 use crate::line::LineBuf;
-use crate::params::{NltRec, ProgressionOrder};
+use crate::params::marker::SOD;
+use crate::params::tilepart_divisions::{
+    OJPH_TILEPART_COMPONENTS, OJPH_TILEPART_NO_DIVISIONS, OJPH_TILEPART_RESOLUTIONS,
+};
+use crate::params::{NltRec, ParamSot, ParamTlm, ProgressionOrder};
 use crate::transform::colour::{
     ict_forward, irv_convert_to_float, irv_convert_to_float_nlt, irv_convert_to_float_nlt_type3,
     rct_forward, rev_convert, rev_convert_nlt_type3, rev_encode_nlt,
@@ -48,6 +52,8 @@ pub(crate) struct Tile {
     nlt: Vec<Option<NltRec>>,
     pub(crate) prog_order: ProgressionOrder,
     pub(crate) tile_idx: u16,
+    /// The bytes of all the packets of the tile, for its length.
+    num_bytes: u64,
 }
 
 impl Tile {
@@ -80,6 +86,7 @@ impl Tile {
             nlt: Vec::with_capacity(n),
             prog_order,
             tile_idx,
+            num_bytes: 0,
         };
         budget.take(n as u64 * std::mem::size_of::<TileComp>() as u64)?;
         tile.comps.reserve_exact(n);
@@ -322,4 +329,211 @@ impl Tile {
         }
         Ok(true)
     }
+
+    fn max_decompositions(&self) -> u32 {
+        self.comps
+            .iter()
+            .map(|c| c.get_num_decompositions())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Codes the packet headers of every component, and adds up the
+    /// tile's length.
+    pub(crate) fn prepare_for_flush(&mut self, scratch: &mut Vec<u8>) -> Result<()> {
+        self.num_bytes = 0;
+        for c in self.comps.iter_mut() {
+            self.num_bytes += c.prepare_precincts(scratch)?;
+        }
+        Ok(())
+    }
+
+    /// Adds a TLM entry for every tile part of the tile.
+    pub(crate) fn fill_tlm(&self, tlm: &mut ParamTlm, tilepart_div: u32) -> Result<()> {
+        let mut pair = |bytes: u64| -> Result<()> {
+            tlm.set_next_pair(self.tile_idx, tile_part_length(bytes)?);
+            Ok(())
+        };
+        let max_decs = self.max_decompositions();
+        let layer_first = matches!(
+            self.prog_order,
+            ProgressionOrder::Lrcp | ProgressionOrder::Rlcp
+        );
+        if tilepart_div == OJPH_TILEPART_NO_DIVISIONS {
+            pair(self.num_bytes)?;
+        } else if tilepart_div == OJPH_TILEPART_RESOLUTIONS {
+            for r in 0..=max_decs {
+                pair(self.comps.iter().map(|c| c.get_num_bytes_res(r)).sum())?;
+            }
+        } else if tilepart_div == OJPH_TILEPART_COMPONENTS && !layer_first {
+            // CPRL; write_headers leaves no other progression with this
+            for c in &self.comps {
+                pair(c.get_num_bytes())?;
+            }
+        } else {
+            // resolutions and components, LRCP or RLCP
+            for r in 0..=max_decs {
+                for c in &self.comps {
+                    if r <= c.get_num_decompositions() {
+                        pair(c.get_num_bytes_res(r))?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Appends the tile's tile parts, the packets sequenced by the
+    /// progression order.
+    pub(crate) fn flush(&mut self, out: &mut Vec<u8>, tilepart_div: u32) -> Result<()> {
+        let max_decompositions = self.max_decompositions();
+        let num_comps = self.comps.len() as u32;
+        let tile_idx = self.tile_idx;
+        let tile_part = |out: &mut Vec<u8>, bytes: u64, tp: u32, tn: u32| -> Result<()> {
+            // write tile header
+            let mut sot = ParamSot::default();
+            sot.init(0, tile_idx, 0, 1);
+            sot.write_with_parts(out, tile_part_length(bytes)?, tp as u8, tn as u8);
+            // write start of data
+            out.extend_from_slice(&SOD.to_be_bytes());
+            Ok(())
+        };
+
+        if tilepart_div == OJPH_TILEPART_NO_DIVISIONS {
+            tile_part(out, self.num_bytes, 0, 1)?;
+        }
+
+        let comps = &mut self.comps;
+        // This is how OpenJPH starts its search for the smallest point.
+        let far = Point::new(i32::MAX as u32, i32::MAX as u32);
+        // sequence the writing of precincts according to progression order
+        match self.prog_order {
+            ProgressionOrder::Lrcp | ProgressionOrder::Rlcp => {
+                if tilepart_div == OJPH_TILEPART_NO_DIVISIONS {
+                    for r in 0..=max_decompositions {
+                        for c in comps.iter() {
+                            c.write_precincts(r, out)?;
+                        }
+                    }
+                } else if tilepart_div == OJPH_TILEPART_RESOLUTIONS {
+                    for r in 0..=max_decompositions {
+                        let bytes = comps.iter().map(|c| c.get_num_bytes_res(r)).sum();
+                        tile_part(out, bytes, r, max_decompositions + 1)?;
+                        for c in comps.iter() {
+                            c.write_precincts(r, out)?;
+                        }
+                    }
+                } else {
+                    // OpenJPH counts num_comps * (max + 1) tile parts even
+                    // when some components have fewer resolutions
+                    let num_tileparts = num_comps * (max_decompositions + 1);
+                    for r in 0..=max_decompositions {
+                        for (ci, c) in comps.iter().enumerate() {
+                            if r <= c.get_num_decompositions() {
+                                let tp = ci as u32 + r * num_comps;
+                                tile_part(out, c.get_num_bytes_res(r), tp, num_tileparts)?;
+                                c.write_precincts(r, out)?;
+                            }
+                        }
+                    }
+                }
+            }
+            ProgressionOrder::Rpcl => {
+                for r in 0..=max_decompositions {
+                    if tilepart_div == OJPH_TILEPART_RESOLUTIONS {
+                        let bytes = comps.iter().map(|c| c.get_num_bytes_res(r)).sum();
+                        tile_part(out, bytes, r, max_decompositions + 1)?;
+                    }
+                    loop {
+                        let mut found = None;
+                        let mut smallest = far;
+                        for (ci, c) in comps.iter().enumerate() {
+                            let Some(cur) = c.get_top_left_precinct(r) else {
+                                continue;
+                            };
+                            if found.is_none() {
+                                found = Some(0);
+                            }
+                            if cur.y < smallest.y || (cur.y == smallest.y && cur.x < smallest.x) {
+                                smallest = cur;
+                                found = Some(ci);
+                            }
+                        }
+                        match found {
+                            Some(ci) => comps[ci].write_one_precinct(r, out)?,
+                            None => break,
+                        }
+                    }
+                }
+            }
+            ProgressionOrder::Pcrl => loop {
+                let mut found = None;
+                let (mut comp_num, mut res_num) = (0usize, 0u32);
+                let mut smallest = far;
+                for (ci, c) in comps.iter().enumerate() {
+                    for r in 0..=c.get_num_decompositions() {
+                        let Some(cur) = c.get_top_left_precinct(r) else {
+                            continue;
+                        };
+                        found = Some(());
+                        let same = cur.y == smallest.y && cur.x == smallest.x;
+                        if cur.y < smallest.y
+                            || (cur.y == smallest.y && cur.x < smallest.x)
+                            || (same && ci < comp_num)
+                            || (same && ci == comp_num && r < res_num)
+                        {
+                            smallest = cur;
+                            comp_num = ci;
+                            res_num = r;
+                        }
+                    }
+                }
+                if found.is_none() {
+                    break;
+                }
+                comps[comp_num].write_one_precinct(res_num, out)?;
+            },
+            ProgressionOrder::Cprl => {
+                for (ci, c) in comps.iter_mut().enumerate() {
+                    if tilepart_div == OJPH_TILEPART_COMPONENTS {
+                        tile_part(out, c.get_num_bytes(), ci as u32, num_comps)?;
+                    }
+                    loop {
+                        let mut found = false;
+                        let mut res_num = 0;
+                        let mut smallest = far;
+                        for r in 0..=max_decompositions {
+                            // does the resolution exist?
+                            let Some(cur) = c.get_top_left_precinct(r) else {
+                                continue;
+                            };
+                            found = true;
+                            if cur.y < smallest.y || (cur.y == smallest.y && cur.x < smallest.x) {
+                                smallest = cur;
+                                res_num = r;
+                            }
+                        }
+                        if !found {
+                            break;
+                        }
+                        c.write_one_precinct(res_num, out)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A tile part's length as SOT and TLM carry it: 32 bits including the
+/// 14 bytes of SOT and SOD. OpenJPH lets a longer one wrap.
+fn tile_part_length(bytes: u64) -> Result<u32> {
+    if bytes > (u32::MAX - 14) as u64 {
+        return ojph_error!(
+            0x00080060,
+            "a tile part of {} bytes is longer than SOT can describe; use tile parts or smaller tiles",
+            bytes
+        );
+    }
+    Ok(bytes as u32)
 }

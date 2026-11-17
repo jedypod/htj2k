@@ -13,9 +13,6 @@
 //! its own tree here, with the same names and the same structure as the
 //! C++ write paths. Neither side pays for the other's state.
 
-// The packet-writing half of the tree comes with `flush`.
-#![allow(dead_code)]
-
 mod codeblock;
 #[allow(clippy::module_inception)]
 mod codestream;

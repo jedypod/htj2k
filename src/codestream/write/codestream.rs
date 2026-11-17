@@ -11,7 +11,7 @@ use super::Ctx;
 use crate::codestream::Budget;
 use crate::error::ojph_error;
 use crate::line::LineBuf;
-use crate::params::marker::{COM, SOC};
+use crate::params::marker::{COM, EOC, SOC};
 use crate::params::tilepart_divisions::{
     OJPH_TILEPART_COMPONENTS, OJPH_TILEPART_MASK, OJPH_TILEPART_NO_DIVISIONS,
     OJPH_TILEPART_RESOLUTIONS,
@@ -35,6 +35,8 @@ enum State {
     Headers,
     /// Every line has been pushed; the codestream can be flushed.
     Pushed,
+    /// The codestream is complete.
+    Flushed,
     /// A call failed part way; the encoder cannot be used further.
     Failed,
 }
@@ -57,7 +59,29 @@ enum State {
 ///    parameters, builds the tiles and appends the main header to a
 ///    `Vec<u8>`;
 /// 4. [`exchange`](Self::exchange), once per line of every component and
-///    once more, which hands out each line to fill and takes it back.
+///    once more, which hands out each line to fill and takes it back;
+/// 5. [`flush`](Self::flush), which appends the tiles and EOC.
+///
+/// ```
+/// use htj2k::codestream::Encoder;
+/// use htj2k::types::{Point, Size};
+///
+/// let mut enc = Encoder::new();
+/// let siz = enc.access_siz_mut();
+/// siz.set_image_extent(Point::new(64, 32));
+/// siz.set_tile_size(Size::new(64, 32));
+/// siz.set_num_components(1);
+/// siz.set_component(0, Point::new(1, 1), 16, true)?;
+/// enc.access_cod_mut().set_block_dims(64, 32)?;
+///
+/// let mut out = Vec::new();
+/// enc.write_headers(&mut out, &[])?;
+/// while let Some((_comp, samples)) = enc.exchange()? {
+///     samples.fill(-7);
+/// }
+/// enc.flush(&mut out)?;
+/// # Ok::<(), htj2k::Error>(())
+/// ```
 #[derive(Debug)]
 pub struct Encoder {
     state: State,
@@ -82,6 +106,8 @@ pub struct Encoder {
     cur_line: u32,
     cur_tile_row: u32,
     budget: Budget,
+    /// Holds the tag trees while packet headers are coded.
+    precinct_scratch: Vec<u8>,
 
     siz: ParamSiz,
     cod: ParamCod,
@@ -123,6 +149,7 @@ impl Encoder {
             cur_line: 0,
             cur_tile_row: 0,
             budget: Budget::new(DEFAULT_MEMORY_LIMIT),
+            precinct_scratch: Vec::new(),
             siz: ParamSiz::default(),
             cod: ParamCod::default(),
             cap: ParamCap::default(),
@@ -515,6 +542,9 @@ impl Encoder {
             State::Failed => {
                 return ojph_error!(0x00080041, "the encoder has failed and cannot be used")
             }
+            State::Flushed => {
+                return ojph_error!(0x00080043, "the codestream has already been flushed")
+            }
         }
         if self.handed_out {
             if let Err(e) = self.push_line() {
@@ -531,6 +561,59 @@ impl Encoder {
         let c = self.cur_comp as usize;
         let w = self.comp_size[c].w as usize;
         Ok(Some((self.cur_comp, &mut self.lines[c].i32_mut()[..w])))
+    }
+
+    /// Appends the rest of the codestream to `out`: the TLM marker segment
+    /// if requested, every tile part, and EOC. `out` is normally the
+    /// vector [`write_headers`](Self::write_headers) appended to.
+    ///
+    /// Every line must have been exchanged first. (OpenJPH writes what it
+    /// has.) Nothing is appended if this fails, and the encoder cannot
+    /// then be used further.
+    pub fn flush(&mut self, out: &mut Vec<u8>) -> Result<()> {
+        match self.state {
+            State::Pushed => {}
+            State::Setup | State::Headers => {
+                return ojph_error!(
+                    0x00080044,
+                    "every line must be exchanged before the codestream is flushed"
+                )
+            }
+            State::Failed => {
+                return ojph_error!(0x00080041, "the encoder has failed and cannot be used")
+            }
+            State::Flushed => {
+                return ojph_error!(0x00080043, "the codestream has already been flushed")
+            }
+        }
+        let start = out.len();
+        let result = self.write_tiles(out);
+        if result.is_err() {
+            out.truncate(start);
+            self.state = State::Failed;
+        } else {
+            self.state = State::Flushed;
+        }
+        result
+    }
+
+    fn write_tiles(&mut self, out: &mut Vec<u8>) -> Result<()> {
+        for tile in self.tiles.iter_mut() {
+            tile.prepare_for_flush(&mut self.precinct_scratch)?;
+        }
+        self.precinct_scratch = Vec::new();
+        if self.need_tlm {
+            // write tlm
+            for tile in &self.tiles {
+                tile.fill_tlm(&mut self.tlm, self.tilepart_div)?;
+            }
+            self.tlm.write(out);
+        }
+        for tile in self.tiles.iter_mut() {
+            tile.flush(out, self.tilepart_div)?;
+        }
+        put_u16(out, EOC);
+        Ok(())
     }
 
     /// Pushes the line of component `cur_comp` to the tiles of the
