@@ -218,6 +218,27 @@ impl Resolution {
         }
     }
 
+    /// The capacity of the coded-byte vectors of this resolution's
+    /// subbands and those below.
+    pub(crate) fn coded_capacity(&self) -> u64 {
+        let own: u64 = self.bands.iter().map(Subband::coded_capacity).sum();
+        own + self
+            .child_res
+            .as_deref()
+            .map_or(0, Resolution::coded_capacity)
+    }
+
+    /// Frees the coded-byte vectors of this resolution's subbands and
+    /// those below.
+    pub(crate) fn release_coded(&mut self) {
+        for band in self.bands.iter_mut() {
+            band.release_coded();
+        }
+        if let Some(child) = self.child_res.as_deref_mut() {
+            child.release_coded();
+        }
+    }
+
     /// Returns this resolution, the ones below it, their subbands and
     /// their precincts to the state `new` leaves them in, ready for
     /// another codestream of the same parameters. Everything that

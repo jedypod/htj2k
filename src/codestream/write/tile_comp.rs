@@ -62,6 +62,14 @@ impl TileComp {
         self.res.fill_buffers(bits);
     }
 
+    pub(crate) fn coded_capacity(&self) -> u64 {
+        self.res.coded_capacity()
+    }
+
+    pub(crate) fn release_coded(&mut self) {
+        self.res.release_coded();
+    }
+
     pub(crate) fn reset(&mut self) {
         self.num_bytes = 0;
         self.res.reset();

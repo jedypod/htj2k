@@ -56,10 +56,10 @@ impl Rng {
 /// Bounds the lines one test pushes, whatever the configuration says.
 const MAX_LINES: usize = 1 << 14;
 
-/// Sets every parameter at random, mostly to legal values. Setter errors
-/// are expected; they only mean that parameter keeps its old value.
-fn random_encoder(rng: &mut Rng) -> (Encoder, String) {
-    let mut enc = Encoder::new();
+/// Sets every parameter of `enc`, which must be new or reset, at random,
+/// mostly to legal values. Setter errors are expected; they only mean
+/// that parameter keeps its old value.
+fn random_encoder(rng: &mut Rng, mut enc: Encoder) -> (Encoder, String) {
     let mut d = String::new();
     let w = if rng.one_in(30) {
         rng.range(1, 300)
@@ -231,14 +231,27 @@ fn expected_sizes(enc: &Encoder) -> Vec<(usize, usize)> {
 /// each component's depth and signedness if `in_range`, else anything.
 /// Returns what was encoded, or the code of the error that refused it.
 fn encode_random(rng: &mut Rng, desc: &mut String, in_range: bool) -> Result<Encoded, u32> {
-    let (mut enc, d) = random_encoder(rng);
+    let mut enc = Encoder::new();
+    encode_random_with(&mut enc, rng, desc, in_range)
+}
+
+/// [`encode_random`] with `enc`, which must be new or reset, and is left
+/// as the encoding leaves it.
+fn encode_random_with(
+    enc: &mut Encoder,
+    rng: &mut Rng,
+    desc: &mut String,
+    in_range: bool,
+) -> Result<Encoded, u32> {
+    let (e, d) = random_encoder(rng, std::mem::take(enc));
+    *enc = e;
     *desc = d;
     let mut out = b"xyz".to_vec();
     if let Err(e) = enc.write_headers(&mut out, &[]) {
         assert_eq!(out, b"xyz", "write_headers wrote and failed");
         return Err(e.code());
     }
-    let sizes = expected_sizes(&enc);
+    let sizes = expected_sizes(enc);
     let nc = sizes.len() as u32;
     let reversible: Vec<bool> = (0..nc)
         .map(|c| enc.access_cod().is_reversible_comp(c))
@@ -406,6 +419,55 @@ fn random_configurations_round_trip() {
     );
     assert!(problems.is_empty(), "{}", problems.join("\n"));
     assert!(encoded > iterations / 4, "too few configurations encoded");
+}
+
+/// Random configurations through one encoder, reset between them, give
+/// exactly what a new encoder gives for each: the same codestream, or the
+/// same error. Half of them repeat the configuration before, so the
+/// encoder's buffers are reused, and half do not.
+#[test]
+fn random_configurations_through_one_encoder() {
+    let iterations = if cfg!(debug_assertions) { 1000 } else { 4000 };
+    let mut seeds = Rng(0x0005_A3E0_2026);
+    let mut kept = Some(Encoder::new());
+    let (mut same, mut problems) = (0, Vec::new());
+    let mut last = (0, false);
+    for i in 0..iterations {
+        // every other run repeats the configuration before it, with
+        // other samples, so that the encoder's tree is reused
+        let (seed, in_range) = if i % 2 == 1 {
+            (last.0, !last.1)
+        } else {
+            (seeds.next(), seeds.one_in(2))
+        };
+        last = (seed, in_range);
+        let (mut rng, mut twin) = (Rng(seed), Rng(seed));
+        let mut desc = String::new();
+        let fresh = catch_unwind(AssertUnwindSafe(|| {
+            encode_random(&mut rng, &mut desc, in_range).map(|e| e.j2c)
+        }));
+        let mut enc = kept.take().unwrap_or_default();
+        enc.reset();
+        let reused = catch_unwind(AssertUnwindSafe(|| {
+            let r = encode_random_with(&mut enc, &mut twin, &mut String::new(), in_range);
+            (r.map(|e| e.j2c), enc)
+        }));
+        match (fresh, reused) {
+            (Ok(fresh), Ok((reused, enc))) => {
+                kept = Some(enc);
+                if fresh != reused {
+                    problems.push(format!("{i}: a reset encoder differs: {desc}"));
+                } else if twin.0 != rng.0 {
+                    problems.push(format!("{i}: the runs drew differently: {desc}"));
+                } else {
+                    same += 1;
+                }
+            }
+            _ => problems.push(format!("{i}: encoder panicked: {desc}")),
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert_eq!(same, iterations);
 }
 
 /// Images too large for the memory limit are refused by `write_headers`

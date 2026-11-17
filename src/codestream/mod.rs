@@ -62,6 +62,11 @@ impl Budget {
         Budget { limit, left: limit }
     }
 
+    /// The bytes that may still be accounted for.
+    pub(crate) fn left(&self) -> u64 {
+        self.left
+    }
+
     /// The bytes accounted for so far.
     pub(crate) fn taken(&self) -> u64 {
         self.limit - self.left

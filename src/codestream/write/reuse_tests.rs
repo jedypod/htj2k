@@ -5,7 +5,9 @@
 
 //! The encoder's tree after `reset` is the tree `write_headers` builds:
 //! every field that encoding changes is put back, whether the image was
-//! encoded and flushed, exchanged in part, or failed half way.
+//! encoded and flushed, exchanged in part, or failed half way. And an
+//! encoder reset after any of those writes what a new one writes, even
+//! with every buffer it keeps filled with garbage.
 
 use super::super::tests::common::{drive, synth::EncArgs};
 use super::Encoder;
@@ -32,13 +34,13 @@ fn args(config: &str) -> EncArgs {
 
 /// The tree of `enc` with every sample buffer zeroed, as text.
 fn tree_text(enc: &mut Encoder) -> String {
-    for tile in enc.tiles.iter_mut() {
+    for tile in enc.mem.tiles.iter_mut() {
         tile.fill_buffers(0);
     }
-    format!("{:?}", enc.tiles)
+    format!("{:?}", enc.mem.tiles)
 }
 
-/// How far to take an encoder before resetting its tree.
+/// How far to take an encoder before resetting it.
 #[derive(Debug, Clone, Copy)]
 enum Run {
     /// Every line, and `flush`.
@@ -49,8 +51,8 @@ enum Run {
     Failed,
 }
 
-/// Encodes `a`'s image as far as `run` says, then resets the tree.
-fn used_then_reset(a: &EncArgs, img: &[Vec<i64>], run: Run) -> String {
+/// An encoder of `a`'s image, taken as far as `run` says.
+fn used(a: &EncArgs, img: &[Vec<i64>], run: Run) -> Encoder {
     let mut out = Vec::new();
     let mut enc = drive::headers(a, &mut out).unwrap();
     match run {
@@ -70,10 +72,7 @@ fn used_then_reset(a: &EncArgs, img: &[Vec<i64>], run: Run) -> String {
             assert!(drive::push_image(&mut enc, a, img).is_err());
         }
     }
-    for tile in enc.tiles.iter_mut() {
-        tile.reset();
-    }
-    tree_text(&mut enc)
+    enc
 }
 
 #[test]
@@ -83,8 +82,77 @@ fn reset_restores_the_tree_write_headers_builds() {
         let img = a.synthesise();
         let fresh = tree_text(&mut drive::headers(&a, &mut Vec::new()).unwrap());
         for run in [Run::Flushed, Run::Part(5), Run::Failed] {
-            let used = used_then_reset(&a, &img, run);
-            assert!(used == fresh, "{config}: tree differs after {run:?}");
+            let mut enc = used(&a, &img, run);
+            for tile in enc.mem.tiles.iter_mut() {
+                tile.reset();
+            }
+            assert!(
+                tree_text(&mut enc) == fresh,
+                "{config}: tree differs after {run:?}"
+            );
+        }
+    }
+}
+
+/// Encodes `a`'s image with `enc`, which must be new or reset: the
+/// codestream, or the error code, and the encoder.
+fn encode_with(enc: Encoder, a: &EncArgs, img: &[Vec<i64>]) -> (Result<Vec<u8>, u32>, Encoder) {
+    let mut out = Vec::new();
+    let mut kept = None;
+    let run = || -> crate::Result<()> {
+        let mut e = drive::configure_on(enc, a)?;
+        let r = (|| {
+            e.write_headers(&mut out, &drive::comments(a)?)?;
+            drive::push_image(&mut e, a, img)?;
+            e.flush(&mut out)
+        })();
+        kept = Some(e);
+        r
+    };
+    let r = run().map(|()| out.clone()).map_err(|e| e.code());
+    (r, kept.unwrap_or_default())
+}
+
+/// Fills every buffer `enc` keeps with the bit pattern `bits`.
+fn poison(enc: &mut Encoder, bits: u32) {
+    for tile in enc.mem.tiles.iter_mut() {
+        tile.fill_buffers(bits);
+    }
+    for line in enc.mem.lines.iter_mut() {
+        line.fill_bits(bits);
+    }
+}
+
+/// No sample of a kept buffer is read before it is written: an encoder
+/// reset after a full, partial or failed run of the same configuration
+/// or of another, with every kept buffer filled with garbage, writes
+/// what a new encoder writes, and reuses its tiles when the
+/// configuration is the same.
+#[test]
+fn poisoned_memory_encodes_as_new() {
+    for (i, config) in CONFIGS.iter().enumerate() {
+        let a = args(config);
+        let img = a.synthesise();
+        let want = encode_with(Encoder::new(), &a, &img).0;
+        assert!(want.is_ok(), "{config}: {want:?}");
+        let other = args(CONFIGS[(i + 1) % CONFIGS.len()]);
+        let other_img = other.synthesise();
+        for run in [Run::Flushed, Run::Part(5), Run::Failed] {
+            for bits in [0xA5A5_A5A5, 0xFFFF_FFFF, 0x7FC0_0001] {
+                let mut enc = used(&a, &img, run);
+                enc.reset();
+                poison(&mut enc, bits);
+                let before = enc.mem.tiles.as_ptr();
+                let (got, enc) = encode_with(enc, &a, &img);
+                assert!(got == want, "{config}: differs after {run:?}, {bits:08x}");
+                assert!(enc.mem.tiles.as_ptr() == before, "{config}: not reused");
+
+                let mut enc = used(&other, &other_img, run);
+                enc.reset();
+                poison(&mut enc, bits);
+                let (got, _) = encode_with(enc, &a, &img);
+                assert!(got == want, "{config}: differs after another, {run:?}");
+            }
         }
     }
 }

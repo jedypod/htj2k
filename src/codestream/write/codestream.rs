@@ -41,6 +41,53 @@ enum State {
     Failed,
 }
 
+/// What an [`Encoder`] keeps from one codestream to the next: the tiles,
+/// the lines it exchanges, the component sizes, the packet-header
+/// scratch, and the parameters the tiles were built from.
+#[derive(Debug, Default)]
+struct EncoderMemory {
+    tiles: Vec<Tile>,
+    /// The lines handed out by `exchange`, one per component.
+    lines: Vec<LineBuf>,
+    /// The number of lines and the width of each component.
+    comp_size: Vec<Size>,
+    /// Holds the tag trees while packet headers are coded.
+    precinct_scratch: Vec<u8>,
+    /// What the tiles and lines were built from, if they were built
+    /// whole; `None` after a failed build.
+    built_for: Option<Box<TreeParams>>,
+    /// What building them took from the memory limit.
+    charge: u64,
+}
+
+/// The parameters the encoder's tree is built from, once `write_headers`
+/// has finalised them: every field of [`Ctx`].
+#[derive(Debug, PartialEq)]
+struct TreeParams {
+    siz: ParamSiz,
+    cod: ParamCod,
+    qcd: ParamQcd,
+    nlt: ParamNlt,
+}
+
+impl TreeParams {
+    fn new(ctx: &Ctx) -> Self {
+        TreeParams {
+            siz: ctx.siz.clone(),
+            cod: ctx.cod.clone(),
+            qcd: ctx.qcd.clone(),
+            nlt: ctx.nlt.clone(),
+        }
+    }
+
+    /// Whether a tree built from `ctx` would be the tree built from
+    /// these. Parameters that compare unequal, such as a NaN step, never
+    /// match, which only costs a rebuild.
+    fn matches(&self, ctx: &Ctx) -> bool {
+        self.siz == *ctx.siz && self.cod == *ctx.cod && self.qcd == *ctx.qcd && self.nlt == *ctx.nlt
+    }
+}
+
 /// An HTJ2K codestream being encoded to memory.
 ///
 /// The calls follow OpenJPH's `ojph::codestream` when it writes:
@@ -65,6 +112,11 @@ enum State {
 /// The parameters are fixed by `write_headers`: from then on every setter
 /// and every `access_*_mut` returns an error (0x0008000B) and changes
 /// nothing, so the stream being written cannot be altered half way.
+///
+/// [`reset`](Self::reset) returns the encoder to the state `new` gives,
+/// at any point, and keeps its buffers for the next codestream: one of
+/// the same image, tile and coding parameters is then encoded without
+/// allocating them again.
 ///
 /// ```
 /// use htj2k::codestream::Encoder;
@@ -97,21 +149,16 @@ pub struct Encoder {
 
     num_tiles: Size,
     num_comps: u32,
-    /// The number of lines and the width of each component.
-    comp_size: Vec<Size>,
     /// Tile parts in all, for TLM.
     num_tileparts: u32,
-    tiles: Vec<Tile>,
-    /// The lines handed out by `exchange`, one per component.
-    lines: Vec<LineBuf>,
+    /// The tiles, the lines exchanged and scratch space.
+    mem: EncoderMemory,
     /// True once `exchange` has handed out a line it has not taken back.
     handed_out: bool,
     cur_comp: u32,
     cur_line: u32,
     cur_tile_row: u32,
     budget: Budget,
-    /// Holds the tag trees while packet headers are coded.
-    precinct_scratch: Vec<u8>,
 
     siz: ParamSiz,
     cod: ParamCod,
@@ -135,33 +182,55 @@ impl Encoder {
         concat!("htj2k Ver ", env!("CARGO_PKG_VERSION"), ".");
 
     pub fn new() -> Self {
+        Self::with_buffers(EncoderMemory::default(), ParamTlm::default(), Vec::new())
+    }
+
+    /// A new encoder, with `mem`, the storage of `tlm` (whose contents
+    /// are dropped) and `comment`'s storage for the version comment.
+    fn with_buffers(mem: EncoderMemory, mut tlm: ParamTlm, mut comment: Vec<u8>) -> Self {
+        tlm.pairs.clear();
+        tlm.num_pairs = 0;
+        tlm.next_pair_index = 0;
+        comment.clear();
+        comment.extend_from_slice(Self::DEFAULT_VERSION_COMMENT.as_bytes());
         Encoder {
             state: State::Setup,
             planar: None,
             tilepart_div: OJPH_TILEPART_NO_DIVISIONS,
             need_tlm: false,
             memory_limit: DEFAULT_MEMORY_LIMIT,
-            version_comment: Some(Self::DEFAULT_VERSION_COMMENT.as_bytes().to_vec()),
+            version_comment: Some(comment),
             num_tiles: Size::default(),
             num_comps: 0,
-            comp_size: Vec::new(),
             num_tileparts: 0,
-            tiles: Vec::new(),
-            lines: Vec::new(),
+            mem,
             handed_out: false,
             cur_comp: 0,
             cur_line: 0,
             cur_tile_row: 0,
             budget: Budget::new(DEFAULT_MEMORY_LIMIT),
-            precinct_scratch: Vec::new(),
             siz: ParamSiz::default(),
             cod: ParamCod::default(),
             cap: ParamCap::default(),
             qcd: ParamQcd::default(),
-            tlm: ParamTlm::default(),
+            tlm,
             nlt: ParamNlt::default(),
             atk: ParamAtk::default(),
         }
+    }
+
+    /// Returns the encoder to the state [`new`](Self::new) gives, from any
+    /// state, after an error too: every parameter and setting is back to
+    /// its default (the memory limit among them), and the codestream
+    /// being written, if any, is abandoned. The encoder keeps its
+    /// buffers, so that the next codestream, if `write_headers` finds the
+    /// same image, tile and coding parameters as for the last one,
+    /// allocates none of them again. (OpenJPH has no such call.)
+    pub fn reset(&mut self) {
+        let mem = std::mem::take(&mut self.mem);
+        let tlm = std::mem::take(&mut self.tlm);
+        let comment = self.version_comment.take().unwrap_or_default();
+        *self = Self::with_buffers(mem, tlm, comment);
     }
 
     /// The SIZ marker segment: image, tile and component sizes.
@@ -284,6 +353,10 @@ impl Encoder {
     /// [`flush`](Self::flush). OpenJPH has no such limit. The default is
     /// 4 GiB.
     ///
+    /// Buffers kept from an earlier codestream (see
+    /// [`reset`](Self::reset)) count as if they were allocated again, so
+    /// the limit accepts and refuses the same configurations either way.
+    ///
     /// It is not a hard cap: the TLM table (8 bytes per tile part, at
     /// most about 22 MB), the tag-tree and packet-header scratch of
     /// `flush`, the spare capacity of the growing coded-data vector (up
@@ -303,7 +376,15 @@ impl Encoder {
     /// OpenJPH's string to produce its bytes exactly.
     pub fn set_version_comment(&mut self, comment: Option<&str>) -> Result<()> {
         self.check_setup()?;
-        self.version_comment = comment.map(|s| s.as_bytes().to_vec());
+        match comment {
+            Some(s) => {
+                let mut v = self.version_comment.take().unwrap_or_default();
+                v.clear();
+                v.extend_from_slice(s.as_bytes());
+                self.version_comment = Some(v);
+            }
+            None => self.version_comment = None,
+        }
         Ok(())
     }
 
@@ -447,7 +528,8 @@ impl Encoder {
 
         // The component sizes, and the checks of the exchange order that
         // OpenJPH leaves to the caller (it loops forever on them).
-        let mut comp_size = Vec::with_capacity(num_comps as usize);
+        let comp_size = &mut self.mem.comp_size;
+        comp_size.clear();
         for c in 0..num_comps {
             comp_size.push(Size::new(self.siz.get_width(c), self.siz.get_height(c)));
         }
@@ -489,12 +571,12 @@ impl Encoder {
         // them as if every component had every resolution, so TNsot is
         // wrong, TPsot skips numbers and either may wrap at 8 bits; no
         // decoder accepts the result (OpenJPH's gives 0x00030091).
-        let decomps: Vec<u32> = (0..num_comps)
-            .map(|c| self.cod.get_coc(c).get_num_decompositions())
-            .collect();
-        let max_decs = decomps.iter().copied().max().unwrap_or(0);
+        fn decomps(cod: &ParamCod, num_comps: u32) -> impl Iterator<Item = u32> + '_ {
+            (0..num_comps).map(move |c| cod.get_coc(c).get_num_decompositions())
+        }
+        let max_decs = decomps(&self.cod, num_comps).max().unwrap_or(0);
         if (po == ProgressionOrder::Lrcp || po == ProgressionOrder::Rlcp)
-            && decomps.iter().any(|&d| d != max_decs)
+            && decomps(&self.cod, num_comps).any(|d| d != max_decs)
         {
             if (self.tilepart_div & OJPH_TILEPART_COMPONENTS) == 0 {
                 return ojph_error!(
@@ -583,7 +665,7 @@ impl Encoder {
             OJPH_TILEPART_COMPONENTS => num_comps,
             OJPH_TILEPART_RESOLUTIONS => 1 + max_decs,
             t if t == OJPH_TILEPART_COMPONENTS | OJPH_TILEPART_RESOLUTIONS => {
-                decomps.iter().map(|d| d + 1).sum()
+                decomps(&self.cod, num_comps).map(|d| d + 1).sum()
             }
             _ => 1,
         };
@@ -617,7 +699,61 @@ impl Encoder {
             qcd: &self.qcd,
             nlt: &self.nlt,
         };
+        let mem = &mut self.mem;
+
+        // The tree of the last codestream, if it was built from the same
+        // parameters, is the tree this one needs. It is charged what it
+        // took to build, so the limit decides as it would for a new one.
+        if mem.built_for.as_ref().is_some_and(|b| b.matches(&ctx)) {
+            budget.take(mem.charge)?;
+            // The coded bytes are charged as they are made, but their
+            // vectors keep the capacity of the last codestream; let them
+            // go if it is more than the limit leaves for them.
+            let kept: u64 = mem.tiles.iter().map(Tile::coded_capacity).sum();
+            if kept > budget.left() {
+                for tile in mem.tiles.iter_mut() {
+                    tile.release_coded();
+                }
+            }
+            for tile in mem.tiles.iter_mut() {
+                tile.reset();
+            }
+            for line in mem.lines.iter_mut() {
+                line.i32_full_mut().fill(0);
+            }
+        } else {
+            // The old tree is freed before the new one is built, so the
+            // two are never held together.
+            mem.built_for = None;
+            mem.tiles = Vec::new();
+            mem.lines = Vec::new();
+            Self::build(&ctx, &mut budget, num_tiles, mem)?;
+            mem.charge = budget.taken();
+            mem.built_for = Some(Box::new(TreeParams::new(&ctx)));
+        }
+
+        self.num_tiles = num_tiles;
+        self.num_comps = num_comps;
+        self.num_tileparts = num_tileparts;
+        self.budget = budget;
+        // the first component with lines; num_comps if there is none
+        self.cur_comp = self.next_comp_with_lines(0);
+        self.cur_line = 0;
+        self.cur_tile_row = 0;
+        self.handed_out = false;
+        Ok(())
+    }
+
+    /// Builds the tiles of the grid of `num_tiles`, and the lines
+    /// exchanged with the caller, into `mem`.
+    fn build(
+        ctx: &Ctx,
+        budget: &mut Budget,
+        num_tiles: Size,
+        mem: &mut EncoderMemory,
+    ) -> Result<()> {
         let sz = ctx.siz;
+        let tile_size = sz.get_tile_size();
         let (image_offset, image_extent) = (sz.get_image_offset(), sz.get_image_extent());
         let tile_offset = sz.get_tile_offset();
         budget.take(num_tiles.area() * std::mem::size_of::<Tile>() as u64)?;
@@ -643,26 +779,15 @@ impl Encoder {
                     siz: Size::new((end_x - org_x) as u32, (end_y - org_y) as u32),
                 };
                 let idx = (y * num_tiles.w as u64 + x) as u16;
-                tiles.push(Tile::new(&ctx, &mut budget, tile_rect, idx, &mut offset)?);
+                tiles.push(Tile::new(ctx, budget, tile_rect, idx, &mut offset)?);
             }
         }
-        let mut lines = Vec::with_capacity(num_comps as usize);
-        for s in &comp_size {
+        mem.tiles = tiles;
+        let mut lines = Vec::with_capacity(mem.comp_size.len());
+        for s in &mem.comp_size {
             lines.push(budget.line_i32(s.w as usize, 0)?);
         }
-
-        self.num_tiles = num_tiles;
-        self.num_comps = num_comps;
-        self.comp_size = comp_size;
-        self.num_tileparts = num_tileparts;
-        self.tiles = tiles;
-        self.lines = lines;
-        self.budget = budget;
-        // the first component with lines; num_comps if there is none
-        self.cur_comp = self.next_comp_with_lines(0);
-        self.cur_line = 0;
-        self.cur_tile_row = 0;
-        self.handed_out = false;
+        mem.lines = lines;
         Ok(())
     }
 
@@ -804,8 +929,8 @@ impl Encoder {
         }
         self.handed_out = true;
         let c = self.cur_comp as usize;
-        let w = self.comp_size[c].w as usize;
-        Ok(Some((self.cur_comp, &mut self.lines[c].i32_mut()[..w])))
+        let w = self.mem.comp_size[c].w as usize;
+        Ok(Some((self.cur_comp, &mut self.mem.lines[c].i32_mut()[..w])))
     }
 
     /// Appends the rest of the codestream to `out`: the TLM marker segment
@@ -843,17 +968,17 @@ impl Encoder {
     }
 
     fn write_tiles(&mut self, out: &mut Vec<u8>) -> Result<()> {
-        for tile in self.tiles.iter_mut() {
-            tile.prepare_for_flush(&mut self.precinct_scratch)?;
+        for tile in self.mem.tiles.iter_mut() {
+            tile.prepare_for_flush(&mut self.mem.precinct_scratch)?;
         }
         if self.need_tlm {
             // write tlm
-            for tile in &self.tiles {
+            for tile in &self.mem.tiles {
                 tile.fill_tlm(&mut self.tlm, self.tilepart_div)?;
             }
             self.tlm.write(out);
         }
-        for tile in self.tiles.iter_mut() {
+        for tile in self.mem.tiles.iter_mut() {
             tile.flush(out, self.tilepart_div)?;
         }
         put_u16(out, EOC);
@@ -864,12 +989,12 @@ impl Encoder {
     /// current row of tiles; `tile::push` over a row in OpenJPH.
     fn push_line(&mut self) -> Result<()> {
         let c = self.cur_comp;
-        let line = &self.lines[c as usize];
+        let line = &self.mem.lines[c as usize];
         let mut failures = 0;
         loop {
             let mut success = true;
             let row = self.cur_tile_row as usize * self.num_tiles.w as usize;
-            for tile in &mut self.tiles[row..row + self.num_tiles.w as usize] {
+            for tile in &mut self.mem.tiles[row..row + self.num_tiles.w as usize] {
                 if !tile.push(line, c, &mut self.budget)? {
                     success = false;
                     break;
@@ -903,7 +1028,7 @@ impl Encoder {
     /// lines as component 0, so this is `from` or `num_comps`.
     fn next_comp_with_lines(&self, from: u32) -> u32 {
         (from..self.num_comps)
-            .find(|&c| self.comp_size[c as usize].h > 0)
+            .find(|&c| self.mem.comp_size[c as usize].h > 0)
             .unwrap_or(self.num_comps)
     }
 
@@ -911,7 +1036,7 @@ impl Encoder {
         if self.is_planar() {
             // process one component at a time
             self.cur_line += 1;
-            if self.cur_line >= self.comp_size[self.cur_comp as usize].h {
+            if self.cur_line >= self.mem.comp_size[self.cur_comp as usize].h {
                 self.cur_line = 0;
                 self.cur_tile_row = 0;
                 // OpenJPH asks for a line of a component with none, and
@@ -927,7 +1052,7 @@ impl Encoder {
             if self.cur_comp >= self.num_comps {
                 self.cur_comp = 0;
                 self.cur_line += 1;
-                if self.cur_line >= self.comp_size[0].h {
+                if self.cur_line >= self.mem.comp_size[0].h {
                     return true;
                 }
             }

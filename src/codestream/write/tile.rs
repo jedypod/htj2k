@@ -220,6 +220,19 @@ impl Tile {
         }
     }
 
+    /// The capacity of the vectors that keep the coded bytes of the
+    /// tile's subbands.
+    pub(crate) fn coded_capacity(&self) -> u64 {
+        self.comps.iter().map(TileComp::coded_capacity).sum()
+    }
+
+    /// Frees the vectors that keep the coded bytes, which must be empty.
+    pub(crate) fn release_coded(&mut self) {
+        for comp in self.comps.iter_mut() {
+            comp.release_coded();
+        }
+    }
+
     /// Returns the tile to the state `new` leaves it in, ready for
     /// another codestream of the same parameters.
     pub(crate) fn reset(&mut self) {

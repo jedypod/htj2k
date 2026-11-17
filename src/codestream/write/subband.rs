@@ -176,6 +176,16 @@ impl Subband {
         }
     }
 
+    /// The capacity of the coded-byte vector, which `reset` keeps.
+    pub(crate) fn coded_capacity(&self) -> u64 {
+        self.coded.capacity() as u64
+    }
+
+    /// Frees the coded-byte vector, which must hold nothing.
+    pub(crate) fn release_coded(&mut self) {
+        self.coded = Vec::new();
+    }
+
     /// Returns the subband to the state `new` leaves it in: nothing
     /// pushed or coded, and its code blocks on the first row. The coded
     /// bytes are dropped but their vector keeps its capacity.

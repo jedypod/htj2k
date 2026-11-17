@@ -17,7 +17,11 @@ pub const OPENJPH_VERSION_COMMENT: &str = "OpenJPH Ver 0.33.0.";
 /// An encoder set up as `ojph_enc` sets up `ojph::codestream`, up to (not
 /// including) `write_headers`.
 pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
-    let mut cs = Encoder::new();
+    configure_on(Encoder::new(), a)
+}
+
+/// [`configure`] on `cs`, which must be new or reset.
+pub fn configure_on(mut cs: Encoder, a: &EncArgs) -> htj2k::Result<Encoder> {
     cs.set_version_comment(Some(OPENJPH_VERSION_COMMENT))?;
     let (xs, ys) = a.extent();
     {
