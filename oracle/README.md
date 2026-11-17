@@ -83,6 +83,11 @@ without CMake. It never modifies the reference tree.
 * **`ojph_dec in.j2c out.raw [--info]`** decodes with OpenJPH and writes
   exactly what `codestream::pull` returns. `--info` prints one line per
   component and a COD summary.
+  * It decodes interleaved when the colour transform is used and every
+    component has the same height, and planar otherwise. OpenJPH's
+    decoder accepts planar mode with the colour transform, but its
+    planar `pull` then returns components 1 and 2 without the inverse
+    transform.
   * It handles both `i32` and `i64` line buffers.
   * For irreversible streams, OpenJPH 0.33.0's `pull` also returns
     integer lines, because OpenJPH rounds and clamps internally. `ojph_dec`

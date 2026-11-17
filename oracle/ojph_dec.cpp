@@ -67,15 +67,18 @@ int main(int argc, char** argv) {
              cod.get_block_dims().h, cod.get_progression_order_as_string(),
              (int)cod.is_using_color_transform());
     }
-    // Planar mode is required when components are subsampled; it is also
-    // valid otherwise, and the per-component row counters below make the
-    // output independent of the order in which pull() returns lines.
-    bool subsampled = false;
-    for (uint32_t c = 0; c < nc; ++c) {
-      ojph::point d = siz.get_downsampling(c);
-      if (d.x != 1 || d.y != 1) subsampled = true;
-    }
-    cs.set_planar(subsampled || cod.is_using_color_transform() == false);
+    // Interleaved mode is required for the colour transform: in planar
+    // mode OpenJPH's pull() returns components 1 and 2 without inverting
+    // it (it does not refuse that combination). Planar mode is required
+    // when components have different heights, which with the colour
+    // transform nothing can encode. Otherwise either is valid, and the
+    // per-component row counters below make the output independent of
+    // the order in which pull() returns lines.
+    bool same_heights = true;
+    for (uint32_t c = 1; c < nc; ++c)
+      if (siz.get_recon_height(c) != siz.get_recon_height(0))
+        same_heights = false;
+    cs.set_planar(!(same_heights && cod.is_using_color_transform()));
     cs.create();
     for (uint64_t n = 0; n < total; ++n) {
       ojph::ui32 c = 0;

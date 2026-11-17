@@ -19,14 +19,15 @@ pub fn decode_to_raw(j2c: &[u8]) -> Result<Vec<u8>, String> {
     let nc = siz.get_num_components();
     let mut w = Vec::new();
     let mut h = Vec::new();
-    let mut subsampled = false;
     for c in 0..nc {
         w.push(siz.get_recon_width(c) as usize);
         h.push(siz.get_recon_height(c) as usize);
-        let d = siz.get_downsampling(c);
-        subsampled |= d.x != 1 || d.y != 1;
     }
-    let planar = subsampled || !cs.access_cod().is_employing_color_transform();
+    // As `ojph_dec`: interleaved for the colour transform, which planar
+    // `pull` returns uninverted for components 1 and 2, unless the
+    // heights differ, which needs planar.
+    let same_heights = h.iter().all(|&x| x == h[0]);
+    let planar = !(same_heights && cs.access_cod().is_employing_color_transform());
     cs.set_planar(planar);
     cs.create().map_err(|e| format!("create: {e}"))?;
 
