@@ -12,18 +12,21 @@ oracle/regen.sh
 
 This builds the tools into `oracle/build/`, which git ignores, and then
 regenerates `tests/data/matrix`, `tests/data/strips`, `tests/data/blocks`,
-`tests/data/encoder`, `tests/data/profile` and `tests/data/ours`.
-It needs g++ (C++14), gcc, make, python3 and cargo, and takes a few
-minutes. The
-output is deterministic: two runs produce byte-identical files.
+`tests/data/encoder`, `tests/data/profile` and `tests/data/ours`. It
+needs g++ (C++14), gcc, make, python3 and cargo, and takes a few
+minutes. The output is deterministic: two runs produce byte-identical
+files. `tests/data/kernels` and `tests/data/params` are regenerated
+separately, by `oracle/build_kernels.sh run` and with
+`tests/data/params/params_dump.cpp`.
 
 You can also run the steps one at a time: `oracle/build.sh`, then
 `python3 oracle/gen_matrix.py`, `python3 oracle/gen_strips.py`,
 `python3 oracle/gen_blocks.py`, `python3 oracle/gen_enc_blocks.py`,
 `python3 oracle/gen_profile.py` and `python3 oracle/gen_ours.py`.
-`gen_blocks.py` reads the output of the first two; `gen_enc_blocks.py`
-and `gen_profile.py` need only the build; `gen_ours.py` reads the
-matrix manifest and builds the crate's `encode_args` example with cargo.
+`gen_blocks.py` reads the output of `gen_matrix.py` and
+`gen_strips.py`; `gen_enc_blocks.py` and `gen_profile.py` need only the
+build; `gen_ours.py` reads the matrix manifest and builds the crate's
+`encode_args` example with cargo.
 
 `gen_matrix.py` exits 1 whenever a reversible case fails to round-trip. In
 0.33.0 that always happens, because of the encoder issues listed under

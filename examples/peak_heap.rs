@@ -176,7 +176,7 @@ fn table() {
 /// The cost of each column of width, from two widths, and what is left
 /// at width 0.
 fn slope() {
-    println!("| chunk height | blocks | B per column | fixed |");
+    println!("| image height | blocks | B per column | fixed |");
     println!("|---|---|---|---|");
     for h in [32, 256, 8192] {
         for (cb_w, cb_h) in [(128, 32), (64, 64), (32, 128), (16, 256)] {

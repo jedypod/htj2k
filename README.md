@@ -19,7 +19,8 @@ kernels are not ported.
   encoder does is ported: every progression order, tiles and offsets,
   subsampling, precincts, per-component COC, tile parts at resolutions
   and/or components, TLM, reversible and irreversible coding, the
-  colour transforms, NLT type 3, and planar and interleaved exchange.
+  colour transforms, NLT types 3 and 4 (with a LUT), and planar and
+  interleaved exchange.
   The HT block encoders are also public, as `coding::encode_codeblock32`
   and `encode_codeblock64`.
 
@@ -35,10 +36,10 @@ or four components with 128x32 blocks.
 The encoder reproduces OpenJPH's codestreams byte for byte:
 * all 198 that `ojph_enc` writes in the parameter matrix
   (`tests/data/matrix`), which include the Qfactor, per-component
-  steps and reversibility, NLT type 4 LUTs and extra COM segments, except the 5 reversible ones with no
-  decompositions, which differ on purpose (see below) and decode
-  losslessly with OpenJPH's decoder, as do 40 random configurations of
-  that kind (`tests/data/ours`);
+  steps and reversibility, NLT type 4 LUTs and extra COM segments,
+  except the 5 reversible ones with no decompositions, which differ on
+  purpose (see below) and decode losslessly with OpenJPH's decoder, as
+  do 40 random configurations of that kind (`tests/data/ours`);
 * all 13 in `tests/data/strips`, 300 samples wide and 8 to 200 lines
   high, or 64 wide, with three or four components under NLT type 3 and
   the RCT or NLT type 4 and the ICT, or one, and 128x32 blocks;
@@ -77,8 +78,8 @@ intended differences in behaviour:
 * `Codestream::set_memory_limit` bounds the memory a codestream can make
   the decoder allocate. The default is 4 GiB.
 * Code-block buffers are allocated at the size of the actual blocks, not
-  the nominal size as in OpenJPH, so short images and chunks, small
-  tiles and subband edges take much less memory. A chunk 32 lines high
+  the nominal size as in OpenJPH, so short images and strips, small
+  tiles and subband edges take much less memory. An image 32 lines high
   needs about 350 bytes per column of width per component with 64-bit
   samples and 5 decomposition levels, for any block size; OpenJPH's
   sizing would take 23 bytes per column times the nominal block height.
