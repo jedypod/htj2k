@@ -365,8 +365,14 @@ htj2k = { version = "0.1", features = ["simd"] }
 - On x86_64 the crate checks the CPU once per process and runs the AVX2
   kernels when it has AVX2, BMI1, BMI2, LZCNT and POPCNT (every CPU
   with AVX2 has the others). Elsewhere, and on other architectures, it
-  runs the scalar code. Built with `-C target-cpu` set to such a CPU,
-  the choice is made at compile time.
+  runs the scalar code.
+- A build whose `-C target-cpu` or `-C target-feature` already enables
+  all five features (`-C target-cpu=native` on such a CPU, or
+  `x86-64-v3`) runs the scalar code too. Rust requires the
+  `#[target_feature]` attribute on any caller of the kernels even then,
+  and `multiversion` then calls a version of the dispatching function
+  without it, so safe code cannot reach them. Build the feature for a
+  baseline target to get the kernels.
 - The output does not change: the encoder writes the same bytes and the
   decoder returns the same samples with the feature as without it.
   OpenJPH's own SIMD kernels round some float conversions differently
@@ -389,8 +395,10 @@ cargo clippy --all-targets && cargo clippy --all-targets --features simd
 ```
 
 With the feature, a unit test checks that the kernels are selected
-exactly when the CPU has the features, so on such a CPU the tests run
-the AVX2 code.
+exactly when the CPU has the features (and the build does not enable
+them), so on such a CPU the tests run the AVX2 code. The third command
+checks that the feature still builds, and passes the tests with the
+scalar code, where the target enables the features.
 
 ## Verification
 

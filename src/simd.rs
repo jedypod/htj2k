@@ -8,15 +8,23 @@
 //! Each kernel is a safe `#[target_feature]` function next to the scalar
 //! code it replaces. The [`avx2_dispatch!`] macro wraps a call to it in a
 //! function that `multiversion` compiles twice, for the x86_64 baseline
-//! and for [`TARGET`], and that picks a version once per process from
-//! the CPU's features (or at compile time when `-C target-cpu` already
-//! enables them). Calling a `#[target_feature]` function from a context
-//! that has those features is safe (Rust 1.86 and later), and since
-//! Rust 1.87 the intrinsics that take no pointers are safe inside such
-//! functions, so none of this needs `unsafe`.
+//! and for AVX2, and that picks a version once per process from the CPU's
+//! features. Calling a `#[target_feature]` function from a context that
+//! has those features is safe (Rust 1.86 and later), and since Rust 1.87
+//! the intrinsics that take no pointers are safe inside such functions,
+//! so none of this needs `unsafe`.
 //!
 //! Without AVX2, and on other architectures, the dispatching function
 //! takes its fallback branch, which is the scalar code.
+//!
+//! So does a build in which `-C target-cpu` or `-C target-feature`
+//! already enable all of the kernels' features (`target-cpu=native` on
+//! an AVX2 machine, or `x86-64-v3`). Rust still requires the
+//! `#[target_feature]` attribute on the caller of a kernel or an
+//! intrinsic then, and `multiversion` then calls the function's
+//! baseline version, which has no such attribute, so no safe code could
+//! reach the kernels. Such builds leave the kernels out: each kernel
+//! module starts with the same `cfg` as the macro's.
 //!
 //! Vectors are loaded and stored through arrays: `_mm256_setr_epi32` of
 //! the eight elements of an `&[u32; 8]` and the eight
@@ -46,6 +54,10 @@ compile_error!("the `simd` feature needs Rust 1.87 or later (safe intrinsics in 
 /// contracts a multiply and an add into one, and the kernels must round
 /// as the scalar code does. `multiversion` needs the target as a literal,
 /// in both places below.
+///
+/// Where the build enables the target at compile time (see the module
+/// documentation), and on other architectures, the function is the
+/// fallback alone.
 macro_rules! avx2_dispatch {
     (
         $(#[$attr:meta])*
@@ -54,12 +66,20 @@ macro_rules! avx2_dispatch {
             fallback => $fallback:expr $(,)?
         }
     ) => {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(
+            target_arch = "x86_64",
+            not(all(
+                target_feature = "avx2",
+                target_feature = "bmi1",
+                target_feature = "bmi2",
+                target_feature = "lzcnt",
+                target_feature = "popcnt"
+            ))
+        ))]
         $(#[$attr])*
         #[multiversion::multiversion(targets("x86_64+avx2+bmi1+bmi2+lzcnt+popcnt"))]
-        // with `-C target-cpu` enabling the target, the dispatch is static
-        // and leaves a clone unused
-        #[allow(dead_code)]
+        // the fallback may ignore the arguments
+        #[allow(unused_variables)]
         $vis fn $name($($arg: $ty),*) -> $ret {
             multiversion::target::match_target! {
                 "x86_64+avx2+bmi1+bmi2+lzcnt+popcnt" => $avx2,
@@ -67,9 +87,19 @@ macro_rules! avx2_dispatch {
             }
         }
 
-        #[cfg(not(target_arch = "x86_64"))]
+        #[cfg(not(all(
+            target_arch = "x86_64",
+            not(all(
+                target_feature = "avx2",
+                target_feature = "bmi1",
+                target_feature = "bmi2",
+                target_feature = "lzcnt",
+                target_feature = "popcnt"
+            ))
+        )))]
         $(#[$attr])*
         #[inline(always)]
+        #[allow(unused_variables)]
         $vis fn $name($($arg: $ty),*) -> $ret {
             $fallback
         }
@@ -79,7 +109,8 @@ macro_rules! avx2_dispatch {
 pub(crate) use avx2_dispatch;
 
 avx2_dispatch! {
-    /// Whether the AVX2 kernels run on this CPU.
+    /// Whether the AVX2 kernels run on this CPU (for the tests).
+    #[cfg(test)]
     pub(crate) fn active() -> bool {
         avx2 => true,
         fallback => false,
@@ -89,7 +120,8 @@ avx2_dispatch! {
 #[cfg(test)]
 mod tests {
     /// The kernels run where the CPU has the features (so the tests with
-    /// the feature exercise them), and only there.
+    /// the feature exercise them), and only there, unless the build
+    /// enables them at compile time.
     #[test]
     fn dispatch_follows_the_cpu() {
         #[cfg(target_arch = "x86_64")]
@@ -97,7 +129,14 @@ mod tests {
             && std::arch::is_x86_feature_detected!("bmi1")
             && std::arch::is_x86_feature_detected!("bmi2")
             && std::arch::is_x86_feature_detected!("lzcnt")
-            && std::arch::is_x86_feature_detected!("popcnt");
+            && std::arch::is_x86_feature_detected!("popcnt")
+            && !cfg!(all(
+                target_feature = "avx2",
+                target_feature = "bmi1",
+                target_feature = "bmi2",
+                target_feature = "lzcnt",
+                target_feature = "popcnt"
+            ));
         #[cfg(not(target_arch = "x86_64"))]
         let expected = false;
         assert_eq!(super::active(), expected);
