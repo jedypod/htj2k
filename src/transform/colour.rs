@@ -92,7 +92,7 @@ pub struct NltLut<'a> {
 /// `(a > b) ? a : b`, `ojph_max` in the C++ (not `f32::max`, which treats
 /// NaN differently).
 #[inline(always)]
-fn ojph_max(a: f32, b: f32) -> f32 {
+pub(super) fn ojph_max(a: f32, b: f32) -> f32 {
     if a > b {
         a
     } else {
@@ -102,7 +102,7 @@ fn ojph_max(a: f32, b: f32) -> f32 {
 
 /// `(a < b) ? a : b`, `ojph_min` in the C++.
 #[inline(always)]
-fn ojph_min(a: f32, b: f32) -> f32 {
+pub(super) fn ojph_min(a: f32, b: f32) -> f32 {
     if a < b {
         a
     } else {
@@ -113,7 +113,7 @@ fn ojph_min(a: f32, b: f32) -> f32 {
 /// `(ui32)(1ULL << (bit_depth - 1)) + 1u`, the bias of the binary-complement
 /// (type 3 and 4) nonlinearities.
 #[inline(always)]
-fn nlt_bias(bit_depth: u32) -> u32 {
+pub(super) fn nlt_bias(bit_depth: u32) -> u32 {
     (1u64.wrapping_shl(bit_depth.wrapping_sub(1)) as u32).wrapping_add(1)
 }
 
@@ -125,7 +125,7 @@ fn half_of(bit_depth: u32) -> i32 {
 
 /// `v >= 0 ? v : (si32)(-(ui32)v - bias)`.
 #[inline(always)]
-fn binary_complement(v: i32, bias: u32) -> i32 {
+pub(super) fn binary_complement(v: i32, bias: u32) -> i32 {
     if v >= 0 {
         v
     } else {
@@ -144,7 +144,7 @@ fn binary_complement(v: i32, bias: u32) -> i32 {
 /// libm's `floorf` once per sample. `tests::floor_u32_is_floor` checks
 /// all 2^32 bit patterns.
 #[inline(always)]
-fn floor_u32(x: f32) -> u32 {
+pub(super) fn floor_u32(x: f32) -> u32 {
     x as u32
 }
 
@@ -454,7 +454,7 @@ pub fn irv_convert_to_float_nlt_type3(
 
 /// `local_gen_irv_convert_to_integer_nlt2or4`. `bit_depth` and `is_signed`
 /// are unused (the record's own are used), as in the C++.
-fn irv_convert_to_integer_nlt2or4<const TYPE4: bool>(
+pub(super) fn irv_convert_to_integer_nlt2or4<const TYPE4: bool>(
     src_line: &LineBuf,
     dst_line: &mut LineBuf,
     dst_line_offset: u32,
@@ -520,6 +520,19 @@ pub fn irv_convert_to_integer_nlt(
     width: u32,
     rec: &NltLut<'_>,
 ) {
+    #[cfg(feature = "simd")]
+    {
+        let (doff, w) = (dst_line_offset as usize, width as usize);
+        let sp = &src_line.f32()[..w];
+        let dp = &mut dst_line.i32_mut()[doff..doff + w];
+        if rec.nlt_type == NLT_LUT_STYLE {
+            super::vectorised::irv_convert_to_integer_nlt2or4::<false>(sp, dp, rec);
+            return;
+        } else if rec.nlt_type == NLT_BINARY_COMPLEMENT_PLUS_LUT {
+            super::vectorised::irv_convert_to_integer_nlt2or4::<true>(sp, dp, rec);
+            return;
+        }
+    }
     if rec.nlt_type == NLT_LUT_STYLE {
         irv_convert_to_integer_nlt2or4::<false>(src_line, dst_line, dst_line_offset, width, rec);
     } else if rec.nlt_type == NLT_BINARY_COMPLEMENT_PLUS_LUT {
@@ -536,7 +549,12 @@ pub fn irv_convert_to_integer_nlt(
 /// optional binary complement, scaling, offset and clamping to
 /// `[ft_min, ft_max]`.
 #[inline(always)]
-fn nlt_to_float_t<const TYPE4: bool>(v: i32, signed: bool, bias: u32, rec: &NltLut<'_>) -> f32 {
+pub(super) fn nlt_to_float_t<const TYPE4: bool>(
+    v: i32,
+    signed: bool,
+    bias: u32,
+    rec: &NltLut<'_>,
+) -> f32 {
     let mut t = if signed {
         let v = if TYPE4 { binary_complement(v, bias) } else { v };
         v as f32 * rec.multiplier + 0.5f32 // convert to [0, 1]
@@ -572,7 +590,7 @@ fn irv_convert_to_float_nlt2or4_approx<const TYPE4: bool>(
 }
 
 /// `local_gen_irv_convert_to_float_nlt2or4_precise_1step`.
-fn irv_convert_to_float_nlt2or4_precise_1step<const TYPE4: bool>(
+pub(super) fn irv_convert_to_float_nlt2or4_precise_1step<const TYPE4: bool>(
     sp: &[i32],
     dp: &mut [f32],
     rec: &NltLut<'_>,
@@ -681,6 +699,18 @@ pub fn irv_convert_to_float_nlt(
     let (so, w) = (src_line_offset as usize, width as usize);
     let sp = &src_line.i32()[so..so + w];
     let dp = &mut dst_line.f32_mut()[..w];
+    // the vectorised variant (the one-step search, which the encoder
+    // picks for the tables it builds from 513 and 257 points)
+    #[cfg(feature = "simd")]
+    if !rec.approx_encoding_nlt && rec.precise_max_steps == 1 {
+        if rec.nlt_type == NLT_LUT_STYLE {
+            super::vectorised::irv_convert_to_float_nlt2or4_precise_1step::<false>(sp, dp, rec);
+            return;
+        } else if rec.nlt_type == NLT_BINARY_COMPLEMENT_PLUS_LUT {
+            super::vectorised::irv_convert_to_float_nlt2or4_precise_1step::<true>(sp, dp, rec);
+            return;
+        }
+    }
     if rec.nlt_type == NLT_LUT_STYLE {
         if rec.approx_encoding_nlt {
             irv_convert_to_float_nlt2or4_approx::<false>(sp, dp, rec);

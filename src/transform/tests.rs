@@ -785,3 +785,158 @@ fn mem_clear_and_find_max_val() {
     assert_eq!(find_max_val32(&[7, 9]), 7);
     assert_eq!(find_max_val64(&[u64::MAX, 1]), u64::MAX);
 }
+
+// ---------------------------------------------------------------------------
+// The `simd` feature's vectorised kernels against the scalar ones
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "simd")]
+mod vectorised {
+    use super::super::vectorised as v;
+    use super::*;
+
+    /// Special floats: zeros, infinities, NaNs, the limits of `i32` and of
+    /// the float ranges, halves and their neighbours.
+    const SPECIAL: [f32; 24] = [
+        0.0,
+        -0.0,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NAN,
+        -f32::NAN,
+        f32::MIN_POSITIVE,
+        -f32::MIN_POSITIVE,
+        f32::MAX,
+        f32::MIN,
+        2147483648.0,
+        -2147483648.0,
+        2147483520.0,
+        -2147483520.0,
+        4294967296.0,
+        0.5,
+        -0.5,
+        0.49999997,
+        -0.49999997,
+        0.50000006,
+        -0.50000006,
+        1.0,
+        -1.0,
+        1.5,
+    ];
+
+    /// A float: usually in `[-scale, scale]`, often a half-integer
+    /// multiple of `1 / unit` (a rounding tie), sometimes special.
+    pub(super) fn float(rng: &mut Rng, scale: f32, unit: f32) -> f32 {
+        let r = rng.next();
+        match r % 16 {
+            0 => SPECIAL[(r >> 8) as usize % SPECIAL.len()],
+            1 | 2 => ((r >> 8) as i32 % (2 * unit as i32 + 1)) as f32 / unit + 0.5 / unit,
+            3 => f32::from_bits((r >> 16) as u32),
+            _ => ((r >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32 * scale,
+        }
+    }
+
+    /// Lengths: short ones, around the chunk size, and long ones.
+    pub(super) fn lengths() -> Vec<usize> {
+        let mut l: Vec<usize> = (0..=20).collect();
+        l.extend([31, 32, 33, 63, 64, 65, 127, 128, 129, 200, 1000, 4100]);
+        l
+    }
+
+    fn f32_line(vals: &[f32]) -> LineBuf {
+        let mut l = LineBuf::new_f32(vals.len() + 1, 1);
+        l.f32_mut()[..vals.len()].copy_from_slice(vals);
+        l
+    }
+
+    /// The record of a golden NLT test vector.
+    fn nlt_rec(r: &[Field]) -> NltLut<'_> {
+        let p = r[0].u32();
+        let f = r[1].f32();
+        NltLut {
+            nlt_type: p[1] as u8,
+            bit_depth: p[2] as u8,
+            is_signed: p[3] != 0,
+            approx_encoding_nlt: p[4] != 0,
+            precise_max_steps: p[5],
+            num_points: p[6],
+            multiplier: f[0],
+            fd_min: f[1],
+            fd_max: f[2],
+            delta: f[3],
+            inv_delta: f[4],
+            ft_min: f[5],
+            ft_max: f[6],
+            dec_points: r[2].f32(),
+            approx_enc_points: r[3].f32(),
+            precise_enc_dec_indices: r[4].u16(),
+            precise_dec_lut: r[5].f32(),
+        }
+    }
+
+    /// An integer: usually of `bits` bits, sometimes an extreme.
+    pub(super) fn int(rng: &mut Rng, bits: u32) -> i32 {
+        let r = rng.next();
+        match r % 16 {
+            0 => [0, -1, 1, i32::MIN, i32::MAX, i32::MIN + 1][(r >> 8) as usize % 6],
+            1 => (r >> 32) as i32,
+            _ => rng.signed(bits.clamp(2, 32)) as i32,
+        }
+    }
+
+    #[test]
+    fn irv_convert_to_float_nlt_precise_1step() {
+        let recs = read_records("nlt.bin");
+        let mut rng = Rng(0x6e6c_7466);
+        let mut checked = 0;
+        for r in recs.iter().filter(|r| r[0].u32()[0] != 0) {
+            let rec = nlt_rec(r);
+            if rec.approx_encoding_nlt || rec.precise_max_steps != 1 {
+                continue;
+            }
+            let bits = u32::from(rec.bit_depth) + 1;
+            for n in lengths() {
+                let src: Vec<i32> = (0..n).map(|_| int(&mut rng, bits)).collect();
+                let mut want = vec![0f32; n];
+                let mut got = vec![0f32; n];
+                if rec.nlt_type == NLT_LUT_STYLE {
+                    irv_convert_to_float_nlt2or4_precise_1step::<false>(&src, &mut want, &rec);
+                    v::irv_convert_to_float_nlt2or4_precise_1step::<false>(&src, &mut got, &rec);
+                } else {
+                    irv_convert_to_float_nlt2or4_precise_1step::<true>(&src, &mut want, &rec);
+                    v::irv_convert_to_float_nlt2or4_precise_1step::<true>(&src, &mut got, &rec);
+                }
+                assert_eq!(bits_of_f32s(&want), bits_of_f32s(&got), "{:?}, {n}", r[0]);
+                checked += 1;
+            }
+        }
+        assert!(checked > 30, "{checked}");
+    }
+
+    #[test]
+    fn irv_convert_to_integer_nlt() {
+        let recs = read_records("nlt.bin");
+        let mut rng = Rng(0x6e6c_7469);
+        let mut checked = 0;
+        for r in recs.iter().filter(|r| r[0].u32()[0] == 0) {
+            let p = r[0].u32();
+            let rec = nlt_rec(r);
+            for n in lengths() {
+                let src: Vec<f32> = (0..n).map(|_| float(&mut rng, 0.6, 4096.0)).collect();
+                let line = f32_line(&src);
+                let mut want = LineBuf::new_i32(n + 3, 1);
+                let mut got = vec![0i32; n];
+                if rec.nlt_type == NLT_LUT_STYLE {
+                    irv_convert_to_integer_nlt2or4::<false>(&line, &mut want, 2, n as u32, &rec);
+                    v::irv_convert_to_integer_nlt2or4::<false>(&src, &mut got, &rec);
+                } else {
+                    irv_convert_to_integer_nlt2or4::<true>(&line, &mut want, 2, n as u32, &rec);
+                    v::irv_convert_to_integer_nlt2or4::<true>(&src, &mut got, &rec);
+                }
+                assert_eq!(&want.i32()[2..2 + n], &got[..], "params {p:?}, {n} samples");
+                checked += 1;
+            }
+        }
+        assert!(checked > 30, "{checked}");
+    }
+}

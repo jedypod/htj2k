@@ -366,20 +366,25 @@ htj2k = { version = "0.1", features = ["simd"] }
   kernels when it has AVX2, BMI1, BMI2, LZCNT and POPCNT (every CPU
   with AVX2 has the others). Elsewhere, and on other architectures, it
   runs the scalar code.
+- There are two kinds of kernels. The HT block encoder and decoder are
+  ports of OpenJPH's AVX2 intrinsics. The sample-level kernels (such as
+  the nonlinearity conversions) are plain Rust loops that the compiler
+  vectorises, compiled once for the baseline and once for AVX2.
 - A build whose `-C target-cpu` or `-C target-feature` already enables
   all five features (`-C target-cpu=native` on such a CPU, or
-  `x86-64-v3`) runs the scalar code too. Rust requires the
-  `#[target_feature]` attribute on any caller of the kernels even then,
-  and `multiversion` then calls a version of the dispatching function
+  `x86-64-v3`) vectorises the sample-level kernels for that target, but
+  runs the scalar block coder. Rust requires the `#[target_feature]`
+  attribute on any caller of the intrinsics kernels even then, and
+  `multiversion` then calls a version of the dispatching function
   without it, so safe code cannot reach them. Build the feature for a
-  baseline target to get the kernels.
+  baseline target to get them.
 - The output does not change: the encoder writes the same bytes and the
   decoder returns the same samples with the feature as without it.
   OpenJPH's own SIMD kernels round some float conversions differently
   from its generic code; the crate's follow the generic code.
-- The crate stays free of `unsafe` code. The kernels are safe
-  `#[target_feature]` functions, selected through the
-  [`multiversion`](https://crates.io/crates/multiversion) crate, which
+- The crate stays free of `unsafe` code. The intrinsics kernels are
+  safe `#[target_feature]` functions. Both kinds are selected through
+  the [`multiversion`](https://crates.io/crates/multiversion) crate, which
   the feature adds as a dependency (with `rustversion`).
 - The feature needs Rust 1.87, for safe intrinsics in
   `#[target_feature]` functions; on an older compiler it stops with an

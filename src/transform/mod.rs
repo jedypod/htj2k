@@ -18,6 +18,8 @@
 
 pub mod codeblock_fun;
 pub mod colour;
+#[cfg(feature = "simd")]
+mod vectorised;
 pub mod wavelet;
 
 #[cfg(test)]
