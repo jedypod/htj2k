@@ -496,7 +496,7 @@ fn quant_config(k: i32) -> String {
     for c in 0..nc {
         let d = if k == 9 && c == 2 { 12 } else { depth };
         let s = if k == 10 && c == 2 { false } else { sgn };
-        siz.set_component(c, sub[c as usize], d, s);
+        siz.set_component(c, sub[c as usize], d, s).unwrap();
     }
     cod.set_num_decomposition(levels).unwrap();
     cod.set_block_dims(32, 32).unwrap();
@@ -948,7 +948,8 @@ fn public_setters_validate() {
     let mut siz = ParamSiz::new();
     siz.set_num_components(3);
     for c in 0..3 {
-        siz.set_component(c, Point::new(1, 1), if c == 2 { 10 } else { 8 }, false);
+        siz.set_component(c, Point::new(1, 1), if c == 2 { 10 } else { 8 }, false)
+            .unwrap();
     }
     let mut cod = ParamCod::new();
     cod.set_color_transform(true);

@@ -97,20 +97,50 @@ impl ParamSiz {
 
     /// Both `local::param_siz::set_comp_info` and the public
     /// `param_siz::set_component`.
+    ///
+    /// The C++ asserts `comp_num < Csiz` and a non-zero downsampling, and
+    /// truncates the values to the 8-bit SIZ fields. Here each of these is
+    /// an error instead: a `comp_num` that is not a component
+    /// (0x0005005A), a downsampling factor outside 1 to 255 (0x0005005B),
+    /// or a bit depth outside 1 to 38, the range SIZ can carry and the
+    /// reader accepts (0x0005005C).
     pub fn set_comp_info(
         &mut self,
         comp_num: u32,
         downsampling: Point,
         bit_depth: u32,
         is_signed: bool,
-    ) {
-        // C++ asserts comp_num < Csiz and non-zero downsampling
+    ) -> Result<()> {
+        if comp_num >= self.cptr.len() as u32 {
+            return ojph_error!(
+                0x0005005A,
+                "component {} does not exist; the image has {} components",
+                comp_num,
+                self.cptr.len()
+            );
+        }
+        if !(1..=255).contains(&downsampling.x) || !(1..=255).contains(&downsampling.y) {
+            return ojph_error!(
+                0x0005005B,
+                "downsampling factors must be between 1 and 255, not {}x{}",
+                downsampling.x,
+                downsampling.y
+            );
+        }
+        if !(1..=38).contains(&bit_depth) {
+            return ojph_error!(
+                0x0005005C,
+                "bit depth must be between 1 and 38, not {}",
+                bit_depth
+            );
+        }
         let c = &mut self.cptr[comp_num as usize];
         c.ssiz = (bit_depth
             .wrapping_sub(1)
             .wrapping_add(if is_signed { 0x80 } else { 0 })) as u8;
         c.xrsiz = downsampling.x as u8;
         c.yrsiz = downsampling.y as u8;
+        Ok(())
     }
 
     /// The public-API name of [`Self::set_comp_info`].
@@ -120,7 +150,7 @@ impl ParamSiz {
         downsampling: Point,
         bit_depth: u32,
         is_signed: bool,
-    ) {
+    ) -> Result<()> {
         self.set_comp_info(comp_num, downsampling, bit_depth, is_signed)
     }
 

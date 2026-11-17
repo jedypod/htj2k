@@ -28,7 +28,7 @@
 //! | `X::read(infile_base*)` (void/bool) | `read(&mut self, &mut MemInfile) -> Result<()>` | errors are returned; `ParamSot::read` keeps `Result<bool>` |
 //! | `param_siz::link(const param_cod*)`, `link(const param_dfs*)`, `set_cod(const param_cod&)` | `link(&ParamCod, Option<&ParamDfs>)`, `set_cod(&ParamCod)` | store *copies*; call again if COD/DFS change |
 //! | `param_siz::get_num_components() -> ui16` | `-> u32` | callers widen it |
-//! | `param_siz::set_comp_info` / public `set_component` | both exist | same function |
+//! | `param_siz::set_comp_info` / public `set_component` (void, asserts) | both exist, `-> Result<()>` | same function; errors for a missing component, a downsampling outside 1..=255 or a depth outside 1..=38 |
 //! | `param_cod::get_num_decompositions() -> ui8` | `-> u32` | callers widen it |
 //! | `param_cod::get_coc(comp)` on a COC object | returns the COC itself | children have no back pointer; call it on the main COD |
 //! | `p = cod.add_coc_object(UNKNOWN); p->read_coc(file, n, &cod)` + codestream checks | `cod.read_coc(file, n)` on the main COD | adds, reads, then the codestream's duplicate check (error 0x00030057); the per-object parser is `read_coc_segment(file, n, &top)` |
