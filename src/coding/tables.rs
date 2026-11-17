@@ -4,7 +4,9 @@
 // notice and licence text, which also apply to this file.
 
 //! VLC and UVLC decoding tables shared by the HT block decoders
-//! (port of `ojph_block_common.cpp`, `table0.h` and `table1.h`).
+//! (port of `ojph_block_common.cpp`, `table0.h` and `table1.h`). The
+//! source tables `TBL0` and `TBL1` are also what the encoder builds its
+//! own tables from (see `encoder.rs`).
 //!
 //! OpenJPH fills these tables with static initialisers at start-up; here
 //! they are computed by `const fn` at compile time, with exactly the same
@@ -21,10 +23,10 @@
 
 /// One row of Table 2 of ITU-T T.814: `c_q, rho, u_off, e_k, e_1, cwd,
 /// cwd_len`.
-type VlcSrc = [i32; 7];
+pub(crate) type VlcSrc = [i32; 7];
 
 /// Source table for the initial row of quads (`table0.h`).
-const TBL0: [VlcSrc; 444] = [
+pub(crate) const TBL0: [VlcSrc; 444] = [
     [0, 0x1, 0x0, 0x0, 0x0, 0x06, 4],
     [0, 0x1, 0x1, 0x1, 0x1, 0x3F, 7],
     [0, 0x2, 0x0, 0x0, 0x0, 0x00, 3],
@@ -472,7 +474,7 @@ const TBL0: [VlcSrc; 444] = [
 ];
 
 /// Source table for non-initial rows of quads (`table1.h`).
-const TBL1: [VlcSrc; 358] = [
+pub(crate) const TBL1: [VlcSrc; 358] = [
     [0, 0x1, 0x0, 0x0, 0x0, 0x00, 3],
     [0, 0x1, 0x1, 0x1, 0x1, 0x27, 6],
     [0, 0x2, 0x0, 0x0, 0x0, 0x06, 3],

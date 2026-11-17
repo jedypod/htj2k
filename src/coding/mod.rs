@@ -3,26 +3,31 @@
 // 2-Clause BSD license; see LICENSE-OPENJPH for the original copyright
 // notice and licence text, which also apply to this file.
 
-//! HT (High-Throughput) block coding: the code-block decoders, ported
-//! from OpenJPH's `src/core/coding` (generic, non-SIMD versions).
+//! HT (High-Throughput) block coding: the code-block decoders and the
+//! encoder, ported from OpenJPH's `src/core/coding` (generic, non-SIMD
+//! versions).
 //!
 //! * [`decode_codeblock32`]: samples of up to 31 magnitude bits
 //!   (`ojph_decode_codeblock32`);
 //! * [`decode_codeblock64`]: samples of up to 63 magnitude bits
 //!   (`ojph_decode_codeblock64`), used when a component needs more than
 //!   32-bit precision.
+//! * [`encode_codeblock32`]: the cleanup-pass encoder for 32-bit samples
+//!   (`ojph_encode_codeblock32`).
 //!
-//! Decoded samples are in sign-magnitude form: the MSB is the sign and the
-//! magnitude carries one extra fractional bit (the bin centre), as in
+//! Samples are in sign-magnitude form: the MSB is the sign. Decoded
+//! magnitudes carry one extra fractional bit (the bin centre), as in
 //! OpenJPH.
 
 mod decoder32;
 mod decoder64;
+mod encoder;
 mod readers;
 mod tables;
 
 pub use decoder32::decode_codeblock32;
 pub use decoder64::decode_codeblock64;
+pub use encoder::encode_codeblock32;
 
 /// Length of the `ui16 scratch[8 * 513]` array of the C++ decoders.
 pub(crate) const SCRATCH_LEN: usize = 8 * 513;

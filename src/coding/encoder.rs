@@ -1,0 +1,897 @@
+// This file is part of htj2k, a safe Rust port of OpenJPH
+// (https://github.com/aous72/OpenJPH), which is released under the
+// 2-Clause BSD license; see LICENSE-OPENJPH for the original copyright
+// notice and licence text, which also apply to this file.
+
+//! HT block encoder (port of the generic `ojph_block_encoder.cpp`).
+//!
+//! The C++ has two copies of the encoder, `ojph_encode_codeblock32` and
+//! `ojph_encode_codeblock64`, which differ only in the sample type, the
+//! bit-plane offset (`p = 30 - missing_msbs` or `62 - missing_msbs`), the
+//! size of the MagSgn buffer, and the UVLC extension bits that only the
+//! 64-bit one writes. Here one generic function, [`encode`], follows their
+//! common code line by line, and the [`Sample`] trait carries those
+//! differences. Like OpenJPH, the encoder writes only the cleanup pass.
+
+use super::tables::{VlcSrc, TBL0, TBL1};
+use crate::error::{ojph_error, Result};
+
+// ---------------------------------------------------------------------------
+// tables
+// ---------------------------------------------------------------------------
+
+/// Builds a VLC encoding table from a source table (`vlc_init_tables`).
+/// Index is `(c_q << 8) + (rho << 4) + eps`; an entry is
+/// `(cwd << 8) + (cwd_len << 4) + e_k`. For `eps != 0` the last of the
+/// matching entries with the most bits set in `e_k` wins, as in the C++.
+const fn build_vlc_enc(src: &[VlcSrc]) -> [u16; 2048] {
+    let mut tgt = [0u16; 2048];
+    let mut i = 0;
+    while i < 2048 {
+        let c_q = (i >> 8) as i32;
+        let rho = ((i >> 4) & 0xF) as i32;
+        let emb = (i & 0xF) as i32;
+        if (emb & rho) != emb || (rho == 0 && c_q == 0) {
+            tgt[i] = 0;
+        } else {
+            let mut best: usize = usize::MAX;
+            if emb != 0 {
+                // u_off = 1
+                let mut best_e_k: i32 = -1;
+                let mut j = 0;
+                while j < src.len() {
+                    let e = src[j];
+                    if e[0] == c_q && e[1] == rho && e[2] == 1 && (emb & e[3]) == e[4] {
+                        // the smallest cwd with the highest number of bits
+                        // set in e_k
+                        let ones_count = (e[3] as u32).count_ones() as i32;
+                        if ones_count >= best_e_k {
+                            best = j;
+                            best_e_k = ones_count;
+                        }
+                    }
+                    j += 1;
+                }
+            } else {
+                // u_off = 0
+                let mut j = 0;
+                while j < src.len() {
+                    let e = src[j];
+                    if e[0] == c_q && e[1] == rho && e[2] == 0 {
+                        best = j;
+                        break;
+                    }
+                    j += 1;
+                }
+            }
+            assert!(best != usize::MAX); // assert(best_entry), at compile time
+            let e = src[best];
+            tgt[i] = ((e[5] << 8) + (e[6] << 4) + e[3]) as u16;
+        }
+        i += 1;
+    }
+    tgt
+}
+
+/// VLC encoding table for the initial row of quads (`vlc_tbl0`).
+static VLC_TBL0: [u16; 2048] = build_vlc_enc(&TBL0);
+/// VLC encoding table for the other rows of quads (`vlc_tbl1`).
+static VLC_TBL1: [u16; 2048] = build_vlc_enc(&TBL1);
+
+/// One UVLC codeword: prefix, suffix and extension, each with its length
+/// (`uvlc_tbl_struct`).
+#[derive(Clone, Copy)]
+struct Uvlc {
+    pre: u8,
+    pre_len: u8,
+    suf: u8,
+    suf_len: u8,
+    ext: u8,
+    ext_len: u8,
+}
+
+const NUM_UVLC_ENTRIES: usize = 75;
+
+/// `uvlc_init_tables`: codes for `u_q` of 0 to 74.
+const fn build_uvlc() -> [Uvlc; NUM_UVLC_ENTRIES] {
+    const fn e(pre: u8, pre_len: u8, suf: u8, suf_len: u8, ext: u8, ext_len: u8) -> Uvlc {
+        Uvlc {
+            pre,
+            pre_len,
+            suf,
+            suf_len,
+            ext,
+            ext_len,
+        }
+    }
+    let mut t = [e(0, 0, 0, 0, 0, 0); NUM_UVLC_ENTRIES];
+    t[1] = e(1, 1, 0, 0, 0, 0);
+    t[2] = e(2, 2, 0, 0, 0, 0);
+    t[3] = e(4, 3, 0, 1, 0, 0);
+    t[4] = e(4, 3, 1, 1, 0, 0);
+    let mut i = 5;
+    while i < 33 {
+        t[i] = e(0, 3, (i - 5) as u8, 5, 0, 0);
+        i += 1;
+    }
+    while i < NUM_UVLC_ENTRIES {
+        t[i] = e(0, 3, (28 + (i - 33) % 4) as u8, 5, ((i - 33) / 4) as u8, 4);
+        i += 1;
+    }
+    t
+}
+
+static UVLC_TBL: [Uvlc; NUM_UVLC_ENTRIES] = build_uvlc();
+
+// ---------------------------------------------------------------------------
+// MEL
+// ---------------------------------------------------------------------------
+
+/// Size of the MEL part of the C++'s `mel_vlc_buf`.
+const MEL_SIZE: usize = 192;
+/// Size of the VLC part of the C++'s `mel_vlc_buf` (3072 - 192).
+const VLC_SIZE: usize = 3072 - MEL_SIZE;
+/// The largest MagSgn buffer (the 64-bit encoder's `ms_size`,
+/// `(22528 * 16 + 14) / 15` in the C++).
+const MS_CAP: usize = (22528usize * 16).div_ceil(15);
+
+/// `mel_struct`; `buf_size` is `MEL_SIZE`.
+struct Mel {
+    buf: [u8; MEL_SIZE],
+    pos: usize,
+    remaining_bits: i32,
+    tmp: i32,
+    run: i32,
+    k: i32,
+    threshold: i32,
+}
+
+/// MEL exponents.
+const MEL_EXP: [i32; 13] = [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5];
+
+impl Mel {
+    /// `mel_init`.
+    fn new() -> Self {
+        Mel {
+            buf: [0; MEL_SIZE],
+            pos: 0,
+            remaining_bits: 8,
+            tmp: 0,
+            run: 0,
+            k: 0,
+            threshold: 1, // this is 1 << MEL_EXP[k]
+        }
+    }
+
+    /// `mel_emit_bit`.
+    #[inline(always)]
+    fn emit_bit(&mut self, v: i32) -> Result<()> {
+        self.tmp = (self.tmp << 1) + v;
+        self.remaining_bits -= 1;
+        if self.remaining_bits == 0 {
+            if self.pos >= MEL_SIZE {
+                return ojph_error!(0x00020001, "mel encoder's buffer is full");
+            }
+            self.buf[self.pos] = self.tmp as u8;
+            self.pos += 1;
+            self.remaining_bits = if self.tmp == 0xFF { 7 } else { 8 };
+            self.tmp = 0;
+        }
+        Ok(())
+    }
+
+    /// `mel_encode`.
+    #[inline(always)]
+    fn encode(&mut self, bit: bool) -> Result<()> {
+        if !bit {
+            self.run += 1;
+            if self.run >= self.threshold {
+                self.emit_bit(1)?;
+                self.run = 0;
+                self.k = (self.k + 1).min(12);
+                self.threshold = 1 << MEL_EXP[self.k as usize];
+            }
+        } else {
+            self.emit_bit(0)?;
+            let mut t = MEL_EXP[self.k as usize];
+            while t > 0 {
+                t -= 1;
+                self.emit_bit((self.run >> t) & 1)?;
+            }
+            self.run = 0;
+            self.k = (self.k - 1).max(0);
+            self.threshold = 1 << MEL_EXP[self.k as usize];
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// VLC
+// ---------------------------------------------------------------------------
+
+/// `vlc_struct`. The C++ writes backwards from the last byte of its
+/// buffer, `buf[-pos]`; here that byte is `buf[VLC_SIZE - 1 - pos]`.
+struct Vlc {
+    buf: [u8; VLC_SIZE],
+    pos: usize,
+    used_bits: i32,
+    tmp: i32,
+    last_greater_than_8f: bool,
+}
+
+impl Vlc {
+    /// `vlc_init`.
+    fn new() -> Self {
+        let mut buf = [0; VLC_SIZE];
+        buf[VLC_SIZE - 1] = 0xFF;
+        Vlc {
+            buf,
+            pos: 1, // locations will be all -pos
+            used_bits: 4,
+            tmp: 0xF,
+            last_greater_than_8f: true,
+        }
+    }
+
+    /// `vlc_encode`.
+    #[inline(always)]
+    fn encode(&mut self, mut cwd: i32, mut cwd_len: i32) -> Result<()> {
+        while cwd_len > 0 {
+            if self.pos >= VLC_SIZE {
+                return ojph_error!(0x00020002, "vlc encoder's buffer is full");
+            }
+            let mut avail_bits = 8 - self.last_greater_than_8f as i32 - self.used_bits;
+            let t = avail_bits.min(cwd_len);
+            self.tmp |= (cwd & ((1 << t) - 1)) << self.used_bits;
+            self.used_bits += t;
+            avail_bits -= t;
+            cwd_len -= t;
+            cwd >>= t;
+            if avail_bits == 0 {
+                if self.last_greater_than_8f && self.tmp != 0x7F {
+                    self.last_greater_than_8f = false;
+                    continue; // one empty bit remaining
+                }
+                self.buf[VLC_SIZE - 1 - self.pos] = self.tmp as u8;
+                self.pos += 1;
+                self.last_greater_than_8f = self.tmp > 0x8F;
+                self.tmp = 0;
+                self.used_bits = 0;
+            }
+        }
+        Ok(())
+    }
+
+    /// Encodes a UVLC table entry's prefix, suffix or extension.
+    #[inline(always)]
+    fn encode_u8(&mut self, cwd: u8, cwd_len: u8) -> Result<()> {
+        self.encode(cwd as i32, cwd_len as i32)
+    }
+}
+
+/// `terminate_mel_vlc`.
+fn terminate_mel_vlc(mel: &mut Mel, vlc: &mut Vlc) -> Result<()> {
+    if mel.run > 0 {
+        mel.emit_bit(1)?;
+    }
+
+    mel.tmp <<= mel.remaining_bits;
+    let mel_mask = (0xFF << mel.remaining_bits) & 0xFF;
+    let vlc_mask = 0xFF >> (8 - vlc.used_bits);
+    if (mel_mask | vlc_mask) == 0 {
+        return Ok(()); // last mel byte cannot be 0xFF, since then
+                       // mel.remaining_bits would be < 8
+    }
+    if mel.pos >= MEL_SIZE {
+        return ojph_error!(0x00020003, "mel encoder's buffer is full");
+    }
+    let fuse = mel.tmp | vlc.tmp;
+    if (((fuse ^ mel.tmp) & mel_mask) | ((fuse ^ vlc.tmp) & vlc_mask)) == 0
+        && fuse != 0xFF
+        && vlc.pos > 1
+    {
+        mel.buf[mel.pos] = fuse as u8;
+        mel.pos += 1;
+    } else {
+        if vlc.pos >= VLC_SIZE {
+            return ojph_error!(0x00020004, "vlc encoder's buffer is full");
+        }
+        mel.buf[mel.pos] = mel.tmp as u8; // mel.tmp cannot be 0xFF
+        mel.pos += 1;
+        vlc.buf[VLC_SIZE - 1 - vlc.pos] = vlc.tmp as u8;
+        vlc.pos += 1;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// MagSgn
+// ---------------------------------------------------------------------------
+
+/// `ms_struct`; `buf_size` is the encoder's `ms_size`, at most `MS_CAP`.
+struct Ms {
+    buf: [u8; MS_CAP],
+    pos: usize,
+    buf_size: usize,
+    max_bits: i32,
+    used_bits: i32,
+    tmp: u32,
+}
+
+impl Ms {
+    /// `ms_init`.
+    fn new(buf_size: usize) -> Self {
+        Ms {
+            buf: [0; MS_CAP],
+            pos: 0,
+            buf_size,
+            max_bits: 8,
+            used_bits: 0,
+            tmp: 0,
+        }
+    }
+
+    /// `ms_encode` and `ms_encode64` (identical but for the type of
+    /// `cwd`; `cwd` here holds either).
+    #[inline(always)]
+    fn encode(&mut self, mut cwd: u64, mut cwd_len: i32) -> Result<()> {
+        while cwd_len > 0 {
+            if self.pos >= self.buf_size {
+                return ojph_error!(0x00020005, "magnitude sign encoder's buffer is full");
+            }
+            let t = (self.max_bits - self.used_bits).min(cwd_len);
+            self.tmp |= ((cwd & ((1u64 << t) - 1)) << self.used_bits) as u32;
+            self.used_bits += t;
+            cwd >>= t;
+            cwd_len -= t;
+            if self.used_bits >= self.max_bits {
+                self.buf[self.pos] = self.tmp as u8;
+                self.pos += 1;
+                self.max_bits = if self.tmp == 0xFF { 7 } else { 8 };
+                self.tmp = 0;
+                self.used_bits = 0;
+            }
+        }
+        Ok(())
+    }
+
+    /// `ms_terminate`.
+    fn terminate(&mut self) -> Result<()> {
+        if self.used_bits != 0 {
+            let t = self.max_bits - self.used_bits; // unused bits
+            self.tmp |= (0xFF & ((1u32 << t) - 1)) << self.used_bits;
+            self.used_bits += t;
+            if self.tmp != 0xFF {
+                if self.pos >= self.buf_size {
+                    return ojph_error!(0x00020006, "magnitude sign encoder's buffer is full");
+                }
+                self.buf[self.pos] = self.tmp as u8;
+                self.pos += 1;
+            }
+        } else if self.max_bits == 7 {
+            // a byte of 0xFF was the last one written
+            self.pos -= 1;
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// the encoder
+// ---------------------------------------------------------------------------
+
+/// What differs between `ojph_encode_codeblock32` and `64`.
+pub(crate) trait Sample: Copy {
+    const ZERO: Self;
+    /// `p` for `missing_msbs` = 0: 30 or 62.
+    const P0: u32;
+    /// The largest `missing_msbs` accepted (see [`encode`]).
+    const MAX_MISSING_MSBS: u32;
+    /// `ms_size`, the capacity of the MagSgn buffer.
+    const MS_SIZE: usize;
+    /// Whether UVLC extension bits are written (64-bit only).
+    const UVLC_EXT: bool;
+
+    /// The block of code repeated for every sample in the C++:
+    ///
+    /// ```c++
+    /// val = t + t;   //multiply by 2 and get rid of sign
+    /// val >>= p;     // 2 \mu_p + x
+    /// val &= ~1u;    // 2 \mu_p
+    /// if (val) {
+    ///   e_q[i] = 32 - (int)count_leading_zeros(--val); //2\mu_p - 1
+    ///   s[i] = --val + (t >> 31); //v_n = 2(\mu_p-1) + s_n
+    /// }
+    /// ```
+    ///
+    /// returning `Some((e_q, s))` for a significant sample.
+    fn quantise(self, p: u32) -> Option<(i32, u64)>;
+}
+
+impl Sample for u32 {
+    const ZERO: Self = 0;
+    const P0: u32 = 30;
+    const MAX_MISSING_MSBS: u32 = 29;
+    const MS_SIZE: usize = (16384usize * 16).div_ceil(15); // (16384*16+14)/15
+    const UVLC_EXT: bool = false;
+
+    #[inline(always)]
+    fn quantise(self, p: u32) -> Option<(i32, u64)> {
+        let t = self;
+        let mut val = t.wrapping_add(t);
+        val >>= p;
+        val &= !1u32;
+        if val != 0 {
+            val -= 1;
+            let e_q = 32 - val.leading_zeros() as i32;
+            val -= 1;
+            Some((e_q, (val + (t >> 31)) as u64))
+        } else {
+            None
+        }
+    }
+}
+
+/// The per-pair-of-quads state of the C++ (`e_qmax`, `e_q`, `rho`, `s`).
+/// Samples are numbered as in the C++: 0 to 3 in the first quad (column
+/// by column, top then bottom), 4 to 7 in the second.
+#[derive(Default)]
+struct Quads {
+    e_qmax: [i32; 2],
+    e_q: [i32; 8],
+    rho: [i32; 2],
+    s: [u64; 8],
+}
+
+impl Quads {
+    /// Adds sample `n` (0 to 7). The C++ assigns `rho` and `e_qmax` for the
+    /// first sample of a quad and accumulates for the others; both start
+    /// at 0, so accumulating throughout is the same.
+    #[inline(always)]
+    fn add<T: Sample>(&mut self, n: usize, t: T, p: u32) {
+        if let Some((e_q, s)) = t.quantise(p) {
+            let q = n >> 2;
+            self.rho[q] += 1 << (n & 3);
+            self.e_q[n] = e_q;
+            self.e_qmax[q] = self.e_qmax[q].max(e_q);
+            self.s[n] = s;
+        }
+    }
+
+    /// `eps` of quad `q` for `u_q`.
+    #[inline(always)]
+    fn eps(&self, q: usize, u_q: i32) -> i32 {
+        let mut eps = 0;
+        if u_q > 0 {
+            let e = &self.e_q[4 * q..4 * q + 4];
+            let m = self.e_qmax[q];
+            eps |= (e[0] == m) as i32;
+            eps |= ((e[1] == m) as i32) << 1;
+            eps |= ((e[2] == m) as i32) << 2;
+            eps |= ((e[3] == m) as i32) << 3;
+        }
+        eps
+    }
+
+    /// Writes the VLC codeword of quad `q` (and a MEL symbol when its
+    /// context is 0) and the MagSgn bits of its four samples; returns the
+    /// table entry (`tuple0` / `tuple1`).
+    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
+    fn code_quad(
+        &self,
+        q: usize,
+        tbl: &[u16; 2048],
+        c_q: i32,
+        eps: i32,
+        u_cap: i32,
+        vlc: &mut Vlc,
+        mel: &mut Mel,
+        ms: &mut Ms,
+    ) -> Result<()> {
+        let rho = self.rho[q];
+        let tuple = tbl[((c_q << 8) + (rho << 4) + eps) as usize] as i32;
+        vlc.encode(tuple >> 8, (tuple >> 4) & 7)?;
+
+        if c_q == 0 {
+            mel.encode(rho != 0)?;
+        }
+
+        for i in 0..4 {
+            let m = if rho & (1 << i) != 0 {
+                u_cap - ((tuple >> i) & 1)
+            } else {
+                0
+            };
+            ms.encode(self.s[4 * q + i] & ((1u64 << m) - 1), m)?;
+        }
+        Ok(())
+    }
+}
+
+/// Validates the arguments the C++ does not check, then encodes.
+///
+/// * `num_passes` must be 1 (`assert(num_passes == 1)` in the C++);
+/// * `missing_msbs <= T::MAX_MISSING_MSBS`: above that the C++ shifts by
+///   32 (or 64) or more, which is undefined;
+/// * `width <= 1024`, the most for which the C++'s `e_val[513]` and
+///   `cx_val[513]` are (nearly, see below) large enough;
+/// * `buf` holds every sample the C++ reads.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode<T: Sample>(
+    buf: &[T],
+    missing_msbs: u32,
+    num_passes: u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    coded: &mut Vec<u8>,
+) -> Result<u32> {
+    if num_passes != 1 {
+        return ojph_error!(
+            0x00020010,
+            "the block encoder writes only the cleanup pass (num_passes {} != 1)",
+            num_passes
+        );
+    }
+    if missing_msbs > T::MAX_MISSING_MSBS {
+        return ojph_error!(
+            0x00020011,
+            "missing_msbs {} is more than the block encoder supports ({})",
+            missing_msbs,
+            T::MAX_MISSING_MSBS
+        );
+    }
+    if width > 1024 {
+        return ojph_error!(0x00020012, "code block width {} is more than 1024", width);
+    }
+    // The C++ reads row 0 whatever the height, then rows 1 to height - 1.
+    let needed = if width == 0 {
+        0
+    } else {
+        (height.max(1) as u64 - 1) * stride as u64 + width as u64
+    };
+    if needed > buf.len() as u64 {
+        return ojph_error!(
+            0x00020013,
+            "code block samples ({} needed) do not fit the buffer ({})",
+            needed,
+            buf.len()
+        );
+    }
+
+    let mut mel = Mel::new();
+    let mut vlc = Vlc::new();
+    let mut ms = Ms::new(T::MS_SIZE);
+
+    let p = T::P0 - missing_msbs;
+    let stride = stride as usize;
+
+    // e_val: E values for a line (these are the highest set bit)
+    // cx_val: is the context values
+    // Each byte stores the info for the 2 sample. For E, it is maximum
+    // of the two samples, while for cx, it is the OR of these two samples.
+    // The maximum is between the pixel at the bottom left of one quad
+    // and the bottom right of the earlier quad. The same is true for cx.
+    // The C++ has 513 entries, and for a width of 1023 or 1024 indexes
+    // entry 513 (one past its end): it writes 0 to e_val[513] after the
+    // initial row and reads e_val[513] and cx_val[513] at the end of the
+    // later rows, into values it then never uses. One more entry here
+    // makes those accesses defined without changing the output.
+    let mut e_val = [0u8; 514];
+    let mut cx_val = [0u8; 514];
+    let mut lep = 0usize;
+    e_val[lep] = 0;
+    let mut lcxp = 0usize;
+    cx_val[lcxp] = 0;
+
+    // initial row of quads
+    let mut q = Quads::default();
+    let mut c_q0: i32 = 0;
+    let mut x = 0u32;
+    while x < width {
+        // prepare two quads
+        let mut sp = x as usize;
+        q.add(0, buf[sp], p);
+        q.add(
+            1,
+            if height > 1 {
+                buf[sp + stride]
+            } else {
+                T::ZERO
+            },
+            p,
+        );
+        sp += 1;
+
+        if x + 1 < width {
+            q.add(2, buf[sp], p);
+            q.add(
+                3,
+                if height > 1 {
+                    buf[sp + stride]
+                } else {
+                    T::ZERO
+                },
+                p,
+            );
+            sp += 1;
+        }
+
+        let uq0 = q.e_qmax[0].max(1); // kappa_q = 1
+        let u_q0 = uq0 - 1; // kappa_q = 1
+        let mut u_q1 = 0;
+
+        let eps0 = q.eps(0, u_q0);
+        e_val[lep] = e_val[lep].max(q.e_q[1] as u8);
+        lep += 1;
+        e_val[lep] = q.e_q[3] as u8;
+        cx_val[lcxp] |= ((q.rho[0] & 2) >> 1) as u8;
+        lcxp += 1;
+        cx_val[lcxp] = ((q.rho[0] & 8) >> 3) as u8;
+
+        q.code_quad(0, &VLC_TBL0, c_q0, eps0, uq0, &mut vlc, &mut mel, &mut ms)?;
+
+        if x + 2 < width {
+            q.add(4, buf[sp], p);
+            q.add(
+                5,
+                if height > 1 {
+                    buf[sp + stride]
+                } else {
+                    T::ZERO
+                },
+                p,
+            );
+            sp += 1;
+
+            if x + 3 < width {
+                q.add(6, buf[sp], p);
+                q.add(
+                    7,
+                    if height > 1 {
+                        buf[sp + stride]
+                    } else {
+                        T::ZERO
+                    },
+                    p,
+                );
+            }
+
+            let c_q1 = (q.rho[0] >> 1) | (q.rho[0] & 1);
+            let uq1 = q.e_qmax[1].max(1); // kappa_q = 1
+            u_q1 = uq1 - 1; // kappa_q = 1
+
+            let eps1 = q.eps(1, u_q1);
+            e_val[lep] = e_val[lep].max(q.e_q[5] as u8);
+            lep += 1;
+            e_val[lep] = q.e_q[7] as u8;
+            // the C++ has `lcxp[0] |= (ui8)(lcxp[0] | ...)` here, which is
+            // the same as the plain `|=` of the first quad
+            cx_val[lcxp] |= ((q.rho[1] & 2) >> 1) as u8;
+            lcxp += 1;
+            cx_val[lcxp] = ((q.rho[1] & 8) >> 3) as u8;
+
+            q.code_quad(1, &VLC_TBL0, c_q1, eps1, uq1, &mut vlc, &mut mel, &mut ms)?;
+        }
+
+        if u_q0 > 0 && u_q1 > 0 {
+            mel.encode(u_q0.min(u_q1) > 2)?;
+        }
+
+        if u_q0 > 2 && u_q1 > 2 {
+            let (a, b) = (UVLC_TBL[(u_q0 - 2) as usize], UVLC_TBL[(u_q1 - 2) as usize]);
+            vlc.encode_u8(a.pre, a.pre_len)?;
+            vlc.encode_u8(b.pre, b.pre_len)?;
+            vlc.encode_u8(a.suf, a.suf_len)?;
+            vlc.encode_u8(b.suf, b.suf_len)?;
+            if T::UVLC_EXT {
+                vlc.encode_u8(a.ext, a.ext_len)?;
+                vlc.encode_u8(b.ext, b.ext_len)?;
+            }
+        } else if u_q0 > 2 && u_q1 > 0 {
+            let a = UVLC_TBL[u_q0 as usize];
+            vlc.encode_u8(a.pre, a.pre_len)?;
+            vlc.encode(u_q1 - 1, 1)?;
+            vlc.encode_u8(a.suf, a.suf_len)?;
+            if T::UVLC_EXT {
+                vlc.encode_u8(a.ext, a.ext_len)?;
+            }
+        } else {
+            let (a, b) = (UVLC_TBL[u_q0 as usize], UVLC_TBL[u_q1 as usize]);
+            vlc.encode_u8(a.pre, a.pre_len)?;
+            vlc.encode_u8(b.pre, b.pre_len)?;
+            vlc.encode_u8(a.suf, a.suf_len)?;
+            vlc.encode_u8(b.suf, b.suf_len)?;
+            if T::UVLC_EXT {
+                vlc.encode_u8(a.ext, a.ext_len)?;
+                vlc.encode_u8(b.ext, b.ext_len)?;
+            }
+        }
+
+        // prepare for next iteration
+        c_q0 = (q.rho[1] >> 1) | (q.rho[1] & 1);
+        q = Quads::default();
+        x += 4;
+    }
+
+    e_val[lep + 1] = 0;
+
+    // With a width of 0 the later rows code nothing, so they are skipped:
+    // the C++ steps through them all, and for a height of u32::MAX never
+    // stops (`y += 2` wraps). With any other width every row adds VLC or
+    // MEL bits, so a buffer fills long before `y` could overflow.
+    let mut y = 2u32;
+    while width > 0 && y < height {
+        lep = 0;
+        let mut max_e = e_val[lep].max(e_val[lep + 1]) as i32 - 1;
+        e_val[lep] = 0;
+        lcxp = 0;
+        c_q0 = cx_val[lcxp] as i32 + ((cx_val[lcxp + 1] as i32) << 2);
+        cx_val[lcxp] = 0;
+
+        let below = y + 1 < height;
+        let row = y as usize * stride;
+        let mut x = 0u32;
+        while x < width {
+            // prepare two quads
+            let mut sp = row + x as usize;
+            q.add(0, buf[sp], p);
+            q.add(1, if below { buf[sp + stride] } else { T::ZERO }, p);
+            sp += 1;
+
+            if x + 1 < width {
+                q.add(2, buf[sp], p);
+                q.add(3, if below { buf[sp + stride] } else { T::ZERO }, p);
+                sp += 1;
+            }
+
+            let rho0 = q.rho[0];
+            let mut kappa = if rho0 & (rho0 - 1) != 0 {
+                max_e.max(1)
+            } else {
+                1
+            };
+            let uq0 = q.e_qmax[0].max(kappa);
+            let u_q0 = uq0 - kappa;
+            let mut u_q1 = 0;
+
+            let eps0 = q.eps(0, u_q0);
+            e_val[lep] = e_val[lep].max(q.e_q[1] as u8);
+            lep += 1;
+            max_e = e_val[lep].max(e_val[lep + 1]) as i32 - 1;
+            e_val[lep] = q.e_q[3] as u8;
+            cx_val[lcxp] |= ((rho0 & 2) >> 1) as u8;
+            lcxp += 1;
+            let mut c_q1 = cx_val[lcxp] as i32 + ((cx_val[lcxp + 1] as i32) << 2);
+            cx_val[lcxp] = ((rho0 & 8) >> 3) as u8;
+
+            q.code_quad(0, &VLC_TBL1, c_q0, eps0, uq0, &mut vlc, &mut mel, &mut ms)?;
+
+            if x + 2 < width {
+                q.add(4, buf[sp], p);
+                q.add(5, if below { buf[sp + stride] } else { T::ZERO }, p);
+                sp += 1;
+
+                if x + 3 < width {
+                    q.add(6, buf[sp], p);
+                    q.add(7, if below { buf[sp + stride] } else { T::ZERO }, p);
+                }
+
+                let rho1 = q.rho[1];
+                kappa = if rho1 & (rho1 - 1) != 0 {
+                    max_e.max(1)
+                } else {
+                    1
+                };
+                c_q1 |= ((rho0 & 4) >> 1) | ((rho0 & 8) >> 2);
+                let uq1 = q.e_qmax[1].max(kappa);
+                u_q1 = uq1 - kappa;
+
+                let eps1 = q.eps(1, u_q1);
+                e_val[lep] = e_val[lep].max(q.e_q[5] as u8);
+                lep += 1;
+                max_e = e_val[lep].max(e_val[lep + 1]) as i32 - 1;
+                e_val[lep] = q.e_q[7] as u8;
+                cx_val[lcxp] |= ((rho1 & 2) >> 1) as u8;
+                lcxp += 1;
+                c_q0 = cx_val[lcxp] as i32 + ((cx_val[lcxp + 1] as i32) << 2);
+                cx_val[lcxp] = ((rho1 & 8) >> 3) as u8;
+
+                q.code_quad(1, &VLC_TBL1, c_q1, eps1, uq1, &mut vlc, &mut mel, &mut ms)?;
+            }
+
+            let (a, b) = (UVLC_TBL[u_q0 as usize], UVLC_TBL[u_q1 as usize]);
+            vlc.encode_u8(a.pre, a.pre_len)?;
+            vlc.encode_u8(b.pre, b.pre_len)?;
+            vlc.encode_u8(a.suf, a.suf_len)?;
+            vlc.encode_u8(b.suf, b.suf_len)?;
+            if T::UVLC_EXT {
+                vlc.encode_u8(a.ext, a.ext_len)?;
+                vlc.encode_u8(b.ext, b.ext_len)?;
+            }
+
+            // prepare for next iteration
+            c_q0 |= ((q.rho[1] & 4) >> 1) | ((q.rho[1] & 8) >> 2);
+            q = Quads::default();
+            x += 4;
+        }
+        y += 2;
+    }
+
+    terminate_mel_vlc(&mut mel, &mut vlc)?;
+    ms.terminate()?;
+
+    // copy to the output: MagSgn, then MEL, then VLC
+    let length = ms.pos + mel.pos + vlc.pos;
+    let start = coded.len();
+    coded.reserve(length);
+    coded.extend_from_slice(&ms.buf[..ms.pos]);
+    coded.extend_from_slice(&mel.buf[..mel.pos]);
+    coded.extend_from_slice(&vlc.buf[VLC_SIZE - vlc.pos..]);
+
+    // put in the interface locator word; `length >= 2`: VLC holds its
+    // initial 0xFF byte, and the termination either finds a complete VLC
+    // byte already written or writes one more byte
+    let num_bytes = mel.pos + vlc.pos;
+    let out = &mut coded[start..];
+    out[length - 1] = (num_bytes >> 4) as u8;
+    out[length - 2] = (out[length - 2] & 0xF0) | (num_bytes & 0xF) as u8;
+
+    Ok(length as u32)
+}
+
+/// Encodes one code block of 32-bit samples with the HT cleanup pass; port
+/// of OpenJPH's generic `ojph_encode_codeblock32`, producing the same bytes.
+///
+/// * `buf` holds the samples, sample `(x, y)` at `y * stride + x`, in the
+///   form OpenJPH's encoder takes, as written by
+///   [`rev_tx_to_cb32`](crate::transform::codeblock_fun::rev_tx_to_cb32)
+///   (or `irv_tx_to_cb32`): sign-magnitude, the sign in bit 31 and the
+///   magnitude in bits 30 to 0. With `p = 30 - missing_msbs`, the magnitude
+///   bits from `p` up are coded and the bits below `p` are ignored.
+///   `buf` must hold `(height - 1) * stride + width` samples (`width` for a
+///   `height` of 0, for which the C++ still reads row 0); the encoder reads
+///   no others, so `stride` may also be less than `width`.
+/// * `missing_msbs` is 0 to 29. OpenJPH's caller, `codeblock::encode`,
+///   passes `K_max - 1`, which makes `p` the shift `rev_tx_to_cb32`
+///   applied; it also never calls the encoder for a block whose samples
+///   are all zero (the codestream then signals an empty block).
+/// * `num_passes` must be 1: OpenJPH writes only the cleanup pass.
+/// * `width` is at most 1024; any `height` is accepted, but the encoder's
+///   buffers, of the C++'s fixed sizes, only suffice for blocks of up to
+///   4096 samples that JPEG 2000 allows.
+///
+/// On success the coded bytes (the cleanup segment, `lengths[0]` in the
+/// C++) are appended to `coded` and their number is returned; it is at
+/// least 2. The C++ writes them to a `coded_lists` buffer it takes from a
+/// `mem_elastic_allocator`; the caller here owns the `Vec`.
+///
+/// Errors, with nothing appended to `coded`:
+///
+/// * the C++'s own errors, with its codes, when one of its fixed-size
+///   buffers would overflow: `0x00020001` and `0x00020003` (MEL, 192
+///   bytes), `0x00020002` and `0x00020004` (VLC, 2880 bytes), `0x00020005`
+///   and `0x00020006` (MagSgn, 17477 bytes);
+/// * for arguments on which the C++ would assert or have undefined
+///   behaviour, codes OpenJPH does not have: `0x00020010` for a
+///   `num_passes` other than 1, `0x00020011` for `missing_msbs` above 29,
+///   `0x00020012` for a `width` above 1024 and `0x00020013` for a `buf`
+///   too small.
+///
+/// The scratch buffers, about 27 kB, are on the stack. (The C++'s 32-bit
+/// encoder has a smaller MagSgn buffer, 21 kB in all; the port gives both
+/// widths the 64-bit size and limits the 32-bit one to 17477 bytes.)
+#[allow(clippy::too_many_arguments)]
+pub fn encode_codeblock32(
+    buf: &[u32],
+    missing_msbs: u32,
+    num_passes: u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    coded: &mut Vec<u8>,
+) -> Result<u32> {
+    encode(buf, missing_msbs, num_passes, width, height, stride, coded)
+}
