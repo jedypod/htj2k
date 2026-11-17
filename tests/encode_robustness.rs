@@ -395,6 +395,114 @@ fn precincts_set_before_decompositions() {
     assert_eq!(err.code(), 0x00080009);
 }
 
+/// The parameter objects are shared with the decoder, so
+/// `access_siz_mut` and friends reach decoder-side calls (`read`,
+/// `set_skipped_resolutions`, `employ_color_transform(u8)`,
+/// `set_Rsiz_flag`). State they set that the writer does not implement
+/// is refused by `write_headers` (0x0008000D) instead of being ignored.
+#[test]
+fn decoder_side_state_is_refused() {
+    use htj2k::file::MemInfile;
+    // a 2x2-tile image, so skipped resolutions would shift tiles
+    let base = || {
+        let mut enc = Encoder::new();
+        let siz = enc.access_siz_mut().unwrap();
+        siz.set_image_extent(Point::new(16, 16));
+        siz.set_tile_size(Size::new(8, 8));
+        siz.set_num_components(3);
+        for c in 0..3 {
+            siz.set_component(c, Point::new(1, 1), 8, false).unwrap();
+        }
+        enc.access_cod_mut()
+            .unwrap()
+            .set_num_decomposition(2)
+            .unwrap();
+        enc
+    };
+    // A COD segment after its marker: Lcod, Scod, SGcod (order, layers,
+    // MCT), SPcod (levels, block size, style, kernel).
+    let cod = |scod: u8, layers: u16, mct: u8, style: u8, kernel: u8| {
+        let l = layers.to_be_bytes();
+        vec![0, 12, scod, 0, l[0], l[1], mct, 2, 2, 2, style, kernel]
+    };
+    type Setup = Box<dyn Fn(&mut Encoder)>;
+    let read_cod = |bytes: Vec<u8>| -> Setup {
+        Box::new(move |e: &mut Encoder| {
+            let mut f = MemInfile::new(&bytes);
+            e.access_cod_mut().unwrap().read(&mut f).unwrap();
+        })
+    };
+    let cases: Vec<(&str, Setup)> = vec![
+        (
+            "skipped resolutions",
+            Box::new(|e| e.access_siz_mut().unwrap().set_skipped_resolutions(1)),
+        ),
+        (
+            "Rsiz capability bit",
+            Box::new(|e| e.access_siz_mut().unwrap().set_Rsiz_flag(0x20)),
+        ),
+        (
+            "Rsiz without HT",
+            Box::new(|e| e.access_siz_mut().unwrap().reset_Rsiz_flag(0x4000)),
+        ),
+        ("SOP", read_cod(cod(0x02, 1, 0, 0x40, 1))),
+        ("EPH", read_cod(cod(0x04, 1, 0, 0x40, 1))),
+        ("two layers", read_cod(cod(0, 2, 0, 0x40, 1))),
+        ("vertical causal", read_cod(cod(0, 1, 0, 0x48, 1))),
+        ("ATK kernel", read_cod(cod(0, 1, 0, 0x40, 2))),
+        (
+            "MCT value 2",
+            Box::new(|e| e.access_cod_mut().unwrap().employ_color_transform(2)),
+        ),
+    ];
+    // the same COD read with none of these is fine
+    let mut enc = base();
+    read_cod(cod(0, 1, 0, 0x40, 1))(&mut enc);
+    let mut out = Vec::new();
+    enc.write_headers(&mut out, &[]).unwrap();
+    for (name, setup) in &cases {
+        let mut enc = base();
+        setup(&mut enc);
+        let mut out = b"keep".to_vec();
+        let err = enc.write_headers(&mut out, &[]).expect_err(name);
+        assert_eq!(err.code(), 0x0008000D, "{name}: {err}");
+        assert_eq!(out, b"keep", "{name}");
+    }
+
+    // An NLT type 4 read from a codestream has no encoding table.
+    let mut enc = small_encoder();
+    enc.access_cod_mut().unwrap().set_reversible(false);
+    let points: Vec<u32> = (0..16).map(|i| i * 4000).collect();
+    enc.access_nlt_mut()
+        .unwrap()
+        .set_nonlinear_transform_lut(
+            0,
+            16,
+            false,
+            0,
+            0xFFFF,
+            16,
+            16,
+            &points,
+            nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_PLUS_LUT,
+            false,
+            0,
+        )
+        .unwrap();
+    let mut out = Vec::new();
+    enc.write_headers(&mut out, &[]).unwrap();
+    let at = out
+        .windows(2)
+        .position(|w| w == htj2k::params::marker::NLT.to_be_bytes())
+        .unwrap();
+    let mut enc = small_encoder();
+    enc.access_cod_mut().unwrap().set_reversible(false);
+    let mut f = MemInfile::new(&out[at + 2..]);
+    enc.access_nlt_mut().unwrap().read(&mut f).unwrap();
+    let err = enc.write_headers(&mut Vec::new(), &[]).unwrap_err();
+    assert_eq!(err.code(), 0x0008000D, "{err}");
+}
+
 /// LRCP or RLCP with components of different decomposition counts is
 /// refused: without tile parts at components OpenJPH asserts
 /// (0x00080007), with them it writes a TNsot and TPsot no decoder

@@ -90,6 +90,15 @@ The encoder differs as follows:
     comment longer than a COM segment can hold.
   * Calls out of order, such as `exchange` before `write_headers` or
     `flush` before every line is exchanged.
+  * Parameter state that the decoder uses but the writer does not
+    implement (0x0008000D). The parameter objects are shared with the
+    decoder, so `access_*_mut` reaches `read`, `set_skipped_resolutions`
+    and similar calls. Refused are skipped resolutions, Rsiz bits other
+    than HT, EXT and NLT, SOP or EPH markers, more than one quality
+    layer, code-block style options, ATK or DFS kernels, a colour
+    transform value other than 0 or 1, and a LUT nonlinearity without
+    an encoding table (one read from a codestream). OpenJPH would
+    ignore them, or write markers the packets do not match.
   * Any setter or `access_*_mut` call after `write_headers`
     (0x0008000B); the call changes nothing. In OpenJPH such calls
     change the stream being written, which can leave it without tile

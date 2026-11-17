@@ -17,8 +17,8 @@ use crate::params::tilepart_divisions::{
     OJPH_TILEPART_RESOLUTIONS,
 };
 use crate::params::{
-    CommentExchange, ParamAtk, ParamCap, ParamCod, ParamNlt, ParamQcd, ParamSiz, ParamTlm,
-    ProgressionOrder,
+    nonlinearity, CommentExchange, ParamAtk, ParamCap, ParamCod, ParamNlt, ParamQcd, ParamSiz,
+    ParamTlm, ProgressionOrder,
 };
 use crate::types::{div_ceil, Point, Rect, Size};
 use crate::Result;
@@ -361,6 +361,8 @@ impl Encoder {
             }
         }
 
+        self.check_encodable()?;
+
         // finalize
         self.siz.set_cod(&self.cod);
         // set the tile size if it was not set by the user
@@ -607,6 +609,94 @@ impl Encoder {
         self.cur_line = 0;
         self.cur_tile_row = 0;
         self.handed_out = false;
+        Ok(())
+    }
+
+    /// Refuses (0x0008000D) parameter state that only the decoder uses
+    /// or that the writer does not implement. The parameter objects are
+    /// shared with the decoder, so `access_siz_mut` and `access_cod_mut`
+    /// reach calls such as `read`, `set_skipped_resolutions` and
+    /// `employ_color_transform(u8)`, which can set it; the writer would
+    /// ignore it, or write markers that claim what the packets do not
+    /// have.
+    fn check_encodable(&self) -> Result<()> {
+        let refuse = |what: String| {
+            ojph_error!(
+                0x0008000D,
+                "{}; the encoder does not support this (it is decoder-side state, or a coding option the encoder does not implement)",
+                what
+            )
+        };
+        let siz = &self.siz;
+        if siz.skipped_resolutions != 0 {
+            return refuse(format!(
+                "SIZ has {} skipped resolutions",
+                siz.skipped_resolutions
+            ));
+        }
+        let known = ParamSiz::RSIZ_HT_FLAG | ParamSiz::RSIZ_EXT_FLAG | ParamSiz::RSIZ_NLT_FLAG;
+        if siz.rsiz & !known != 0 || siz.rsiz & ParamSiz::RSIZ_HT_FLAG == 0 {
+            return refuse(format!("SIZ has Rsiz 0x{:04X}", siz.rsiz));
+        }
+        if siz.dfs.is_some() || siz.dfs_support_needed || siz.ws_kern_support_needed {
+            return refuse("SIZ is linked to a DFS segment or needs wavelet kernel support".into());
+        }
+
+        let cods = std::iter::once((None, &self.cod))
+            .chain(self.cod.children.iter().map(|c| (Some(c.comp_idx), c)));
+        for (comp, cod) in cods {
+            let which = match comp {
+                None => "the COD segment".to_string(),
+                Some(c) => format!("the COC segment of component {c}"),
+            };
+            // Scod bit 0 (precincts given) is the only one the writer
+            // sets; bits 1 and 2 (SOP and EPH) are for COD only
+            if cod.scod & !1 != 0 {
+                return refuse(format!(
+                    "{which} has Scod 0x{:02X} (SOP or EPH markers, or reserved bits)",
+                    cod.scod
+                ));
+            }
+            if cod.spcod.block_style != ParamCod::HT_MODE {
+                return refuse(format!(
+                    "{which} has the code-block style 0x{:02X}; only 0x40 (HT, no options) is written",
+                    cod.spcod.block_style
+                ));
+            }
+            if cod.spcod.wavelet_trans > ParamCod::DWT_REV53 {
+                return refuse(format!(
+                    "{which} uses the wavelet kernel {} (an ATK segment)",
+                    cod.spcod.wavelet_trans
+                ));
+            }
+            if cod.is_dfs_defined() {
+                return refuse(format!("{which} uses a DFS segment"));
+            }
+        }
+        let gcod = &self.cod.sgcod;
+        if gcod.num_layers != 1 {
+            return refuse(format!("COD has {} quality layers", gcod.num_layers));
+        }
+        if gcod.mc_trans > 1 {
+            return refuse(format!(
+                "COD has the multiple component transform {}",
+                gcod.mc_trans
+            ));
+        }
+
+        // An NLT read from a codestream has no encoding table.
+        let nlts = std::iter::once(&self.nlt).chain(self.nlt.others());
+        for p in nlts.filter(|p| p.is_enabled()) {
+            let rec = p.rec();
+            let lut = rec.tnlt == nonlinearity::OJPH_NLT_LUT_STYLE_NLT
+                || rec.tnlt == nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_PLUS_LUT;
+            if lut && rec.enc_num_points == 0 {
+                return refuse(format!(
+                    "the NLT segment of component {} has a LUT without an encoding table (set it with set_nonlinear_transform_lut)",
+                    p.get_comp_num()
+                ));
+            }
+        }
         Ok(())
     }
 
