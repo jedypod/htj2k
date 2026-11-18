@@ -98,6 +98,6 @@ pub use siz::{ParamSiz, SizCompInfo};
 pub use sot::{ParamSot, ParamTlm, TtlmPtlmPair};
 
 #[cfg(test)]
-mod reuse_tests;
+pub(crate) mod reuse_tests;
 #[cfg(test)]
 mod tests;

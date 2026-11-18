@@ -5,9 +5,12 @@
 
 //! The decoder's tree after `reset` is the tree `create` builds: every
 //! field that decoding changes is put back, whether the codestream was
-//! decoded in full, in part, or failed half way.
+//! decoded in full, in part, or failed half way. Kept memory, the
+//! parameter objects included, filled with garbage changes nothing.
 
 use super::{Codestream, DecoderMemory};
+use crate::params::reuse_tests::poison_params;
+use crate::params::{ParamAtk, ParamCod, ParamDfs, ParamNlt, ParamQcd, ParamSiz};
 use std::path::Path;
 
 /// Every codestream of `tests/data/matrix` and `tests/data/strips`.
@@ -112,12 +115,29 @@ fn reset_restores_the_tree_create_builds() {
     assert!(checked > 200, "only {checked} codestreams");
 }
 
-/// What decoding gives: every line pulled, with its component, and the
-/// error code that stopped it, if one did.
+/// What decoding gives: every line pulled, with its component, the
+/// error code that stopped it, if one did, and the parameters as the
+/// decoder left them.
 #[derive(Debug, PartialEq)]
 struct Decoded {
     lines: Vec<(u32, Vec<i32>)>,
     error: Option<u32>,
+    params: Params,
+}
+
+/// The parameter objects of a decoder, compared by their parameters
+/// (spares compare equal).
+type Params = (ParamSiz, ParamCod, ParamQcd, ParamNlt, ParamDfs, ParamAtk);
+
+fn params(cs: &Codestream) -> Params {
+    (
+        cs.siz.clone(),
+        cs.cod.clone(),
+        cs.qcd.clone(),
+        cs.nlt.clone(),
+        cs.dfs.clone(),
+        cs.atk.clone(),
+    )
 }
 
 /// Decodes `data` with `cs`, resiliently or not.
@@ -135,11 +155,17 @@ fn decode<'a>(cs: &mut Codestream<'a>, data: &'a [u8], resilient: bool) -> Decod
         Ok(())
     };
     let error = run().err().map(|e| e.code());
-    Decoded { lines, error }
+    Decoded {
+        lines,
+        error,
+        params: params(cs),
+    }
 }
 
-/// Fills every buffer `mem` keeps with the bit pattern `bits`.
+/// Fills every buffer `mem` keeps with the bit pattern `bits`, and its
+/// parameter objects with garbage.
 fn poison(mem: &mut DecoderMemory, bits: u32) {
+    poison_params(&mut mem.params);
     for tile in mem.tiles.iter_mut() {
         tile.fill_buffers(bits);
     }

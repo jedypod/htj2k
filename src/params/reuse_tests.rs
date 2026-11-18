@@ -31,7 +31,7 @@ fn rich_cod() -> ParamCod {
 }
 
 /// A COD object with every field set to something no setter gives.
-fn garbage_cod(n: u16) -> ParamCod {
+pub(crate) fn garbage_cod(n: u16) -> ParamCod {
     let mut p = ParamCod::new();
     p.type_ = CodType::CodTile;
     p.lcod = 0xBEEF ^ n;
@@ -231,7 +231,7 @@ fn rich_nlt() -> ParamNlt {
 }
 
 /// An NLT object with every field and table set to garbage.
-fn garbage_nlt(n: u16) -> ParamNlt {
+pub(crate) fn garbage_nlt(n: u16) -> ParamNlt {
     let mut p = ParamNlt::new();
     p.lnlt = 0xDEAD;
     p.cnlt = 9000 + n;
@@ -349,4 +349,68 @@ fn nlt_lut_errors_leave_the_same_state() {
         assert!(r.is_err());
     }
     assert_eq!(kept, fresh);
+}
+
+/// A QCD object with every field set to something no setter gives.
+pub(crate) fn garbage_qcd(n: u16) -> ParamQcd {
+    let mut p = ParamQcd::new();
+    p.type_ = QcdType::QccMain;
+    p.is_init = true;
+    p.lqcd = 0xF00D;
+    p.sqcd = 0xFF;
+    p.spqcd = [0xC3; 2 * MAX_SUBBAND_COUNT as usize];
+    p.num_subbands = 999;
+    p.enabled = false;
+    p.base_delta = f32::NAN;
+    p.qfactor = 1e9;
+    p.num_weights = 77;
+    p.weights = [f32::NAN; MAX_SUBBAND_COUNT as usize];
+    p.is_color_trans = true;
+    p.num_decomps = 40;
+    p.bit_depth = 99;
+    p.is_signed = true;
+    p.wavelet_kern = 7;
+    p.sampling = Point::new(13, 17);
+    p.comp_idx = 5000 + n;
+    p
+}
+
+/// Fills every kept parameter object, and its spares, with garbage.
+pub(crate) fn poison_params(p: &mut crate::codestream::KeptParams) {
+    for n in 0..3 {
+        p.cod.spare.put(garbage_cod(n));
+        p.cod.children.push(garbage_cod(10 + n));
+        p.nlt.spare.put(garbage_nlt(n));
+        p.nlt.others.push(garbage_nlt(10 + n));
+        p.qcd.children.push(garbage_qcd(n));
+    }
+    let children = std::mem::take(&mut p.cod.children);
+    let spare = std::mem::take(&mut p.cod.spare);
+    p.cod = garbage_cod(20);
+    p.cod.children = children;
+    p.cod.spare = spare;
+    let children = std::mem::take(&mut p.qcd.children);
+    p.qcd = garbage_qcd(20);
+    p.qcd.children = children;
+    p.nlt.rec = garbage_nlt(20).rec;
+    p.nlt.lnlt = 0xBAD;
+    p.nlt.cnlt = 3;
+    p.nlt.enabled = true;
+    let s = &mut p.siz;
+    s.lsiz = 0xBAD;
+    s.rsiz = 0xFFFF;
+    s.xsiz = 0xDEAD_BEEF;
+    s.ysiz = 7;
+    s.xtsiz = 3;
+    s.csiz = 3;
+    s.cptr = vec![SizCompInfo::default(); 3];
+    s.skipped_resolutions = 9;
+    s.ws_kern_support_needed = true;
+    s.cod = Some(Box::new(garbage_cod(21)));
+    s.spare_cod.put(Box::new(garbage_cod(22)));
+    s.dfs = Some(Box::new(ParamDfs::new()));
+    p.atk.init_rev53();
+    p.atk.katk = f32::NAN;
+    p.dfs.ldfs = 0xBAD;
+    p.dfs.others.push(ParamDfs::new());
 }

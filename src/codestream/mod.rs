@@ -29,8 +29,36 @@ pub use write::Encoder;
 
 use crate::error::ojph_error;
 use crate::line::LineBuf;
-use crate::params::{ParamCod, ParamDfs, ParamNlt, ParamQcd, ParamSiz};
+use crate::params::{ParamAtk, ParamCod, ParamDfs, ParamNlt, ParamQcd, ParamSiz};
 use crate::Result;
+
+/// The parameter objects a decoder or encoder keeps from one codestream
+/// to the next, for their storage only: the per-component COD, QCD and
+/// NLT objects with the NLT tables, the components of SIZ and its copy
+/// of COD, and the kernels. [`KeptParams::recycle`] gives each the state
+/// a new one has before it is used again. `ParamCap` holds no storage
+/// and is not kept.
+#[derive(Debug, Default)]
+pub(crate) struct KeptParams {
+    pub siz: ParamSiz,
+    pub cod: ParamCod,
+    pub qcd: ParamQcd,
+    pub nlt: ParamNlt,
+    pub dfs: ParamDfs,
+    pub atk: ParamAtk,
+}
+
+impl KeptParams {
+    /// Gives every object the state `new` gives, keeping its storage.
+    pub(crate) fn recycle(&mut self) {
+        self.siz.init();
+        self.cod.recycle();
+        self.qcd.recycle();
+        self.nlt.restart();
+        self.dfs.restart();
+        self.atk.restart();
+    }
+}
 
 /// The parameters every part of the tree is built from. This stands in
 /// for the `codestream*` that OpenJPH passes to each `finalize_alloc`.

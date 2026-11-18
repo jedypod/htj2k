@@ -7,7 +7,7 @@
 //! `ojph_codestream_local.cpp`.
 
 use crate::codestream::tile::Tile;
-use crate::codestream::{Budget, Build};
+use crate::codestream::{Budget, Build, KeptParams};
 use crate::error::ojph_error;
 use crate::file::{MemInfile, SeekFrom};
 use crate::line::LineBuf;
@@ -36,7 +36,11 @@ const DEFAULT_MEMORY_LIMIT: u64 = 1 << 32;
 ///
 /// It holds the tiles, with their line and code-block buffers, the lines
 /// handed out by [`Codestream::pull`] and some scratch space, as the
-/// last codestream needed them. Dropping it frees them.
+/// last codestream needed them. It also holds the storage of the
+/// marker-segment parameters (per-component COC, QCC and NLT segments,
+/// and NLT tables), which [`Codestream::read_headers`] reuses whatever
+/// the codestream; their values are not kept. Dropping it frees them
+/// all.
 #[derive(Debug, Default)]
 pub struct DecoderMemory {
     tiles: Vec<Tile>,
@@ -51,6 +55,8 @@ pub struct DecoderMemory {
     built_for: Option<Box<TreeParams>>,
     /// What building them took from the memory limit.
     charge: u64,
+    /// The parameter objects of the last decoder, for their storage.
+    params: KeptParams,
 }
 
 impl DecoderMemory {
@@ -165,7 +171,9 @@ impl<'a> Codestream<'a> {
     /// A decoder in the state [`new`](Self::new) gives, which reuses the
     /// buffers in `memory` where the next codestream can use them. Its
     /// settings are the defaults, whatever decoder `memory` came from.
-    pub fn with_memory(memory: DecoderMemory) -> Self {
+    pub fn with_memory(mut memory: DecoderMemory) -> Self {
+        let mut params = std::mem::take(&mut memory.params);
+        params.recycle();
         Codestream {
             infile: None,
             cur_line: 0,
@@ -180,13 +188,13 @@ impl<'a> Codestream<'a> {
             num_comps: 0,
             mem: memory,
             planar: false,
-            siz: ParamSiz::default(),
-            cod: ParamCod::default(),
+            siz: params.siz,
+            cod: params.cod,
             cap: ParamCap::default(),
-            qcd: ParamQcd::default(),
-            nlt: ParamNlt::default(),
-            dfs: ParamDfs::default(),
-            atk: ParamAtk::default(),
+            qcd: params.qcd,
+            nlt: params.nlt,
+            dfs: params.dfs,
+            atk: params.atk,
         }
     }
 
@@ -194,7 +202,16 @@ impl<'a> Codestream<'a> {
     /// [`with_memory`](Self::with_memory). It can be called at any point,
     /// after an error too.
     pub fn into_memory(self) -> DecoderMemory {
-        self.mem
+        let mut mem = self.mem;
+        mem.params = KeptParams {
+            siz: self.siz,
+            cod: self.cod,
+            qcd: self.qcd,
+            nlt: self.nlt,
+            dfs: self.dfs,
+            atk: self.atk,
+        };
+        mem
     }
 
     /// Returns the decoder to the state [`new`](Self::new) gives, settings
@@ -205,8 +222,8 @@ impl<'a> Codestream<'a> {
     /// not, use [`into_memory`](Self::into_memory) and
     /// [`with_memory`](Self::with_memory).
     pub fn reset(&mut self) {
-        let mem = std::mem::take(&mut self.mem);
-        *self = Self::with_memory(mem);
+        let old = std::mem::take(self);
+        *self = Self::with_memory(old.into_memory());
     }
 
     /// The SIZ marker segment: image, tile and component sizes.
