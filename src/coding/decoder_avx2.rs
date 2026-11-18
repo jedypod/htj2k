@@ -4,16 +4,26 @@
 // notice and licence text, which also apply to this file.
 
 //! AVX2 MagSgn step of the HT block decoder for 32-bit samples (port of
-//! `decode_cb_step2_32bit` and `decode_two_quad32_avx2` in OpenJPH's
+//! `decode_cb_step2_32bit`, `decode_cb_step2_16bit`,
+//! `decode_two_quad32_avx2` and `decode_four_quad16` in OpenJPH's
 //! `ojph_block_decoder_avx2.cpp`), for the `simd` feature.
 //!
 //! As in OpenJPH, the MagSgn segment is first unstuffed into a flat
 //! buffer ([`destuff_frwd`]), so the bits of a quad can be fetched at an
 //! absolute bit position ([`dfetch`]) instead of through a reader that
-//! carries state from one sample to the next. Each step then decodes two
-//! quads, one sample per lane: the bit offset of each sample within its
-//! quad is a prefix sum of the sample lengths, and byte shuffles and
-//! multiplies extract the 32 bits from that offset.
+//! carries state from one sample to the next. Each step then decodes
+//! several quads, one sample per lane: the bit offset of each sample
+//! within its quad is a prefix sum of the sample lengths, and byte
+//! shuffles and multiplies extract the sample's bits from that offset.
+//!
+//! Also as in OpenJPH, a block of at most 14 bit-planes (`mmsbp2 < 16`)
+//! is decoded four quads a step in 16-bit lanes
+//! ([`quads16`]), any other two quads a step in 32-bit lanes
+//! ([`quads32`]). The 16-bit lanes give the same samples: every decoded
+//! `U_q` is then at most `mmsbp2 <= 15`, so `v_n` has at most 16 bits,
+//! and `p >= 17`, so the low 16 bits of a sample, `(v_n + 2) << (p - 1)`
+//! with the sign at bit 31, are 0 and its high 16 bits are
+//! `(v_n + 2) << (p - 17)`, wrapped to 16 bits.
 //!
 //! The result is that of [`super::decoder32`]'s scalar MagSgn step for
 //! every input, including malformed ones, where OpenJPH's kernel and its
@@ -70,6 +80,7 @@ fn has_ff_byte64(v: u64) -> bool {
 /// produced, then the partial byte with its high bits set, then 0xFF
 /// bytes; `dst` must have room for `cap + PAD` bytes. Returns the offset
 /// from which every byte is 0xFF.
+#[inline(always)]
 fn destuff_frwd(src: &[u8], dst: &mut [u8], cap: usize) -> usize {
     /// The output position and the bits not yet written.
     struct Out {
@@ -273,13 +284,199 @@ fn decode_two_quads(
     (_mm256_andnot_si256(insig, ms), v_n)
 }
 
+/// The 8 entries of `s` from `i` (4 quads, as in [`load_quads`]), zeros
+/// past its end.
+#[target_feature(enable = "avx2")]
+#[inline]
+fn load_quads4(s: &[u16], i: usize) -> __m128i {
+    let mut a = [0u16; 8];
+    match s.get(i..i + 8) {
+        Some(src) => a.copy_from_slice(src),
+        None => {
+            let src = s.get(i..).unwrap_or(&[]);
+            a[..src.len()].copy_from_slice(src);
+        }
+    }
+    _mm_setr_epi16(
+        a[0] as i16,
+        a[1] as i16,
+        a[2] as i16,
+        a[3] as i16,
+        a[4] as i16,
+        a[5] as i16,
+        a[6] as i16,
+        a[7] as i16,
+    )
+}
+
+/// The first 4 elements of `s` (one `vmovdqu`).
+#[target_feature(enable = "avx2")]
+#[inline]
+fn load_u32x4(s: &[u32]) -> __m128i {
+    let s: &[u32; 4] = s[..4].try_into().unwrap();
+    _mm_setr_epi32(s[0] as i32, s[1] as i32, s[2] as i32, s[3] as i32)
+}
+
+/// Stores the 4 lanes of `v` at the start of `s`.
+#[target_feature(enable = "avx2")]
+#[inline]
+fn store_u32x4(s: &mut [u32], v: __m128i) {
+    let s: &mut [u32; 4] = (&mut s[..4]).try_into().unwrap();
+    *s = [
+        _mm_extract_epi32::<0>(v) as u32,
+        _mm_extract_epi32::<1>(v) as u32,
+        _mm_extract_epi32::<2>(v) as u32,
+        _mm_extract_epi32::<3>(v) as u32,
+    ];
+}
+
+/// `decode_four_quad16`: the 16 samples of the four quads whose `inf` and
+/// `U_q` are the 32-bit lanes of `inf` and `u_q`, decoded from bit `pos`,
+/// which moves past them, when no `U_q` of a quad with a significant
+/// sample exceeds 15 and `p >= 17`. Lanes `4k` to `4k + 3` hold quad
+/// `k`'s samples in the generic decoder's order, each the upper 16 bits
+/// of its 32-bit value (the lower 16 are 0). Returns the samples and
+/// their `v_n` (both 0 for an insignificant sample).
+#[target_feature(enable = "avx2")]
+#[inline]
+fn decode_four_quads(
+    inf: __m128i,
+    u_q: __m128i,
+    dbuf: &[u8],
+    limit: usize,
+    pos: &mut u32,
+    p: u32,
+) -> (__m256i, __m256i) {
+    // each quad's 16-bit inf and U_q in its four lanes
+    let spread = _mm256_setr_epi32(0, 0, 1, 1, 2, 2, 3, 3);
+    let inf = _mm_or_si128(inf, _mm_slli_epi32::<16>(inf));
+    let inf = _mm256_permutevar8x32_epi32(_mm256_castsi128_si256(inf), spread);
+    // rho, the significance of each sample
+    let rho = _mm256_and_si256(
+        inf,
+        _mm256_setr_epi16(
+            0x10, 0x20, 0x40, 0x80, 0x10, 0x20, 0x40, 0x80, 0x10, 0x20, 0x40, 0x80, 0x10, 0x20,
+            0x40, 0x80,
+        ),
+    );
+    let insig = _mm256_cmpeq_epi16(rho, _mm256_setzero_si256());
+    if _mm256_movemask_epi8(insig) == -1 {
+        return (_mm256_setzero_si256(), _mm256_setzero_si256());
+    }
+    let u_q = _mm_or_si128(u_q, _mm_slli_epi32::<16>(u_q));
+    let u_q = _mm256_permutevar8x32_epi32(_mm256_castsi128_si256(u_q), spread);
+
+    // e_k at bit 15, e_1 at bit 11
+    let flags = _mm256_and_si256(
+        inf,
+        _mm256_setr_epi16(
+            0x1110,
+            0x2220,
+            0x4440,
+            0x8880u16 as i16,
+            0x1110,
+            0x2220,
+            0x4440,
+            0x8880u16 as i16,
+            0x1110,
+            0x2220,
+            0x4440,
+            0x8880u16 as i16,
+            0x1110,
+            0x2220,
+            0x4440,
+            0x8880u16 as i16,
+        ),
+    );
+    let flags = _mm256_mullo_epi16(
+        flags,
+        _mm256_setr_epi16(8, 4, 2, 1, 8, 4, 2, 1, 8, 4, 2, 1, 8, 4, 2, 1),
+    );
+    let e_k = _mm256_srli_epi16::<15>(flags);
+
+    // the sample lengths, m_n, and their prefix sums within each pair of
+    // quads (a 128-bit half)
+    let m_n = _mm256_andnot_si256(insig, _mm256_sub_epi16(u_q, e_k));
+    let mut inc_sum = _mm256_add_epi16(m_n, _mm256_bslli_epi128::<2>(m_n));
+    inc_sum = _mm256_add_epi16(inc_sum, _mm256_bslli_epi128::<4>(inc_sum));
+    inc_sum = _mm256_add_epi16(inc_sum, _mm256_bslli_epi128::<8>(inc_sum));
+    let total0 = _mm256_extract_epi16::<7>(inc_sum) as u32;
+    let total1 = _mm256_extract_epi16::<15>(inc_sum) as u32;
+
+    let ms0 = dfetch(dbuf, limit, *pos);
+    let ms1 = dfetch(dbuf, limit, *pos + total0);
+    *pos += total0 + total1;
+    let ms_vec = _mm256_set_m128i(ms1, ms0);
+
+    // the 16 bits from each sample's first bit
+    let ex_sum = _mm256_bslli_epi128::<2>(inc_sum);
+    let mut byte_idx = _mm256_srli_epi16::<3>(ex_sum);
+    let bit_idx = _mm256_and_si256(ex_sum, _mm256_set1_epi16(7));
+    byte_idx = _mm256_shuffle_epi8(
+        byte_idx,
+        _mm256_setr_epi8(
+            0, 0, 2, 2, 4, 4, 6, 6, 8, 8, 10, 10, 12, 12, 14, 14, 0, 0, 2, 2, 4, 4, 6, 6, 8, 8, 10,
+            10, 12, 12, 14, 14,
+        ),
+    );
+    byte_idx = _mm256_add_epi16(byte_idx, _mm256_set1_epi16(0x0100));
+    let mut d0 = _mm256_shuffle_epi8(ms_vec, byte_idx);
+    byte_idx = _mm256_add_epi16(byte_idx, _mm256_set1_epi16(0x0101));
+    let mut d1 = _mm256_shuffle_epi8(ms_vec, byte_idx);
+
+    let shr = _mm256_setr_epi8(
+        -1, 127, 63, 31, 15, 7, 3, 1, -1, 127, 63, 31, 15, 7, 3, 1, -1, 127, 63, 31, 15, 7, 3, 1,
+        -1, 127, 63, 31, 15, 7, 3, 1,
+    );
+    // 1 << (8 - bit_idx): the high byte of bit_idx is 0, so the shuffle
+    // puts 0xFF there, and the carry of the low byte clears it
+    let bit_shift = _mm256_add_epi16(_mm256_shuffle_epi8(shr, bit_idx), _mm256_set1_epi16(0x0101));
+    d0 = _mm256_srli_epi16::<8>(_mm256_mullo_epi16(d0, bit_shift));
+    d1 = _mm256_and_si256(
+        _mm256_mullo_epi16(d1, bit_shift),
+        _mm256_set1_epi16(0xFF00u16 as i16),
+    );
+    let bits = _mm256_or_si256(d0, d1);
+
+    // 1 << m_n (m_n <= 15), where e_1 goes: the low byte looks up m_n
+    // below 8, the high byte m_n - 8 (no lookup, so 0, when negative)
+    let idx = _mm256_or_si256(
+        m_n,
+        _mm256_slli_epi16::<8>(_mm256_sub_epi16(m_n, _mm256_set1_epi16(8))),
+    );
+    let pow2 = _mm256_setr_epi8(
+        1, 2, 4, 8, 16, 32, 64, -128, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 4, 8, 16, 32, 64, -128, 0, 0,
+        0, 0, 0, 0, 0, 0,
+    );
+    let shift = _mm256_shuffle_epi8(pow2, idx);
+    let ones = _mm256_set1_epi16(1);
+    let mut ms = _mm256_and_si256(bits, _mm256_sub_epi16(shift, ones));
+    let e_1 = _mm256_cmpeq_epi16(
+        _mm256_and_si256(flags, _mm256_set1_epi16(0x800)),
+        _mm256_setzero_si256(),
+    );
+    ms = _mm256_or_si256(ms, _mm256_andnot_si256(e_1, shift));
+    ms = _mm256_or_si256(ms, ones); // bin center
+    let v_n = _mm256_andnot_si256(insig, ms);
+    let sign = _mm256_slli_epi16::<15>(bits);
+    // the upper half of (v_n + 2) << (p - 1)
+    ms = _mm256_sll_epi16(
+        _mm256_add_epi16(ms, _mm256_set1_epi16(2)),
+        _mm_cvtsi32_si128(p as i32 - 17),
+    );
+    ms = _mm256_or_si256(ms, sign);
+    (_mm256_andnot_si256(insig, ms), v_n)
+}
+
 /// `U_q` of each quad of the row pair whose records start at `sp`, and
 /// the first quad whose `U_q` exceeds `mmsbp2`. `v_n[k]` holds the
 /// previous row pair's `v_n` of the bottom samples of columns `2k - 1`
-/// and `2k`, for `k <= nq`.
+/// and `2k`, for `k <= nq`. `W16` only gives each version of [`rows`]
+/// its own copy, which LLVM compiles better than a shared one (about
+/// 0.25 instructions per sample).
 #[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]
 #[inline]
-fn row_u_q(
+fn row_u_q<const W16: bool>(
     scratch: &[u16; SCRATCH_LEN],
     sp: usize,
     nq: usize,
@@ -332,7 +529,7 @@ fn row_u_q(
 #[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]
 #[inline]
 #[allow(clippy::too_many_arguments)]
-fn row_pair(
+fn row_pair<const W16: bool>(
     scratch: &[u16; SCRATCH_LEN],
     sp: usize,
     width: usize,
@@ -347,9 +544,39 @@ fn row_pair(
     out: &mut impl RowPair<u32>,
 ) -> bool {
     let nq = width.div_ceil(2);
-    let fail = row_u_q(scratch, sp, nq, initial, v_n, u_q, mmsbp2);
+    let fail = row_u_q::<W16>(scratch, sp, nq, initial, v_n, u_q, mmsbp2);
     // the quads to decode
     let end = fail.unwrap_or(nq);
+    if W16 {
+        quads16(
+            scratch, sp, width, end, initial, v_n, u_q, dbuf, limit, pos, p, out,
+        );
+    } else {
+        quads32(scratch, sp, width, end, v_n, u_q, dbuf, limit, pos, p, out);
+    }
+    fail.is_none()
+}
+
+/// The first `end` quads of the row pair at `sp`, two at a time in 32-bit
+/// lanes, into `out`, and their `v_n` into `v_n` (`v_n[nq]` too when
+/// `end` is the row's quad count).
+#[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn quads32(
+    scratch: &[u16; SCRATCH_LEN],
+    sp: usize,
+    width: usize,
+    end: usize,
+    v_n: &mut [u32; V_N_SIZE + 16],
+    u_q: &[u32; V_N_SIZE + 16],
+    dbuf: &[u8],
+    limit: usize,
+    pos: &mut u32,
+    p: u32,
+    out: &mut impl RowPair<u32>,
+) {
+    let nq = width.div_ceil(2);
     // in an odd-width block, the samples of the last column's right
     // neighbours are left alone
     let odd_mask = if width & 1 != 0 { !0xCCC0u32 } else { !0 };
@@ -396,11 +623,90 @@ fn row_pair(
         }
         q += 2;
     }
-    if fail.is_some() {
-        return false;
+    if end == nq {
+        v_n[nq] = carry;
     }
-    v_n[nq] = carry;
-    true
+}
+
+/// The first `end` quads of the row pair at `sp`, four at a time in
+/// 16-bit lanes ([`decode_four_quads`]; every `U_q` of these is at most
+/// `mmsbp2 <= 15`, and `p >= 17`), into `out`, and their `v_n` into
+/// `v_n` (`v_n[nq]` too when `end` is the row's quad count).
+#[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn quads16(
+    scratch: &[u16; SCRATCH_LEN],
+    sp: usize,
+    width: usize,
+    end: usize,
+    initial: bool,
+    v_n: &mut [u32; V_N_SIZE + 16],
+    u_q: &[u32; V_N_SIZE + 16],
+    dbuf: &[u8],
+    limit: usize,
+    pos: &mut u32,
+    p: u32,
+    out: &mut impl RowPair<u32>,
+) {
+    let nq = width.div_ceil(2);
+    // the columns to write
+    let cols = width.min(2 * end);
+    let lane = _mm_setr_epi32(0, 1, 2, 3);
+    let low16 = _mm_set1_epi32(0xFFFF);
+    let carry_lane = _mm256_setr_epi32(0, 2, 4, 6, 1, 3, 5, 7);
+
+    let mut carry = 0u32; // v_n of the previous quad's bottom-right sample
+    let mut q = 0;
+    while q < end {
+        let quads = load_quads4(scratch, sp + 2 * q);
+        let mut inf = _mm_and_si128(quads, low16);
+        let uq = if initial {
+            _mm_srli_epi32::<16>(quads)
+        } else {
+            load_u32x4(&u_q[q..])
+        };
+        if q + 4 > end || (q + 4 >= nq && width & 1 != 0) {
+            // quads from `end` on are not decoded, and in an odd-width
+            // block the samples right of the last column are left alone
+            let k = _mm_add_epi32(_mm_set1_epi32(q as i32), lane);
+            let keep = _mm_cmpgt_epi32(_mm_set1_epi32(end as i32), k);
+            let last = _mm_cmpeq_epi32(k, _mm_set1_epi32(nq as i32 - 1));
+            let odd = if width & 1 != 0 { 0xCCC0 } else { 0 };
+            let drop = _mm_and_si128(last, _mm_set1_epi32(odd));
+            inf = _mm_andnot_si128(drop, _mm_and_si128(inf, keep));
+        }
+        let (row, vn) = decode_four_quads(inf, uq, dbuf, limit, pos, p);
+        // samples 0 and 2 of a quad are on the top row, 1 and 3 below
+        let top = lanes_u32(_mm256_slli_epi32::<16>(row));
+        let bottom = lanes_u32(_mm256_and_si256(
+            row,
+            _mm256_set1_epi32(0xFFFF0000u32 as i32),
+        ));
+        let x = 2 * q;
+        let n = (cols - x).min(8);
+        if n == 8 {
+            // a fixed length: no call to `memcpy`
+            out.put_run(0, x, &top);
+            out.put_run(1, x, &bottom);
+        } else {
+            out.put_run(0, x, &top[..n]);
+            out.put_run(1, x, &bottom[..n]);
+        }
+
+        // v_n of samples 1 (low half) and 3 (high half) of each quad
+        let vn = _mm256_permutevar8x32_epi32(_mm256_srli_epi32::<16>(vn), carry_lane);
+        let s1 = _mm256_castsi256_si128(vn);
+        let s3 = _mm256_extracti128_si256::<1>(vn);
+        let before = _mm_or_si128(_mm_bslli_si128::<4>(s3), _mm_cvtsi32_si128(carry as i32));
+        // past the last quad, s1 is 0: v_n[nq] gets its s3 here
+        store_u32x4(&mut v_n[q..], _mm_or_si128(s1, before));
+        carry = _mm_extract_epi32::<3>(s3) as u32;
+        q += 4;
+    }
+    if end == nq && nq % 4 == 0 {
+        v_n[nq] = carry;
+    }
 }
 
 /// The scalar `decode_magsgn32` on an unstuffed copy of the segment held
@@ -420,8 +726,41 @@ fn magsgn(
     mmsbp2: u32,
     sstr: usize,
 ) -> bool {
+    // OpenJPH's choice: 16-bit lanes when every sample fits in them
+    if mmsbp2 < 16 {
+        rows::<true>(
+            dbuf, cap, scratch, src, dec, width, height, stride, p, mmsbp2, sstr,
+        )
+    } else {
+        rows::<false>(
+            dbuf, cap, scratch, src, dec, width, height, stride, p, mmsbp2, sstr,
+        )
+    }
+}
+
+/// [`magsgn`] in 16-bit lanes ([`quads16`]) or 32-bit ones
+/// ([`quads32`]). Not inlined, as in OpenJPH, so each version gets its
+/// own register allocation. The segment is unstuffed here, where the
+/// bounds of [`dfetch`]'s reads follow from it.
+#[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]
+#[inline(never)]
+#[allow(clippy::too_many_arguments)]
+fn rows<const W16: bool>(
+    dbuf: &mut [u8],
+    cap: usize,
+    scratch: &[u16; SCRATCH_LEN],
+    src: &[u8],
+    dec: &mut [u32],
+    width: u32,
+    height: u32,
+    stride: u32,
+    p: u32,
+    mmsbp2: u32,
+    sstr: usize,
+) -> bool {
     let limit = destuff_frwd(src, dbuf, cap);
-    let dbuf = &*dbuf;
+    // exactly the bytes dfetch can read, so its reads need no bounds check
+    let dbuf = &dbuf[..limit + PAD - 1];
     let mut pos = 0u32;
     let mut v_n = [0u32; V_N_SIZE + 16];
     let mut u_q = [0u32; V_N_SIZE + 16];
@@ -433,11 +772,11 @@ fn magsgn(
         let dp = y as usize * stride;
         let initial = y == 0;
         let ok = match whole_rows(dec, dp, stride, w) {
-            Some(mut r) => row_pair(
+            Some(mut r) => row_pair::<W16>(
                 scratch, sp, w, initial, &mut v_n, &mut u_q, dbuf, limit, &mut pos, p, mmsbp2,
                 &mut r,
             ),
-            None => row_pair(
+            None => row_pair::<W16>(
                 scratch,
                 sp,
                 w,
@@ -694,6 +1033,68 @@ mod tests {
         }
         // all but the blocks too tall for the decoders' scratch arrays
         assert!(decoded + 8 >= total, "{decoded} of {total} decoded");
+    }
+
+    /// The 16-bit path at its limits: every block size and kind of
+    /// samples, with the most bit-planes it takes (`mmsbp2` 15 and 14, so
+    /// `U_q` up to 15 and samples up to bit 30) and the fewest (2).
+    #[test]
+    fn matches_scalar_at_16_bit_limits() {
+        let mut seed = 0x3136_6269u64;
+        let (mut decoded, mut total) = (0, 0);
+        for (n, (w, h)) in sizes().into_iter().enumerate() {
+            for (k, missing_msbs) in [13u32, 12, 0].into_iter().enumerate() {
+                let kind = (n + k) as u64 % 7;
+                let stride = w + (n as u32 % 3);
+                let mut buf = samples(kind, (stride * h) as usize, 30 - missing_msbs, &mut seed);
+                let keep = (1u32 << (31 - missing_msbs)) - 1;
+                for v in &mut buf {
+                    *v &= 0x8000_0000 | keep;
+                }
+                let mut coded = Vec::new();
+                let Ok(len) = encode_codeblock32(&buf, missing_msbs, 1, w, h, stride, &mut coded)
+                else {
+                    continue;
+                };
+                let dec_len = (stride * (h + (n as u32 & 1))) as usize;
+                let what = format!("{w}x{h} kind {kind} mmsb {missing_msbs}");
+                decoded += check(
+                    &coded,
+                    missing_msbs,
+                    1,
+                    len,
+                    0,
+                    w,
+                    h,
+                    stride,
+                    false,
+                    dec_len,
+                    0xA5A5_A5A5,
+                    &what,
+                ) as usize;
+                total += 1;
+                // one plane fewer than coded: a U_q too large somewhere,
+                // with the quads before it written
+                if missing_msbs > 0 {
+                    let what = format!("{what} - 1");
+                    check(
+                        &coded,
+                        missing_msbs - 1,
+                        1,
+                        len,
+                        0,
+                        w,
+                        h,
+                        stride,
+                        false,
+                        dec_len,
+                        0xA5A5_A5A5,
+                        &what,
+                    );
+                }
+            }
+        }
+        assert!(decoded + 24 >= total, "{decoded} of {total} decoded");
     }
 
     #[test]
