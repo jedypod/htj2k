@@ -143,11 +143,17 @@ impl ParamQcd {
     }
 
     pub fn restart(&mut self) {
+        let t = self.type_;
+        self.recycle();
+        self.type_ = t;
+    }
+
+    /// Gives `self` the state `new` gives, but keeps the storage of its
+    /// list of QCC objects (which hold no other storage).
+    pub(crate) fn recycle(&mut self) {
         let mut children = std::mem::take(&mut self.children);
         children.clear();
-        let t = self.type_;
         *self = Self::new();
-        self.type_ = t;
         self.children = children;
     }
 

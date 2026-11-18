@@ -18,6 +18,7 @@ use super::markers::{
     OJPH_PO_STRING_PCRL, OJPH_PO_STRING_RLCP, OJPH_PO_STRING_RPCL,
 };
 use super::siz::ParamSiz;
+use super::spare::Spare;
 use crate::error::ojph_error;
 use crate::file::MemInfile;
 use crate::types::Size;
@@ -99,7 +100,7 @@ pub enum CodType {
 }
 
 /// `param_cod`: serves for both COD and COC marker segments.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ParamCod {
     pub(crate) type_: CodType,
     /// serves as Lcod and Lcoc
@@ -123,6 +124,42 @@ pub struct ParamCod {
     /// COC only: copy of the parent's `SGCod.mc_trans` (C++ reads
     /// `top_cod->is_employing_color_transform()`)
     pub(crate) top_mc_trans: u8,
+    /// COD only: COC objects removed by a restart, whose storage the
+    /// next COC objects reuse.
+    pub(crate) spare: Spare<ParamCod>,
+}
+
+impl Clone for ParamCod {
+    fn clone(&self) -> Self {
+        ParamCod {
+            type_: self.type_,
+            lcod: self.lcod,
+            scod: self.scod,
+            sgcod: self.sgcod,
+            spcod: self.spcod,
+            atk: self.atk.clone(),
+            comp_idx: self.comp_idx,
+            children: self.children.clone(),
+            top_num_decomp: self.top_num_decomp,
+            top_mc_trans: self.top_mc_trans,
+            spare: Spare::new(),
+        }
+    }
+
+    /// Copies `source` into the storage `self` already has; `self` keeps
+    /// its spares.
+    fn clone_from(&mut self, source: &Self) {
+        self.type_ = source.type_;
+        self.lcod = source.lcod;
+        self.scod = source.scod;
+        self.sgcod = source.sgcod;
+        self.spcod = source.spcod;
+        self.atk.clone_from(&source.atk);
+        self.comp_idx = source.comp_idx;
+        self.children.clone_from(&source.children);
+        self.top_num_decomp = source.top_num_decomp;
+        self.top_mc_trans = source.top_mc_trans;
+    }
 }
 
 impl Default for ParamCod {
@@ -156,27 +193,60 @@ impl ParamCod {
             children: Vec::new(),
             top_num_decomp: 0,
             top_mc_trans: 0,
+            spare: Spare::new(),
         }
     }
 
     /// A COC object for `top_cod` (`param_cod(top_cod, comp_idx)`).
     pub fn new_coc(top_cod: &ParamCod, comp_idx: u16) -> Self {
         let mut p = Self::new();
-        p.type_ = CodType::CocMain;
-        p.comp_idx = comp_idx;
-        p.top_num_decomp = top_cod.spcod.num_decomp;
-        p.top_mc_trans = top_cod.sgcod.mc_trans;
+        p.make_coc(top_cod, comp_idx);
         p
     }
 
-    pub fn restart(&mut self) {
+    /// Turns `self`, in the state `new` gives, into what `new_coc` gives.
+    fn make_coc(&mut self, top_cod: &ParamCod, comp_idx: u16) {
+        self.type_ = CodType::CocMain;
+        self.comp_idx = comp_idx;
+        self.top_num_decomp = top_cod.spcod.num_decomp;
+        self.top_mc_trans = top_cod.sgcod.mc_trans;
+    }
+
+    /// What `new_coc(self, comp_idx)` gives, in the storage of a spare COC
+    /// object if there is one.
+    fn take_coc(&mut self, comp_idx: u16) -> ParamCod {
+        match self.spare.take() {
+            Some(mut p) => {
+                p.recycle();
+                p.make_coc(self, comp_idx);
+                p
+            }
+            None => Self::new_coc(self, comp_idx),
+        }
+    }
+
+    /// Gives `self` the state `new` gives, but keeps its storage: the COC
+    /// objects go to the spares, and the kernel keeps its steps' storage.
+    pub(crate) fn recycle(&mut self) {
         let mut children = std::mem::take(&mut self.children);
-        children.clear();
+        let mut spare = std::mem::take(&mut self.spare);
+        spare.put_all(&mut children);
+        let mut atk = std::mem::take(&mut self.atk);
+        atk.restart();
+        *self = Self::new();
+        self.children = children;
+        self.spare = spare;
+        self.atk = atk;
+    }
+
+    /// Removes the COC objects and returns every parameter to its
+    /// default, but keeps the object's type and, on a COC object, the
+    /// values copied from its COD object.
+    pub fn restart(&mut self) {
         let t = self.type_;
         let tn = self.top_num_decomp;
         let tm = self.top_mc_trans;
-        *self = Self::new();
-        self.children = children;
+        self.recycle();
         self.type_ = t;
         self.top_num_decomp = tn;
         self.top_mc_trans = tm;
@@ -595,7 +665,7 @@ impl ParamCod {
     /// when an earlier COC has the same component index. As in C++, the
     /// object stays appended even when reading fails.
     pub fn read_coc(&mut self, file: &mut MemInfile, num_comps: u32) -> Result<()> {
-        let mut p = ParamCod::new_coc(self, Self::OJPH_COD_UNKNOWN);
+        let mut p = self.take_coc(Self::OJPH_COD_UNKNOWN);
         let r = p.read_coc_segment(file, num_comps, self);
         self.children.push(p);
         r?;
@@ -640,28 +710,22 @@ impl ParamCod {
     /// ([`ParamAtk::resolve_atk`]), which gives the same kernels.
     pub fn update_atk(&mut self, atk: &ParamAtk) -> Result<()> {
         // C++ asserts type == COD_MAIN
-        match atk.resolve_atk(self.spcod.wavelet_trans as i32) {
-            Some(a) => self.atk = a,
-            None => {
-                return ojph_error!(
-                    0x00050131,
-                    "A COD segment employs the DWT kernel atk = {}, but a corresponding ATK segment cannot be found.",
-                    self.spcod.wavelet_trans
-                )
-            }
+        if !atk.resolve_atk_into(self.spcod.wavelet_trans as i32, &mut self.atk) {
+            return ojph_error!(
+                0x00050131,
+                "A COD segment employs the DWT kernel atk = {}, but a corresponding ATK segment cannot be found.",
+                self.spcod.wavelet_trans
+            );
         }
         let top_wt = self.spcod.wavelet_trans;
         for p in &mut self.children {
-            match atk.resolve_atk(p.spcod.wavelet_trans as i32) {
-                Some(a) => p.atk = a,
-                None => {
-                    // C++ prints the COD's kernel index here, not the COC's
-                    return ojph_error!(
-                        0x00050132,
-                        "A COC segment employs the DWT kernel atk = {}, but a corresponding ATK segment cannot be found",
-                        top_wt
-                    );
-                }
+            if !atk.resolve_atk_into(p.spcod.wavelet_trans as i32, &mut p.atk) {
+                // C++ prints the COD's kernel index here, not the COC's
+                return ojph_error!(
+                    0x00050132,
+                    "A COC segment employs the DWT kernel atk = {}, but a corresponding ATK segment cannot be found",
+                    top_wt
+                );
             }
         }
         Ok(())
@@ -699,7 +763,7 @@ impl ParamCod {
 
     pub fn add_coc_object(&mut self, comp_idx: u32) -> &mut ParamCod {
         // C++ asserts type == COD_MAIN
-        let p = ParamCod::new_coc(self, comp_idx as u16);
+        let p = self.take_coc(comp_idx as u16);
         self.children.push(p);
         self.children.last_mut().unwrap()
     }

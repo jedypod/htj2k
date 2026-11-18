@@ -34,7 +34,7 @@ pub struct LiftingStep {
 /// The main object (the one the codestream owns) also owns any further
 /// kernels (C++: the `next` list, each with `top_atk` pointing back) in
 /// `others`; `get_atk` searches the main object, then `others` in order.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct ParamAtk {
     /// structure length
     pub(crate) latk: u16,
@@ -46,6 +46,27 @@ pub struct ParamAtk {
     pub(crate) steps: Vec<LiftingStep>,
     /// further kernels (only used in the main object)
     pub(crate) others: Vec<ParamAtk>,
+}
+
+impl Clone for ParamAtk {
+    fn clone(&self) -> Self {
+        ParamAtk {
+            latk: self.latk,
+            satk: self.satk,
+            katk: self.katk,
+            steps: self.steps.clone(),
+            others: self.others.clone(),
+        }
+    }
+
+    /// Copies `source` into the storage `self` already has.
+    fn clone_from(&mut self, source: &Self) {
+        self.latk = source.latk;
+        self.satk = source.satk;
+        self.katk = source.katk;
+        self.steps.clone_from(&source.steps);
+        self.others.clone_from(&source.others);
+    }
 }
 
 impl ParamAtk {
@@ -153,27 +174,38 @@ impl ParamAtk {
     /// but without changing `self`: an unused object or a missing index 0
     /// or 1 gives the default kernel that `get_atk` would have created.
     pub fn resolve_atk(&self, index: i32) -> Option<ParamAtk> {
+        let mut r = ParamAtk::new();
+        self.resolve_atk_into(index, &mut r).then_some(r)
+    }
+
+    /// [`Self::resolve_atk`] into `out`, reusing its storage. Returns
+    /// false, and leaves `out` as it was, where `resolve_atk` returns
+    /// `None`.
+    pub(crate) fn resolve_atk_into(&self, index: i32, out: &mut ParamAtk) -> bool {
         let found = if self.latk == 0 && (index == 0 || index == 1) {
             None
         } else {
             self.find(index)
         };
-        let mut r = match found {
-            Some(p) => p.clone(),
-            None => {
-                let mut p = ParamAtk::new();
-                if index == 0 {
-                    p.init_irv97();
-                } else if index == 1 {
-                    p.init_rev53();
-                } else {
-                    return None;
-                }
-                p
+        match found {
+            Some(p) => {
+                out.latk = p.latk;
+                out.satk = p.satk;
+                out.katk = p.katk;
+                out.steps.clone_from(&p.steps);
+                out.others.clear();
             }
-        };
-        r.others.clear();
-        Some(r)
+            None if index == 0 || index == 1 => {
+                out.restart();
+                if index == 0 {
+                    out.init_irv97();
+                } else {
+                    out.init_rev53();
+                }
+            }
+            None => return false,
+        }
+        true
     }
 
     /// Non-mutating search of this object and `others` by index, as the

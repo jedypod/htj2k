@@ -8,6 +8,7 @@
 use super::cod::ParamCod;
 use super::dfs::ParamDfs;
 use super::markers::{jp2k_marker, put_u16, put_u32, put_u8};
+use super::spare::Spare;
 use crate::error::ojph_error;
 use crate::file::MemInfile;
 use crate::types::{div_ceil, Point, Size};
@@ -47,6 +48,9 @@ pub struct ParamSiz {
     pub(crate) cod: Option<Box<ParamCod>>,
     /// copy of the linked DFS (C++: `const param_dfs* dfs`)
     pub(crate) dfs: Option<Box<ParamDfs>>,
+    /// The storage of a copy of a COD that `init` unlinked, for the next
+    /// `set_cod` or `link`.
+    pub(crate) spare_cod: Spare<Box<ParamCod>>,
 }
 
 impl Default for ParamSiz {
@@ -79,14 +83,20 @@ impl ParamSiz {
             dfs_support_needed: false,
             cod: None,
             dfs: None,
+            spare_cod: Spare::new(),
         }
     }
 
     pub fn init(&mut self) {
         let mut cptr = std::mem::take(&mut self.cptr);
         cptr.clear();
+        let mut spare_cod = std::mem::take(&mut self.spare_cod);
+        if let Some(cod) = self.cod.take() {
+            spare_cod.put(cod);
+        }
         *self = Self::new();
         self.cptr = cptr;
+        self.spare_cod = spare_cod;
     }
 
     pub fn set_num_components(&mut self, num_comps: u32) {
@@ -364,14 +374,31 @@ impl ParamSiz {
 
     /// `set_cod(const param_cod&)`: stores a copy (C++: a pointer).
     pub fn set_cod(&mut self, cod: &ParamCod) {
-        self.cod = Some(Box::new(cod.clone()));
+        self.copy_cod(cod);
+    }
+
+    /// Stores a copy of `cod`, in the storage of the last copy if there is
+    /// one.
+    fn copy_cod(&mut self, cod: &ParamCod) {
+        match &mut self.cod {
+            Some(copy) => (**copy).clone_from(cod),
+            None => {
+                self.cod = Some(match self.spare_cod.take() {
+                    Some(mut copy) => {
+                        (*copy).clone_from(cod);
+                        copy
+                    }
+                    None => Box::new(cod.clone()),
+                })
+            }
+        }
     }
 
     /// C++ has `link(const param_cod*)` and `link(const param_dfs*)`; this
     /// does both (`dfs` may be `None`, as the C++ pointer may stay NULL)
     /// and stores copies.
     pub fn link(&mut self, cod: &ParamCod, dfs: Option<&ParamDfs>) {
-        self.cod = Some(Box::new(cod.clone()));
+        self.copy_cod(cod);
         self.dfs = dfs.map(|d| Box::new(d.clone()));
     }
 

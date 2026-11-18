@@ -14,6 +14,7 @@
 use super::cod::ParamCod;
 use super::markers::{jp2k_marker, log2_floor, put_u16, put_u32, put_u8};
 use super::siz::ParamSiz;
+use super::spare::Spare;
 use crate::error::ojph_error;
 use crate::file::MemInfile;
 use crate::Result;
@@ -161,8 +162,28 @@ impl NltRec {
         }
     }
 
+    /// Gives `self` the state `new` gives, but keeps the storage of its
+    /// tables.
     pub fn init(&mut self) {
+        let mut tables = [
+            std::mem::take(&mut self.dec_points),
+            std::mem::take(&mut self.approx_enc_points),
+            std::mem::take(&mut self.precise_dec_lut),
+        ];
+        let mut marker_points = std::mem::take(&mut self.marker_points);
+        let mut indices = std::mem::take(&mut self.precise_enc_dec_indices);
+        for t in &mut tables {
+            t.clear();
+        }
+        marker_points.clear();
+        indices.clear();
         *self = Self::new();
+        let [dec_points, approx_enc_points, precise_dec_lut] = tables;
+        self.dec_points = dec_points;
+        self.approx_enc_points = approx_enc_points;
+        self.precise_dec_lut = precise_dec_lut;
+        self.marker_points = marker_points;
+        self.precise_enc_dec_indices = indices;
     }
 
     /// `static ui8 get_bpp(ui32 t)`
@@ -397,6 +418,9 @@ pub struct ParamNlt {
     pub(crate) enabled: bool,
     /// per-component objects (only used in the main object)
     pub(crate) others: Vec<ParamNlt>,
+    /// Per-component objects removed by `restart`, whose storage the next
+    /// ones reuse (only used in the main object).
+    pub(crate) spare: Spare<ParamNlt>,
 }
 
 impl Default for ParamNlt {
@@ -420,6 +444,7 @@ impl ParamNlt {
             rec: NltRec::new(),
             enabled: false,
             others: Vec::new(),
+            spare: Spare::new(),
         }
     }
 
@@ -430,8 +455,11 @@ impl ParamNlt {
         self.enabled = false;
     }
 
+    /// Removes the per-component objects and returns every parameter to
+    /// its default, keeping the storage of the objects and their tables
+    /// for the next ones.
     pub fn restart(&mut self) {
-        self.others.clear();
+        self.spare.put_all(&mut self.others);
         self.init();
     }
 
@@ -484,7 +512,13 @@ impl ParamNlt {
 
     fn add_object(&mut self, comp_num: u32) -> &mut ParamNlt {
         // C++ asserts comp_num != ALL_COMPS and that this is the top level
-        let mut p = ParamNlt::new();
+        let mut p = match self.spare.take() {
+            Some(mut p) => {
+                p.restart();
+                p
+            }
+            None => ParamNlt::new(),
+        };
         p.cnlt = comp_num as u16;
         self.others.push(p);
         self.others.last_mut().unwrap()
@@ -727,14 +761,13 @@ impl ParamNlt {
         p.rec.approx_encoding_nlt = approx_encoding_nlt;
 
         let bpp = p.rec.bytes_per_point;
-        let pts: Vec<u32> = points[..num_points as usize]
-            .iter()
-            .map(|&v| match bpp {
-                1 => v as u8 as u32,
-                2 => v as u16 as u32,
-                _ => v,
-            })
-            .collect();
+        let pts = &points[..num_points as usize];
+        // each value truncated to the width of a point
+        let pt = |k: usize| match bpp {
+            1 => pts[k] as u8 as u32,
+            2 => pts[k] as u16 as u32,
+            _ => pts[k],
+        };
 
         // Check that the LUT has increasing entries or has almost flat
         // segments
@@ -745,21 +778,21 @@ impl ParamNlt {
         };
         let mut smallest_gap = u32::MAX;
         for k in 0..(num_points as usize - 1) {
-            if pts[k + 1] > pts[k] {
-                smallest_gap = smallest_gap.min(pts[k + 1] - pts[k]);
+            if pt(k + 1) > pt(k) {
+                smallest_gap = smallest_gap.min(pt(k + 1) - pt(k));
             } else {
                 return ojph_error!(
                     code,
                     "The LUT must have increasing sequence of numbers; here we have at LUT[{}+1] <= LUT[{}], with values {} and {}.",
                     k,
                     k,
-                    pts[k + 1],
-                    pts[k]
+                    pt(k + 1),
+                    pt(k)
                 );
             }
         }
-        let v_min = pts[0];
-        let v_max = pts[num_points as usize - 1];
+        let v_min = pt(0);
+        let v_max = pt(num_points as usize - 1);
 
         // find ceil of the ratio to a power of 2
         let mut ienc_pnts = num_enc_points;
@@ -777,7 +810,9 @@ impl ParamNlt {
         }
 
         p.rec.alloc_for_encoding(ienc_pnts)?;
-        p.rec.marker_points.copy_from_slice(&pts);
+        for (k, m) in p.rec.marker_points.iter_mut().enumerate() {
+            *m = pt(k);
+        }
         p.rec.prepare_for_encoding();
 
         p.enabled = true;

@@ -16,9 +16,12 @@
 //!
 //! Ownership replaces the C++ pointers between objects: the main COD, QCD,
 //! NLT, DFS and ATK objects own their per-component / further objects in a
-//! `Vec` (C++ `next` lists; `avail` free lists and `restart` become
-//! `Vec::clear`), and objects that pointed at others either get them as
-//! arguments or keep copies.
+//! `Vec` (C++ `next` lists), and objects that pointed at others either
+//! get them as arguments or keep copies. The C++ `avail` free lists become
+//! `Spare` lists: `restart` moves the per-component COD and NLT objects
+//! there, and the next ones added reuse their storage, so that a
+//! codestream with the parameters of the last one allocates nothing for
+//! them.
 //!
 //! # Signatures that differ from C++
 //!
@@ -73,6 +76,7 @@ mod nlt;
 mod qcd;
 mod siz;
 mod sot;
+mod spare;
 mod tables;
 
 pub use atk::{LiftingStep, ParamAtk};
@@ -93,5 +97,7 @@ pub use qcd::{CompType, ParamQcd, QcdType, MAX_SUBBAND_COUNT};
 pub use siz::{ParamSiz, SizCompInfo};
 pub use sot::{ParamSot, ParamTlm, TtlmPtlmPair};
 
+#[cfg(test)]
+mod reuse_tests;
 #[cfg(test)]
 mod tests;
