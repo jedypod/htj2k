@@ -907,7 +907,8 @@ impl Encoder {
         let cods = std::iter::once((None, &self.cod))
             .chain(self.cod.children.iter().map(|c| (Some(c.comp_idx), c)));
         for (comp, cod) in cods {
-            let which = match comp {
+            // named only when refused, so that checking allocates nothing
+            let which = || match comp {
                 None => "the COD segment".to_string(),
                 Some(c) => format!("the COC segment of component {c}"),
             };
@@ -915,24 +916,27 @@ impl Encoder {
             // sets; bits 1 and 2 (SOP and EPH) are for COD only
             if cod.scod & !1 != 0 {
                 return refuse(format!(
-                    "{which} has Scod 0x{:02X} (SOP or EPH markers, or reserved bits)",
+                    "{} has Scod 0x{:02X} (SOP or EPH markers, or reserved bits)",
+                    which(),
                     cod.scod
                 ));
             }
             if cod.spcod.block_style != ParamCod::HT_MODE {
                 return refuse(format!(
-                    "{which} has the code-block style 0x{:02X}; only 0x40 (HT, no options) is written",
+                    "{} has the code-block style 0x{:02X}; only 0x40 (HT, no options) is written",
+                    which(),
                     cod.spcod.block_style
                 ));
             }
             if cod.spcod.wavelet_trans > ParamCod::DWT_REV53 {
                 return refuse(format!(
-                    "{which} uses the wavelet kernel {} (an ATK segment)",
+                    "{} uses the wavelet kernel {} (an ATK segment)",
+                    which(),
                     cod.spcod.wavelet_trans
                 ));
             }
             if cod.is_dfs_defined() {
-                return refuse(format!("{which} uses a DFS segment"));
+                return refuse(format!("{} uses a DFS segment", which()));
             }
         }
         let gcod = &self.cod.sgcod;
