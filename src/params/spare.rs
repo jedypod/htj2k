@@ -29,12 +29,15 @@ impl<T> Spare<T> {
     }
 
     /// Keeps every item of `items`, which is left empty with its
-    /// capacity.
+    /// capacity. They are given back first to last, so that objects
+    /// added again in the same order reuse the storage of the ones in the
+    /// same place, which already has the size they need.
     pub(crate) fn put_all(&mut self, items: &mut Vec<T>) {
-        self.0.append(items);
+        self.0.extend(items.drain(..).rev());
     }
 
-    /// A kept item, in whatever state it was kept, if there is one.
+    /// A kept item, in whatever state it was kept, if there is one: the
+    /// last one kept, which is the first of the last `put_all`.
     pub(crate) fn take(&mut self) -> Option<T> {
         self.0.pop()
     }
