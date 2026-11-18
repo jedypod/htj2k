@@ -977,6 +977,8 @@ const fn build_uvlc1() -> [u16; 256] {
 /// Wide UVLC table for non-initial rows: index = mode (2 bits) * 1024 +
 /// 10 bits of VLC data; entry bits 0..4 total bits, 5..12 `u_q0`,
 /// 13..20 `u_q1`. A total of `0x1F` means "fall back to the narrow path".
+// only the `simd` feature's step 1 uses it, and not in builds that
+// compile its kernels out (see `crate::simd`)
 #[allow(dead_code)]
 const fn build_uvlc1_wide() -> [u32; 4096] {
     let mut tbl = [0u32; 4096];
@@ -1037,7 +1039,7 @@ pub(crate) static UVLC_TBL0: [u16; 320] = UVLC0_AND_BIAS.0;
 /// UVLC decoding table for non-initial rows of quads.
 pub(crate) static UVLC_TBL1: [u16; 256] = build_uvlc1();
 /// Wide UVLC decoding table for non-initial rows of quads (used only by
-/// the SIMD decoders in OpenJPH, kept for completeness).
+/// the SIMD decoders, OpenJPH's and the `simd` feature's).
 #[allow(dead_code)]
 pub(crate) static UVLC_TBL1_WIDE: [u32; 4096] = build_uvlc1_wide();
 /// Bias applied to `u_q0`/`u_q1` in the initial row of quads.

@@ -29,6 +29,8 @@ mod encoder;
 mod encoder_avx2;
 mod readers;
 mod tables;
+#[cfg(feature = "simd")]
+mod vlc_avx2;
 
 pub use decoder32::decode_codeblock32;
 pub use decoder64::decode_codeblock64;

@@ -67,7 +67,8 @@ fn magsgn_sample(ms: &mut Frwd<'_, 0xFF>, inf: u32, bit: u32, u_q: u32, p: u32) 
 /// `simd` feature, on a CPU that runs its kernels, the MagSgn step also
 /// takes up to about 45 kB of stack: a copy of the MagSgn segment
 /// without its stuffing bits (at most 40 kB, by the segment's size) and
-/// two arrays of 2 kB.
+/// two arrays of 2 kB. Its VLC step unstuffs the VLC segment into a
+/// buffer of about 4 kB, which is gone by the time the MagSgn step runs.
 #[allow(clippy::too_many_arguments)]
 pub fn decode_codeblock32(
     coded_data: &[u8],
@@ -154,15 +155,30 @@ pub(super) fn decode<const SIMD: bool>(
     let mut scratch = [0u16; SCRATCH_LEN];
     let mmsbp2 = missing_msbs + 2;
 
-    decode_vlc_mel32(
-        &mut scratch,
-        coded_data,
-        lcup,
-        scup,
-        width,
-        height,
-        layout.sstr,
-    );
+    #[cfg(feature = "simd")]
+    let vlc_done = SIMD
+        && vlc_mel32_simd(
+            &mut scratch,
+            coded_data,
+            lcup,
+            scup,
+            width,
+            height,
+            layout.sstr,
+        );
+    #[cfg(not(feature = "simd"))]
+    let vlc_done = false;
+    if !vlc_done {
+        decode_vlc_mel32(
+            &mut scratch,
+            coded_data,
+            lcup,
+            scup,
+            width,
+            height,
+            layout.sstr,
+        );
+    }
 
     #[cfg(feature = "simd")]
     let simd = if SIMD {
@@ -239,7 +255,7 @@ pub(super) fn decode<const SIMD: bool>(
 
 /// Step 1 of the cleanup pass: decode the VLC and MEL segments into the
 /// interleaved `scratch` (`inf`, `u_q` per quad).
-fn decode_vlc_mel32(
+pub(super) fn decode_vlc_mel32(
     scratch: &mut [u16; SCRATCH_LEN],
     data: &[u8],
     lcup: i32,
@@ -522,6 +538,27 @@ crate::simd::avx2_dispatch! {
             scratch, data, dec, lcup, scup, width, height, stride, p, mmsbp2, sstr,
         ),
         fallback => None,
+    }
+}
+
+#[cfg(feature = "simd")]
+crate::simd::avx2_dispatch! {
+    /// The VLC and MEL step as OpenJPH's AVX2 decoder does it, where the
+    /// CPU has AVX2; `false` to run the scalar one.
+    fn vlc_mel32_simd(
+        scratch: &mut [u16; SCRATCH_LEN],
+        data: &[u8],
+        lcup: i32,
+        scup: i32,
+        width: u32,
+        height: u32,
+        sstr: usize,
+    ) -> bool {
+        avx2 => {
+            super::vlc_avx2::decode_vlc_mel32(scratch, data, lcup, scup, width, height, sstr);
+            true
+        },
+        fallback => false,
     }
 }
 
