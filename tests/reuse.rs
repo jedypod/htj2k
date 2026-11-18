@@ -15,6 +15,7 @@ use std::path::Path;
 use common::drive;
 use common::synth::{parse_matrix_manifest, EncArgs};
 use htj2k::codestream::{Codestream, DecoderMemory, Encoder};
+use htj2k::params::{ParamCod, ParamNlt, ParamQcd, ParamSiz};
 
 /// Every codestream of `tests/data/matrix` and `tests/data/strips`.
 fn codestreams() -> Vec<(String, Vec<u8>)> {
@@ -38,12 +39,26 @@ fn codestreams() -> Vec<(String, Vec<u8>)> {
     all
 }
 
-/// What decoding gives: every line pulled, with its component, and the
-/// error code that stopped it, if one did.
+/// What decoding gives: every line pulled, with its component, the
+/// error code that stopped it, if one did, and the marker-segment
+/// parameters the decoder read.
 #[derive(Debug, PartialEq)]
 struct Decoded {
     lines: Vec<(u32, Vec<i32>)>,
     error: Option<u32>,
+    params: Params,
+}
+
+/// SIZ, COD (with the COCs), QCD (with the QCCs) and NLT, as decoded.
+type Params = (ParamSiz, ParamCod, ParamQcd, ParamNlt);
+
+fn params(cs: &Codestream) -> Params {
+    (
+        cs.access_siz().clone(),
+        cs.access_cod().clone(),
+        cs.access_qcd().clone(),
+        cs.access_nlt().clone(),
+    )
 }
 
 /// How to decode: the memory limit, resilience, skipped resolutions, and
@@ -81,7 +96,15 @@ fn decode<'a>(mut cs: Codestream<'a>, data: &'a [u8], o: Options) -> (Decoded, D
         Ok(())
     };
     let error = run().err().map(|e| e.code());
-    (Decoded { lines, error }, cs.into_memory())
+    let params = params(&cs);
+    (
+        Decoded {
+            lines,
+            error,
+            params,
+        },
+        cs.into_memory(),
+    )
 }
 
 /// What a new decoder gives.
@@ -230,7 +253,11 @@ fn reset_decodes_as_new() {
             lines.push((c, line.i32()[..line.size].to_vec()));
         }
         assert_eq!(
-            Decoded { lines, error: None },
+            Decoded {
+                lines,
+                error: None,
+                params: params(&cs),
+            },
             fresh(data, Options::default()),
             "{name}"
         );
@@ -416,6 +443,99 @@ fn encoder_memory_limit_holds_after_reset() {
                 enc.reset();
                 let (got, _) = encode(enc, a, &img, Run::Whole, None);
                 assert_eq!(got, enc_fresh(a, &img, Run::Whole, None), "{name} again");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Per-component parameters
+// ---------------------------------------------------------------------
+
+/// Codestreams of one size with and without per-component segments:
+/// irreversible components with a type 4 nonlinearity and per-component
+/// QCC and COC segments, the same with other tables and segments in
+/// another order, and plain ones.
+fn param_cases() -> Vec<(&'static str, EncArgs)> {
+    const BASE: &str = "--size 96x32 --comps 4 --depth 16 --signed 1 --levels 5 \
+        --block 64x32 --prog RPCL --tlm --tileparts R";
+    let cases = [
+        (
+            "nlt4 qcc coc",
+            "--irrev --rct 1 --rev-comps 3 --nlt3-comps 3 \
+             --nlt4 0:300 --nlt4 1:300 --nlt4 2:300 --qstep 0.0005 \
+             --qstep-comp 0:0.0004 --qstep-comp 1:0.0008 --qstep-comp 2:0.0008 \
+             --coc 0:5:64x32 --coc 1:4:32x32 --coc 2:4:32x32 --coc 3:5:64x32",
+        ),
+        (
+            "nlt4 fewer points, other segments",
+            "--irrev --rct 1 --rev-comps 3 --nlt4 2:40 --nlt4 0:257 \
+             --qstep 0.001 --qstep-comp 2:0.003 --coc 2:3:16x16 --coc 0:5:64x32",
+        ),
+        (
+            "nlt4 more points",
+            "--irrev --rev-comps 3 --nlt4 0:2000 --nlt4 1:700 --nlt4 2:513 \
+             --qstep-comp 1:0.0002",
+        ),
+        ("plain reversible", "--nlt3"),
+        ("plain irreversible", "--irrev --qstep 0.001"),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, extra)| {
+            let line = [BASE, extra].join(" ");
+            let words: Vec<&str> = line.split_whitespace().collect();
+            (name, EncArgs::parse(&words).unwrap())
+        })
+        .collect()
+}
+
+/// Every ordered pair of codestreams with and without per-component
+/// segments, the second also twice, through one decoder memory and one
+/// encoder: each decodes as with a new decoder, parameters included,
+/// and encodes to the bytes a new encoder writes.
+#[test]
+fn per_component_parameters_reuse_as_new() {
+    let cases = param_cases();
+    let images: Vec<_> = cases.iter().map(|(_, a)| a.synthesise()).collect();
+    let codestreams: Vec<Vec<u8>> = cases
+        .iter()
+        .zip(&images)
+        .map(|((name, a), img)| {
+            enc_fresh(a, img, Run::Whole, None).unwrap_or_else(|e| panic!("{name}: {e:x}"))
+        })
+        .collect();
+    // the per-component segments are there
+    let mut cs = Codestream::new();
+    cs.read_headers(&codestreams[0]).unwrap();
+    assert!(cs.access_cod().cocs().len() >= 2);
+    assert!(!cs.access_qcd().qccs().is_empty());
+    assert!(cs.access_nlt().others().len() >= 3);
+
+    let n = cases.len();
+    let mut mem = DecoderMemory::new();
+    let mut enc = Encoder::new();
+    for i in 0..n {
+        for j in 0..n {
+            for k in [i, j, j, i] {
+                let (name, after) = (cases[k].0, cases[i].0);
+                let o = Options::default();
+                let (got, m) = decode(Codestream::with_memory(mem), &codestreams[k], o);
+                mem = m;
+                assert_eq!(
+                    got,
+                    fresh(&codestreams[k], o),
+                    "decode {name} after {after}"
+                );
+
+                enc.reset();
+                let (got, e) = encode(enc, &cases[k].1, &images[k], Run::Whole, None);
+                enc = e;
+                assert_eq!(
+                    got.as_ref(),
+                    Ok(&codestreams[k]),
+                    "encode {name} after {after}"
+                );
             }
         }
     }
