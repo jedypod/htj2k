@@ -485,12 +485,10 @@ fn decode_four_quads(
 /// `U_q` of each quad of the row pair whose records start at `sp`, and
 /// the first quad whose `U_q` exceeds `mmsbp2`. `v_n[k]` holds the
 /// previous row pair's `v_n` of the bottom samples of columns `2k - 1`
-/// and `2k`, for `k <= nq`. `W16` only gives each version of [`rows`]
-/// its own copy, which LLVM compiles better than a shared one (about
-/// 0.25 instructions per sample).
+/// and `2k`, for `k <= nq`.
 #[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]
 #[inline]
-fn row_u_q<const W16: bool>(
+fn row_u_q(
     scratch: &[u16; SCRATCH_LEN],
     sp: usize,
     nq: usize,
@@ -558,7 +556,7 @@ fn row_pair<const W16: bool>(
     out: &mut impl RowPair<u32>,
 ) -> bool {
     let nq = width.div_ceil(2);
-    let fail = row_u_q::<W16>(scratch, sp, nq, initial, v_n, u_q, mmsbp2);
+    let fail = row_u_q(scratch, sp, nq, initial, v_n, u_q, mmsbp2);
     // the quads to decode
     let end = fail.unwrap_or(nq);
     if W16 {
