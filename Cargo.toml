@@ -18,7 +18,10 @@ multiversion = { version = "0.9", optional = true }
 rustversion = { version = "1", optional = true }
 
 [features]
-# AVX2 kernels on x86_64, chosen at run time; on aarch64 the sample-level
-# kernels compiled for NEON (the baseline); the scalar code elsewhere.
-# Needs Rust 1.87 (safe intrinsics in `#[target_feature]` functions).
+default = ["simd"]
+# On by default. AVX2 kernels on x86_64, chosen at run time; on aarch64
+# the sample-level kernels compiled for NEON (the baseline); the scalar
+# code elsewhere. Needs Rust 1.87 (safe intrinsics in
+# `#[target_feature]` functions); on Rust 1.83 to 1.86 build with
+# `default-features = false`.
 simd = ["dep:multiversion", "dep:rustversion"]

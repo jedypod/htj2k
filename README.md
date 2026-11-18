@@ -30,11 +30,11 @@ The port holds to four rules.
   decoder returns the same samples, and the encoder writes the same
   bytes.
 
-On x86_64 the default build takes 0.57 to 1.16 times the CPU cycles of
-OpenJPH built without its SIMD kernels, by the group means of the
-benchmark below. With the `simd` feature, 10 of the 12 group means
-are at most 1.10 times the cycles of OpenJPH with its AVX2 kernels,
-and the highest is 1.21.
+On x86_64, with the `simd` feature (on by default), 10 of the 12
+group means of the benchmark below are at most 1.10 times the CPU
+cycles of OpenJPH with its AVX2 kernels, and the highest is 1.21.
+Without the feature the crate takes 0.57 to 1.16 times the cycles of
+OpenJPH built without its SIMD kernels.
 See [Performance](#performance).
 
 ## Supported features
@@ -79,8 +79,9 @@ The crate handles the codestream only, as OpenJPH's library does.
   writes no codestream profile.
 - Interleaved exchange needs every component to have the same height.
   Components of different heights are exchanged planar.
-- By default every path is OpenJPH's generic code. The `simd` feature
-  adds AVX2 kernels on x86_64 (see [The `simd` feature](#the-simd-feature)).
+- Without the `simd` feature every path is OpenJPH's generic code. The
+  feature, on by default, adds AVX2 kernels on x86_64 (see
+  [The `simd` feature](#the-simd-feature)).
   The 64-bit block coders and code-block conversions (taken by 32-bit
   reversible samples, for example) stay scalar, though 64-bit lines go
   through the same AVX2 wavelet and colour kernels as 32-bit ones.
@@ -355,8 +356,8 @@ The benchmark in `bench/` counts the CPU cycles and instructions that
 htj2k and OpenJPH 0.33.0 take per sample to decode and to encode.
 OpenJPH is built twice, without its SIMD kernels (generic, the C++ code
 paths htj2k is ported from) and with them (SIMD). htj2k is built three
-times: the default build, a `-C target-cpu=native` build and a build
-with the `simd` feature. Both sides code the same synthetic images in
+times: without the `simd` feature (the scalar build), the same with
+`-C target-cpu=native`, and with the feature. Both sides code the same synthetic images in
 memory, on one thread, through matching harnesses. Before timing, the
 benchmark requires htj2k's codestreams, from every build, to be
 OpenJPH generic's byte for byte, and its decodes to be OpenJPH
@@ -375,7 +376,7 @@ cancel. Because of the load, cycle ratios are good to about ±10 to
 20%. Instruction counts vary by less than 0.005%.
 
 The table gives the geometric means of the cycle ratios, for the
-default build and for the `simd` build, and of the `simd` build's
+scalar build and for the `simd` build, and of the `simd` build's
 instruction ratio against OpenJPH SIMD. A ratio above 1 means htj2k
 takes more.
 
@@ -394,14 +395,14 @@ takes more.
 | 3840×2160, irreversible, 12-bit | decode | 1.16 | 2.83 | 0.50 | 1.21 | 0.99 |
 | | encode | 1.00 | 2.45 | 0.45 | 1.10 | 0.98 |
 
-The default build executes fewer instructions than OpenJPH generic on
+The scalar build executes fewer instructions than OpenJPH generic on
 most configurations (0.55 to 0.70 times on the reversible encodes,
 0.74 to 1.01 on the reversible decodes). Its cycles are 0.36 to 1.46
 times OpenJPH generic's on the strips. Against OpenJPH SIMD, 16-bit
 and 12-bit samples take 1.4 to 3.6 times the cycles to decode and 1.4
 to 3.6 times to encode.
 
-With the `simd` feature, htj2k executes 0.37 to 0.90 times the default
+With the `simd` feature, htj2k executes 0.37 to 0.90 times the scalar
 build's instructions. On 16-bit and 12-bit samples it executes 0.95 to
 1.12 times OpenJPH SIMD's instructions on every reversible, noise and
 3840×2160 row, encoding and decoding, and its group means are within
@@ -425,12 +426,14 @@ kernels to compare with.
 
 ## The `simd` feature
 
-The `simd` cargo feature, off by default, adds vectorised versions of
+The `simd` cargo feature, on by default, adds vectorised versions of
 hot kernels: AVX2 on x86_64 and NEON on aarch64. Without it the crate
-is unchanged: the same code paths and no dependencies.
+runs OpenJPH's generic code paths and has no dependencies. It needs
+Rust 1.87; to build with Rust 1.83 to 1.86, or to leave the kernels
+out, turn the default features off:
 
 ```toml
-htj2k = { version = "0.1", features = ["simd"] }
+htj2k = { version = "0.1", default-features = false }
 ```
 
 - On x86_64 the crate checks the CPU once per process and runs the AVX2
@@ -475,11 +478,14 @@ htj2k = { version = "0.1", features = ["simd"] }
   caller of the intrinsics kernels even then, and `multiversion` then
   calls a version of the dispatching function without it, so safe code
   cannot reach them.
-- A crate that depends on htj2k does not need to forward the feature.
-  Cargo unifies features across the dependency graph, so an
-  application can turn it on for every use of htj2k in its build by
-  naming htj2k in its own `Cargo.toml`, with the same version
-  requirement as the crate that uses it:
+- Cargo unifies features across the dependency graph: the feature is
+  on for every use of htj2k in a build if any crate in it depends on
+  htj2k with default features or names the feature. A library that
+  must build with an older Rust should therefore depend on htj2k with
+  `default-features = false` and offer a feature of its own that
+  turns `htj2k/simd` on. An application can also turn it on for every
+  use of htj2k by naming htj2k in its own `Cargo.toml`, with the same
+  version requirement as the crate that uses it:
 
   ```toml
   [dependencies]
@@ -499,16 +505,17 @@ htj2k = { version = "0.1", features = ["simd"] }
   the [`multiversion`](https://crates.io/crates/multiversion) crate, which
   the feature adds as a dependency (with `rustversion`).
 - The feature needs Rust 1.87, for safe intrinsics in
-  `#[target_feature]` functions; on an older compiler it stops with an
-  error that says so.
+  `#[target_feature]` functions. With an older compiler Cargo stops
+  first, because `multiversion` 0.9 requires Rust 1.86; with Rust 1.86
+  the crate stops with an error that says what the feature needs.
 
 To test both builds, and the compile-time selection:
 
 ```sh
+cargo test --release --no-default-features
 cargo test --release
-cargo test --release --features simd
-RUSTFLAGS="-C target-cpu=native" cargo test --release --features simd
-cargo clippy --all-targets && cargo clippy --all-targets --features simd
+RUSTFLAGS="-C target-cpu=native" cargo test --release
+cargo clippy --all-targets --no-default-features && cargo clippy --all-targets
 ```
 
 On an x86_64 Linux machine, the aarch64 build can be tested under
@@ -517,7 +524,7 @@ On an x86_64 Linux machine, the aarch64 build can be tested under
 ```sh
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUNNER=qemu-aarch64 \
-  cargo test --release --target aarch64-unknown-linux-musl --features simd
+  cargo test --release --target aarch64-unknown-linux-musl
 ```
 
 With the feature, a unit test checks that the kernels are selected
@@ -733,8 +740,10 @@ crate's (`tests/data/ours`, see `oracle/README.md`).
 
 ## Minimum Rust version
 
-The crate builds with Rust 1.83 or later, and with the `simd` feature
-with Rust 1.87 or later.
+The crate builds with Rust 1.87 or later with its default features,
+and with Rust 1.83 or later without them (`default-features = false`,
+which leaves out the `simd` feature). The `rust-version` in
+`Cargo.toml` says 1.83, the version without default features.
 
 ## Licence
 

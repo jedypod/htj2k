@@ -4,10 +4,12 @@
 #
 #   oracle/build/bench/bench_codec_generic   OpenJPH, OJPH_DISABLE_SIMD=ON
 #   oracle/build/bench/bench_codec_simd      OpenJPH, SIMD (run-time dispatch)
-#   target/release/examples/bench_codec      htj2k, cargo build --release
+#   target/release/examples/bench_codec      htj2k, --no-default-features
 #   target/native/release/examples/bench_codec
-#                                            htj2k, -C target-cpu=native
-#   target/simd/release/examples/bench_codec   htj2k, --features simd
+#                                            htj2k, the same with
+#                                            -C target-cpu=native
+#   target/simd/release/examples/bench_codec   htj2k, default features
+#                                            (simd)
 #
 # then runs bench/bench.py, which checks that the codestreams and decodes
 # agree and measures cycles:u and instructions:u with perf stat on the
@@ -27,9 +29,10 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 sh oracle/build_bench.sh
-cargo build --release --example bench_codec
+cargo build --release --no-default-features --example bench_codec
 RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=native" \
-  cargo build --release --example bench_codec --target-dir target/native
+  cargo build --release --no-default-features --example bench_codec \
+    --target-dir target/native
 cargo build --release --features simd --example bench_codec --target-dir target/simd
 
 mkdir -p bench/results

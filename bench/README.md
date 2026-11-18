@@ -20,9 +20,9 @@ before and after each perf run), `machine.txt`, `lscpu.txt` and, with
 |---|---|
 | OpenJPH generic | OpenJPH's CMake, Release (`-O3 -DNDEBUG`), static, `-DOJPH_DISABLE_SIMD=ON`: the C++ code paths htj2k is ported from |
 | OpenJPH SIMD | OpenJPH's CMake, Release, static, defaults: its SSE/AVX/AVX2/AVX-512 kernels, picked at run time for the CPU |
-| htj2k | `cargo build --release` (opt-level 3, no LTO, 16 codegen units) |
+| htj2k | `cargo build --release --no-default-features`, the scalar build without the `simd` feature (opt-level 3, no LTO, 16 codegen units) |
 | htj2k native | the same with `RUSTFLAGS="-C target-cpu=native"` |
-| htj2k simd | `cargo build --release --features simd`, for the x86-64 baseline: the AVX2 kernels, picked at run time for the CPU |
+| htj2k simd | `cargo build --release --features simd` (the default features), for the x86-64 baseline: the AVX2 kernels, picked at run time for the CPU |
 
 OpenJPH is the tree in `oracle/build/ref/OpenJPH` (0.33.0 plus five
 upstream commits, `git describe` 0.33.0-5-g97a9579; its `src/core` is
@@ -332,7 +332,7 @@ here. Symbol names are shortened: `vectorised::rev_horz_syn` is the
 AVX2 clone that multiversion compiles,
 `vectorised::rev_horz_syn::rev_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version`.
 
-The default build's profiles have the same shape as OpenJPH generic's:
+The scalar build's profiles have the same shape as OpenJPH generic's:
 `decode_codeblock32` takes 71.0% of the `s16_3c_rev_8192x32` decode
 (`ojph_decode_codeblock32` 72.3%), `encoder::encode` 81.6% of its
 encode (`ojph_encode_codeblock32` 89.9%), and the NLT type 4
@@ -398,7 +398,7 @@ SIMD's, and the encoders 75.6% and 89.3%.
 versions, 16-bit and 32-bit lanes (8.6% and 4.5%), against OpenJPH
 SIMD's `decode_cb_step1_vlc` (14.2%), `decode_cb_step2_16bit` (8.8%)
 and `decode_cb_step2_32bit` (4.4%). In the Qfactor 90 decode, where
-almost every block is empty, the default build spends 15.9% in
+almost every block is empty, the scalar build spends 15.9% in
 `irv_convert_to_integer`. With the feature that is the intrinsics
 kernel `vectorised::avx2::irv_convert_to_integer` (2.6%, OpenJPH
 SIMD's `avx2_irv_convert_to_integer` 2.4%), and the wavelet leads, as
@@ -407,7 +407,7 @@ against 4.9% and 5.8%.
 
 ## Where the gaps are
 
-**The default build against OpenJPH generic.** htj2k executes fewer
+**The scalar build against OpenJPH generic.** htj2k executes fewer
 instructions than the C++ it is ported from on most rows: 0.55 to 0.70
 times on the reversible encodes, 0.74 to 1.01 on the reversible
 decodes, and 1.00 to 1.05 on the Qfactor 90 strips, where the float
@@ -417,7 +417,7 @@ The native build is at or below OpenJPH generic on all but four rows
 (1.08 to 1.28, with the same instructions as the rows around them).
 
 **The `simd` build against OpenJPH SIMD.** With the feature, htj2k
-executes 0.37 to 0.90 times the default build's instructions. On the
+executes 0.37 to 0.90 times the scalar build's instructions. On the
 16-bit and 12-bit rows it executes 0.95 to 1.12 times OpenJPH SIMD's
 instructions on every reversible and noise row, encode and decode, and
 on the 3840x2160 irreversible ones; only the irreversible strips are
@@ -457,6 +457,6 @@ do not):
 For 32-bit reversible samples neither side has SIMD block coders,
 because they take the 64-bit paths, so the feature changes only the
 wavelet, colour and line conversion kernels there (0.88 to 0.90 times
-the default build's instructions to decode). htj2k simd encodes them
+the scalar build's instructions to decode). htj2k simd encodes them
 in 0.56 to 0.90 times OpenJPH SIMD's cycles and decodes them in 0.75
 to 1.14 times.

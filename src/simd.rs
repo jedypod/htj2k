@@ -33,7 +33,7 @@
 //! would, but without their raw pointers.
 
 #[rustversion::before(1.87)]
-compile_error!("the `simd` feature needs Rust 1.87 or later (safe intrinsics in `#[target_feature]` functions)");
+compile_error!("the `simd` feature, on by default, needs Rust 1.87 or later (safe intrinsics in `#[target_feature]` functions); build with `default-features = false` to leave it out");
 
 /// Defines a function that runs `avx2` (an expression, usually a call to a
 /// `#[target_feature(enable = "avx2,bmi1,bmi2,lzcnt,popcnt")]` kernel) on
