@@ -24,7 +24,13 @@
 //! Nor does LLVM vectorise a conversion from float to integer on x86: it
 //! compiles Rust's saturating `as i32` and `as u32` one lane at a time.
 //! [`trunc_i32`] and [`trunc_u32`] give the same results from the float's
-//! bits, with shifts and selects, which it does vectorise.
+//! bits, with shifts and selects, which it does vectorise. On aarch64
+//! the casts are single vector instructions (`fcvtzs`, `fcvtzu`), so
+//! there the helpers use them instead.
+//!
+//! On aarch64 these kernels are compiled for the target's baseline,
+//! which always includes NEON (Advanced SIMD); `multiversion` adds no
+//! clones there and needs no run-time check.
 //!
 //! Unlike the block coder's AVX2 kernels, these need no `unsafe` and no
 //! `#[target_feature]` caller, so builds that enable AVX2 at compile time
@@ -43,6 +49,7 @@ const CHUNK: usize = 64;
 /// The magnitude bits of a finite float `x` below 2^32 truncated toward
 /// zero (`|x| as u32`), and its biased exponent: from the bits, with
 /// shifts the compiler vectorises.
+#[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 fn trunc_bits(x: f32) -> (u32, u32) {
     let b = x.to_bits();
@@ -57,6 +64,7 @@ fn trunc_bits(x: f32) -> (u32, u32) {
 
 /// [`super::f32_to_i32_trunc`] (`cvttss2si`): truncation toward zero,
 /// `i32::MIN` out of range and for NaN.
+#[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub(super) fn trunc_i32(x: f32) -> i32 {
     let (mag, e) = trunc_bits(x);
@@ -73,8 +81,24 @@ pub(super) fn trunc_i32(x: f32) -> i32 {
     }
 }
 
+/// [`super::f32_to_i32_trunc`] (`cvttss2si`): truncation toward zero,
+/// `i32::MIN` out of range and for NaN. On aarch64 `as i32` (`fcvtzs`)
+/// truncates, saturates and gives 0 for NaN, so only the lanes outside
+/// the range need replacing: a compare and a select.
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub(super) fn trunc_i32(x: f32) -> i32 {
+    // false for NaN, as for |x| >= 2^31
+    if x.abs() < 2_147_483_648.0f32 {
+        x as i32
+    } else {
+        i32::MIN
+    }
+}
+
 /// `x as u32` (the scalar kernels' `floor_u32`): truncation toward zero,
 /// saturating, 0 for NaN.
+#[cfg(not(target_arch = "aarch64"))]
 #[inline(always)]
 pub(super) fn trunc_u32(x: f32) -> u32 {
     let (mag, e) = trunc_bits(x);
@@ -85,6 +109,14 @@ pub(super) fn trunc_u32(x: f32) -> u32 {
     } else {
         mag
     }
+}
+
+/// `x as u32` (the scalar kernels' `floor_u32`), which on aarch64 is one
+/// `fcvtzu` with the same saturation and 0 for NaN.
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub(super) fn trunc_u32(x: f32) -> u32 {
+    x as u32
 }
 
 /// `lut[k[i]]` and `lut[k[i] + 1]` into `a[i]` and `b[i]`. When every
