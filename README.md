@@ -208,6 +208,22 @@ Every parameter and setting goes back to its default, including the
 memory limit, the output limit, resilience and the version comment. A
 reused object differs from a new one only in what it allocates.
 
+Both sides also keep the storage of their marker-segment parameters,
+but none of their values:
+
+- the per-component COC, QCC and NLT objects;
+- the NLT point tables, with the decoding and encoding tables made
+  from them;
+- the components of SIZ and its copy of COD;
+- the wavelet kernels.
+
+`read_headers` (decoder) and the setters (encoder) fill the kept
+storage, whatever the codestream. Kept objects are given the state of
+new ones before they are used again. So a codestream with the same
+parameters as the last one allocates nothing for them, even with
+irreversible components with a type 4 nonlinearity and per-component
+segments.
+
 `create` (decoder) and `write_headers` (encoder) compare the parameters
 the tree is built from with those of the kept tree:
 
@@ -224,10 +240,14 @@ Samples in the kept buffers are not cleared, because every sample is
 written before it is read. The tests check this. They fill every kept
 buffer with garbage before the next codestream, and every codestream of
 the test data must then decode, or encode, exactly as with a new
-object. They also run sequences of codestreams with the same shape and
-with different shapes, a damaged, failed or abandoned codestream
-followed by a valid one, and the robustness fuzz tests through a
-reused object.
+object. They fill the kept parameter objects with garbage too, and
+the decoder must then read the same parameters as a new one. They also
+run sequences of codestreams with the same shape and with different
+shapes, a damaged, failed or abandoned codestream followed by a valid
+one, and the robustness fuzz tests through a reused object. Further
+sequences mix codestreams that have type 4 nonlinearities and
+per-component QCC and COC segments with codestreams that have none, in
+both orders.
 
 The memory limit applies to each codestream as to a new object. A kept
 tree is charged, against the new limit, what building it took, so the
@@ -236,14 +256,19 @@ same error. A tree that does not match is freed before the new one is
 built. Kept coded-byte capacity beyond what the limit has left is freed
 too. So kept memory cannot let a codestream hold more than the limit
 allows. The small allocations that the limits do not count (see
-Differences from OpenJPH) are kept as well.
+Differences from OpenJPH) are kept as well. The parameter objects are
+among them. The limits have never counted them, so keeping them changes
+no decision. They are bounded by the format: at most 16384 components,
+and 8192 points per NLT table. They are kept at the size of the largest
+set of parameters seen, until the memory or encoder is dropped.
 
 Rejected designs:
 
 - A pool of buffers would still rebuild the tree each time. Buffers
   larger than asked for would also escape the limit.
-- Keeping the encoder's parameters would write different bytes from a
-  new encoder, because `write_headers` rewrites some of them.
+- Keeping the encoder's parameter values would write different bytes
+  from a new encoder, because `write_headers` rewrites some of them.
+  Only their storage is kept, and the caller sets the values again.
 - Clearing every kept buffer would cost most of what reuse saves.
 
 `examples/reuse_cost.rs` measures the costs per codestream for a run of
@@ -256,23 +281,34 @@ same-shaped codestreams:
 The strips use the benchmark's strip coding: 5 levels, 128×32 blocks,
 RPCL, TLM and tile parts per resolution. They are 16-bit signed with
 NLT type 3, and the 4-component strip uses the RCT on the first three
-components. The 3840×2160 image is 12-bit RGB with the RCT and OpenJPH's
-defaults.
+components. The cases marked "type 4" are also 16-bit signed, with 4
+components: three irreversible ones with the RCT, a type 4
+nonlinearity of 300 points and their own QCC segments, and one
+reversible one with NLT type 3, with a COC segment for each component.
+The 3840×2160 image is 12-bit RGB with the RCT and OpenJPH's defaults.
 
 | Case | Side | Allocations, new → reused | Bytes, new → reused | Instructions, new → reused |
 |---|---|--:|--:|--:|
-| 2048×32, 1 component | decode | 177 → 5 | 375 KB → 1.0 KB | 6.53 M → 6.42 M (−1.7%) |
-| | encode | 236 → 8 | 649 KB → 1.2 KB | 8.38 M → 8.23 M (−1.7%) |
-| 256×32, 1 component | decode | 141 → 5 | 58 KB → 1.0 KB | 0.96 M → 0.90 M (−6.2%) |
-| | encode | 174 → 8 | 72 KB → 1.2 KB | 1.20 M → 1.13 M (−5.8%) |
-| 1920×32, 4 components | decode | 634 → 5 | 1.43 MB → 1.0 KB | 24.9 M → 24.4 M (−2.0%) |
-| | encode | 844 → 8 | 2.24 MB → 1.2 KB | 31.8 M → 31.2 M (−1.9%) |
-| 3840×2160, 3 components | decode | 872 → 4 | 9.6 MB → 0.2 KB | 2252 M → 2250 M (−0.1%) |
-| | encode | 1272 → 7 | 60.5 MB → 0.4 KB | 2952 M → 2948 M (−0.1%) |
+| 2048×32, 1 component | decode | 177 → 0 | 375 KB → 0 | 6.52 M → 6.41 M (−1.7%) |
+| | encode | 234 → 0 | 649 KB → 0 | 8.37 M → 8.23 M (−1.7%) |
+| 256×32, 1 component | decode | 141 → 0 | 58 KB → 0 | 0.97 M → 0.90 M (−6.4%) |
+| | encode | 172 → 0 | 72 KB → 0 | 1.21 M → 1.14 M (−5.8%) |
+| 1920×32, 4 components | decode | 634 → 0 | 1.43 MB → 0 | 24.8 M → 24.3 M (−2.1%) |
+| | encode | 842 → 0 | 2.24 MB → 0 | 31.7 M → 31.1 M (−1.9%) |
+| 1920×32, 4 components, type 4 | decode | 767 → 0 | 1.56 MB → 0 | 35.2 M → 34.6 M (−1.8%) |
+| | encode | 992 → 0 | 2.12 MB → 0 | 44.6 M → 43.9 M (−1.6%) |
+| 64×64, 4 components, type 4 | decode | 545 → 0 | 165 KB → 0 | 3.57 M → 3.23 M (−9.6%) |
+| | encode | 640 → 0 | 193 KB → 0 | 4.38 M → 4.00 M (−8.8%) |
+| 3840×2160, 3 components | decode | 872 → 0 | 9.6 MB → 0 | 2244 M → 2243 M (−0.1%) |
+| | encode | 1270 → 0 | 60.5 MB → 0 | 2946 M → 2942 M (−0.1%) |
 
-The allocations left come from the parameter objects: the decoder's
-`read_headers` and the encoder's setters. The new bytes include
-reallocations as the coded data grows.
+A reused object allocates nothing per codestream of the same shape.
+The first codestream that reuses memory allocates, once, the lists
+that hold the spare per-component parameter objects; the example warms
+up past it. Before the parameter objects were kept, a reused object
+still allocated 4 to 8 times per codestream for these cases. The type 4
+cases allocated 22 times to decode and 36 to encode. Keeping the
+parameters changed the instruction counts by less than 0.3%.
 
 ## Memory use
 
