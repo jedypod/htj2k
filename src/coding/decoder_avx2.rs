@@ -184,24 +184,39 @@ fn load_quads(s: &[u16], i: usize) -> __m256i {
     )
 }
 
-/// `decode_two_quad32_avx2`: the 8 samples of quads `inf0`/`u0` and
-/// `inf1`/`u1` (lanes 0 to 3 and 4 to 7, in the generic decoder's sample
-/// order), decoded from bit `pos`, which moves past them. Returns the
-/// samples and their `v_n` (both 0 for an insignificant sample).
+/// The two 32-bit values of `v` (low first), each in four lanes.
 #[target_feature(enable = "avx2")]
 #[inline]
-#[allow(clippy::too_many_arguments)]
+fn spread2(v: u64) -> __m256i {
+    _mm256_permutevar8x32_epi32(
+        _mm256_castsi128_si256(_mm_cvtsi64_si128(v as i64)),
+        _mm256_setr_epi32(0, 0, 0, 0, 1, 1, 1, 1),
+    )
+}
+
+/// The records of two quads, `s[i..i + 4]` (`inf` and `u_q` of each), as
+/// one 64-bit value (one load).
+#[inline(always)]
+fn quad_pair(s: &[u16], i: usize) -> u64 {
+    let r: &[u16; 4] = s[i..i + 4].try_into().unwrap();
+    r[0] as u64 | (r[1] as u64) << 16 | (r[2] as u64) << 32 | (r[3] as u64) << 48
+}
+
+/// `decode_two_quad32_avx2`: the 8 samples of two quads (lanes 0 to 3 and
+/// 4 to 7, in the generic decoder's sample order) whose `inf` is in the
+/// low 16 bits of `inf`'s lanes and whose `U_q` is `u_q`'s, decoded from
+/// bit `pos`, which moves past them. Returns the samples and their `v_n`
+/// (both 0 for an insignificant sample).
+#[target_feature(enable = "avx2")]
+#[inline]
 fn decode_two_quads(
-    inf0: u32,
-    u0: u32,
-    inf1: u32,
-    u1: u32,
+    inf: __m256i,
+    u_q: __m256i,
     dbuf: &[u8],
     limit: usize,
     pos: &mut u32,
     p: u32,
 ) -> (__m256i, __m256i) {
-    let inf = _mm256_set_m128i(_mm_set1_epi32(inf1 as i32), _mm_set1_epi32(inf0 as i32));
     // rho, the significance of each sample
     let rho = _mm256_and_si256(
         inf,
@@ -211,7 +226,6 @@ fn decode_two_quads(
     if _mm256_movemask_epi8(insig) == -1 {
         return (_mm256_setzero_si256(), _mm256_setzero_si256());
     }
-    let u_q = _mm256_set_m128i(_mm_set1_epi32(u1 as i32), _mm_set1_epi32(u0 as i32));
 
     // e_k at bit 15, e_1 at bit 11
     let flags = _mm256_and_si256(
@@ -552,7 +566,9 @@ fn row_pair<const W16: bool>(
             scratch, sp, width, end, initial, v_n, u_q, dbuf, limit, pos, p, out,
         );
     } else {
-        quads32(scratch, sp, width, end, v_n, u_q, dbuf, limit, pos, p, out);
+        quads32(
+            scratch, sp, width, end, initial, v_n, u_q, dbuf, limit, pos, p, out,
+        );
     }
     fail.is_none()
 }
@@ -568,6 +584,7 @@ fn quads32(
     sp: usize,
     width: usize,
     end: usize,
+    initial: bool,
     v_n: &mut [u32; V_N_SIZE + 16],
     u_q: &[u32; V_N_SIZE + 16],
     dbuf: &[u8],
@@ -577,18 +594,48 @@ fn quads32(
     out: &mut impl RowPair<u32>,
 ) {
     let nq = width.div_ceil(2);
-    // in an odd-width block, the samples of the last column's right
-    // neighbours are left alone
-    let odd_mask = if width & 1 != 0 { !0xCCC0u32 } else { !0 };
+    let end = end.min(nq);
+    // one bounds check each for the row's records (2 entries a quad, and
+    // the 2 zeros after them), `U_q` and `v_n`
+    let recs = &scratch[sp..sp + 2 * nq + 2];
+    let u_q = &u_q[..nq + 2];
+    let v_n = &mut v_n[..nq + 2];
+    let sample_order = _mm256_setr_epi32(0, 2, 4, 6, 1, 3, 5, 7);
+    let mut bit = *pos;
 
+    // pairs of quads with nothing to mask: in an odd-width block, the
+    // last quad's right column is not decoded
+    let plain = if width & 1 != 0 { end.min(nq - 1) } else { end };
     let mut carry = 0u32; // v_n of the previous quad's bottom-right sample
     let mut q = 0;
-    while q < end {
-        let inf0 = scratch[sp + 2 * q] as u32;
+    while q + 2 <= plain {
+        let recs2 = quad_pair(recs, 2 * q);
+        let uq = if initial {
+            _mm256_srli_epi32::<16>(spread2(recs2))
+        } else {
+            spread2(u_q[q] as u64 | (u_q[q + 1] as u64) << 32)
+        };
+        let (row, vn) = decode_two_quads(spread2(recs2), uq, dbuf, limit, &mut bit, p);
+        let row = lanes_u32(_mm256_permutevar8x32_epi32(row, sample_order));
+        let vn = lanes_u32(vn);
+        out.put_run(0, 2 * q, &row[..4]);
+        out.put_run(1, 2 * q, &row[4..]);
+        v_n[q] = carry | vn[1];
+        v_n[q + 1] = vn[3] | vn[5];
+        carry = vn[7];
+        q += 2;
+    }
+
+    // the one or two quads left
+    if q < end {
+        // the samples right of an odd-width block's last column are left
+        // alone, as are the quads from `end` on
+        let odd_mask = if width & 1 != 0 { !0xCCC0u32 } else { !0 };
+        let inf0 = recs[2 * q] as u32;
         let inf0 = if q + 1 == nq { inf0 & odd_mask } else { inf0 };
         let two = q + 1 < end;
         let inf1 = if two {
-            let inf1 = scratch[sp + 2 * q + 2] as u32;
+            let inf1 = recs[2 * q + 2] as u32;
             if q + 2 == nq {
                 inf1 & odd_mask
             } else {
@@ -597,32 +644,33 @@ fn quads32(
         } else {
             0
         };
-        let (row, vn) = decode_two_quads(inf0, u_q[q], inf1, u_q[q + 1], dbuf, limit, pos, p);
-        let row = lanes_u32(_mm256_permutevar8x32_epi32(
-            row,
-            _mm256_setr_epi32(0, 2, 4, 6, 1, 3, 5, 7),
-        ));
+        let (u0, u1) = if initial {
+            (recs[2 * q + 1] as u32, recs[2 * q + 3] as u32)
+        } else {
+            (u_q[q], u_q[q + 1])
+        };
+        let (row, vn) = decode_two_quads(
+            spread2(inf0 as u64 | (inf1 as u64) << 32),
+            spread2(u0 as u64 | (u1 as u64) << 32),
+            dbuf,
+            limit,
+            &mut bit,
+            p,
+        );
+        let row = lanes_u32(_mm256_permutevar8x32_epi32(row, sample_order));
         let vn = lanes_u32(vn);
-
         let x = 2 * q;
         let n = (width - x).min(if two { 4 } else { 2 });
-        if n == 4 {
-            // a fixed length: no call to `memcpy`
-            out.put_run(0, x, &row[..4]);
-            out.put_run(1, x, &row[4..]);
-        } else {
-            out.put_run(0, x, &row[..n]);
-            out.put_run(1, x, &row[4..4 + n]);
-        }
-
+        out.put_run(0, x, &row[..n]);
+        out.put_run(1, x, &row[4..4 + n]);
         v_n[q] = carry | vn[1];
         carry = vn[3];
         if two {
             v_n[q + 1] = carry | vn[5];
             carry = vn[7];
         }
-        q += 2;
     }
+    *pos = bit;
     if end == nq {
         v_n[nq] = carry;
     }
