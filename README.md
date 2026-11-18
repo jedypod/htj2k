@@ -320,10 +320,10 @@ generic's sample for sample. All 23 configurations passed.
 
 The machine is an AMD EPYC 7302P (Zen 2) with AVX2 and no AVX-512, so
 OpenJPH SIMD runs its AVX2 kernels, and htj2k's `simd` build its AVX2
-ones. It runs Linux 6.18 and is shared: the load average was 20.9 to
-38.3 during the run. htj2k is built with rustc 1.99.0 in the release
-profile, and OpenJPH with g++ 14.2.1 at `-O3`. The metric is
-user-space cycles and instructions from `perf stat`, five runs each,
+ones. It runs Linux 6.18 and is shared: the load average was 7.5 to
+35.7 (mean 17.6) during the run. htj2k is built with rustc 1.99.0 in
+the release profile, and OpenJPH with g++ 14.2.1 at `-O3`. The metric
+is user-space cycles and instructions from `perf stat`, five runs each,
 on the least busy core. Each harness runs at N and at 2N iterations.
 The difference of the two counts, divided by N and by the number of
 samples, is the cost per sample, so set-up, process start and exit
@@ -331,45 +331,45 @@ cancel. Because of the load, cycle ratios are good to about ±10 to
 20%. Instruction counts vary by less than 0.005%.
 
 The table gives the geometric means of the cycle ratios, for the
-default build and for the `simd` build. A ratio above 1 means htj2k
-takes more cycles.
+default build and for the `simd` build, and of the `simd` build's
+instruction ratio against OpenJPH SIMD. A ratio above 1 means htj2k
+takes more.
 
-| Images | Op | htj2k / generic | htj2k / SIMD | simd / generic | simd / SIMD |
-|---|---|--:|--:|--:|--:|
-| Strips, reversible, 16-bit | decode | 0.96 | 1.70 | 0.70 | 1.23 |
-| | encode | 0.62 | 2.11 | 0.32 | 1.10 |
-| Strips, reversible, 32-bit | decode | 1.08 | 1.25 | 0.95 | 1.09 |
-| | encode | 0.55 | 0.59 | 0.55 | 0.59 |
-| Strips, irreversible | decode | 0.99 | 2.98 | 0.44 | 1.33 |
-| | encode | 0.90 | 2.37 | 0.31 | 0.81 |
-| Strips, noise | decode | 0.88 | 1.19 | 0.63 | 0.85 |
-| | encode | 0.61 | 1.00 | 0.42 | 0.69 |
-| 3840×2160, reversible, 12-bit | decode | 0.52 | 1.26 | 0.65 | 1.59 |
-| | encode | 0.76 | 2.60 | 0.36 | 1.23 |
-| 3840×2160, irreversible, 12-bit | decode | 0.80 | 2.36 | 0.39 | 1.15 |
-| | encode | 0.93 | 2.20 | 0.42 | 0.99 |
+| Images | Op | htj2k / generic | htj2k / SIMD | simd / generic | simd / SIMD | simd / SIMD, instructions |
+|---|---|--:|--:|--:|--:|--:|
+| Strips, reversible, 16-bit | decode | 0.94 | 1.78 | 0.57 | 1.08 | 1.09 |
+| | encode | 0.72 | 2.33 | 0.34 | 1.08 | 1.00 |
+| Strips, reversible, 32-bit | decode | 1.05 | 1.16 | 0.91 | 1.00 | 1.04 |
+| | encode | 0.57 | 0.61 | 0.62 | 0.66 | 0.55 |
+| Strips, irreversible | decode | 0.88 | 2.69 | 0.32 | 0.97 | 1.55 |
+| | encode | 0.88 | 2.49 | 0.35 | 0.99 | 1.40 |
+| Strips, noise | decode | 1.04 | 1.76 | 0.69 | 1.16 | 0.93 |
+| | encode | 0.79 | 1.03 | 0.58 | 0.76 | 0.73 |
+| 3840×2160, reversible, 12-bit | decode | 0.90 | 1.75 | 0.50 | 0.97 | 1.06 |
+| | encode | 0.76 | 2.30 | 0.34 | 1.03 | 1.02 |
+| 3840×2160, irreversible, 12-bit | decode | 1.16 | 2.83 | 0.50 | 1.21 | 0.99 |
+| | encode | 1.00 | 2.45 | 0.45 | 1.10 | 0.98 |
 
 The default build executes fewer instructions than OpenJPH generic on
 most configurations (0.55 to 0.70 times on the reversible encodes,
-0.75 to 1.01 on the reversible decodes). Its cycles are 0.43 to 1.34
-times OpenJPH generic's. Against OpenJPH SIMD, 16-bit and 12-bit
-samples take 1.3 to 3.4 times the cycles to decode and 1.6 to 2.9
-times to encode. The 3840×2160 reversible decode (0.52 against
-generic, at 0.98 of its instructions, and slower with the `simd`
-feature than without) is a noisy row on this run.
+0.74 to 1.01 on the reversible decodes). Its cycles are 0.36 to 1.46
+times OpenJPH generic's on the strips. Against OpenJPH SIMD, 16-bit
+and 12-bit samples take 1.4 to 3.6 times the cycles to decode and 1.4
+to 3.6 times to encode.
 
-With the `simd` feature, htj2k executes 0.41 to 0.90 times the default
-build's instructions. On 16-bit and 12-bit samples it is within 25% of
-OpenJPH SIMD's cycles on every encode and on half the decodes, and
-ahead of it on the irreversible strip encodes. The
-largest remaining gaps are decoding: the 16-bit reversible strips
-(1.23 times) and the Qfactor 90 strips (up to 1.69 times). There
-htj2k's scalar VLC step and its 32-bit MagSgn kernel both take more
-instructions than OpenJPH's AVX2 decoder, which also has a 16-bit
-MagSgn path. For 32-bit reversible samples OpenJPH has no SIMD 64-bit
-block coder. There the `simd` build encodes in 0.54 to 0.66 times
-OpenJPH SIMD's cycles and decodes in 0.84 to 1.18 times (the default
-build: 0.53 to 0.68 and 0.86 to 1.48).
+With the `simd` feature, htj2k executes 0.37 to 0.90 times the default
+build's instructions. On 16-bit and 12-bit samples it executes 0.95 to
+1.12 times OpenJPH SIMD's instructions on every reversible, noise and
+3840×2160 row, encoding and decoding, and its group means are within
+10% of OpenJPH SIMD's cycles everywhere but the noise strip decode and
+the 3840×2160 irreversible decodes (1.16 and 1.21, with single rows
+off by up to 20% on this run). The irreversible strips execute 1.43 to
+1.68 times OpenJPH SIMD's instructions, most of it in the NLT
+type 4 conversions, which are plain loops around scalar table lookups
+here and gathers in OpenJPH; they take about the same cycles (0.97 and
+0.99 on the group means). For 32-bit reversible samples OpenJPH has no
+SIMD 64-bit block coder. There the `simd` build encodes in 0.56 to
+0.90 times OpenJPH SIMD's cycles and decodes in 0.75 to 1.14 times.
 [bench/README.md](bench/README.md) has the full tables, the profiles,
 where the gaps are, and how to reproduce the run.
 

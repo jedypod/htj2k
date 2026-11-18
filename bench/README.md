@@ -107,12 +107,12 @@ taskset -c CPU perf stat -x, -e cycles:u,instructions:u,task-clock -r 5 HARNESS 
 * **Variation.** perf's `-r 5` standard deviation of the mean, for N
   and for 2N, combined in quadrature and given as a percentage of the
   difference. Instructions vary by less than 0.005%. Cycles vary by
-  0.4 to 26% (on 27 of the 46 rows the worst of the five is 6% or
+  0.1 to 22% (on 31 of the 46 rows the worst of the five is 6% or
   more), because other jobs use the core's other hardware thread and
   the shared L3. So a cycle ratio is good to about ±10 to 20%, and the
-  instruction counts are the steadier guide. The 3840x2160
-  irreversible rows are the least steady: 12 to 26% on the worst
-  harness, with N = 1 and few cycles per sample.
+  instruction counts are the steadier guide. On this run the least
+  steady rows are spread over the configurations (up to 22% on
+  `s32_3c_rev_2048x256` encoding and `s16_3c_rev_8192x32` decoding).
 
 ## Correctness checks
 
@@ -153,9 +153,9 @@ which the gradient reaches; the two builds wrap different ones.
   L2 per core, 16 MiB L3 per four cores. The full `lscpu` is in
   `bench/results/lscpu.txt`.
 * **System:** Linux 6.18, shared and busy, with a load average from
-  20.9 to 38.3 (mean 28.0) during the run (`uptime` before and after
+  7.5 to 35.7 (mean 17.6) during the run (`uptime` before and after
   each of the 460 perf runs is in `log.txt`). The benchmark ran on CPU
-  27, whose core (with CPU 11) was 50% busy when it was chosen.
+  29, whose core (with CPU 13) was 28% busy when it was chosen.
 * **C++:** g++ 14.2.1, CMake 4.2.2. OpenJPH: `-O3 -DNDEBUG -std=gnu++14
   -fPIC -fexceptions` with `-DOJPH_ALIGNED_ALLOC_EXISTS
   -D_FILE_OFFSET_BITS=64`, plus `-DOJPH_DISABLE_SIMD` for generic; the
@@ -170,7 +170,7 @@ which the gradient reaches; the two builds wrap different ones.
 
 ## Results
 
-Run of 2026-11-17 at commit 114370c (`bench/results/`), with the steps
+Run of 2026-11-17 at commit 3cc0f65 (`bench/results/`), with the steps
 of `run.sh` run one by one (the native build's `-C target-cpu=native`
 given through a cargo `--config` file rather than `RUSTFLAGS`, and
 `machine.txt` written from the same sources by a script). Ratios above
@@ -181,25 +181,29 @@ generic columns compare different instruction sets (BMI, LZCNT, SSE4.1
 rounding and AVX2 for the compiler's own vectorisation, against the
 x86-64 baseline). "simd" is htj2k with the `simd` feature, built for
 the baseline and running its AVX2 kernels; simd / SIMD compares it
-with OpenJPH's own SIMD build.
+with OpenJPH's own SIMD build. On this shared machine single cycle
+counts move by up to about 20% from one harness run to the next (see
+"± max"), so a single row's cycle ratio can be well off; the
+instruction counts, which vary by under 0.005%, are the figures to
+compare row by row.
 
 Geometric means of the cycle ratios, by group, and of two instruction
 ratios:
 
 | group | op | htj2k / generic | htj2k / SIMD | native / generic | simd / generic | simd / SIMD | simd / htj2k | instructions, htj2k / generic | instructions, simd / SIMD |
 |---|---|--:|--:|--:|--:|--:|--:|--:|--:|
-| Strips, reversible, 16-bit (6) | decode | 0.96 | 1.70 | 0.88 | 0.70 | 1.23 | 0.73 | 0.95 | 1.35 |
-|  | encode | 0.62 | 2.11 | 0.58 | 0.32 | 1.10 | 0.52 | 0.65 | 1.00 |
-| Strips, reversible, 32-bit (6) | decode | 1.08 | 1.25 | 0.91 | 0.95 | 1.09 | 0.88 | 0.98 | 1.05 |
-|  | encode | 0.55 | 0.59 | 0.51 | 0.55 | 0.59 | 1.01 | 0.57 | 0.55 |
-| Strips, irreversible (6) | decode | 0.99 | 2.98 | 0.90 | 0.44 | 1.33 | 0.45 | 1.01 | 1.90 |
-|  | encode | 0.90 | 2.37 | 0.80 | 0.31 | 0.81 | 0.34 | 0.98 | 1.40 |
-| Strips, noise (2) | decode | 0.88 | 1.19 | 0.66 | 0.63 | 0.85 | 0.72 | 0.82 | 1.02 |
-|  | encode | 0.61 | 1.00 | 0.55 | 0.42 | 0.69 | 0.69 | 0.58 | 0.73 |
-| 3840x2160, reversible (1) | decode | 0.52 | 1.26 | 0.66 | 0.65 | 1.59 | 1.26 | 0.98 | 1.53 |
-|  | encode | 0.76 | 2.60 | 0.72 | 0.36 | 1.23 | 0.47 | 0.70 | 1.02 |
-| 3840x2160, irreversible (2) | decode | 0.80 | 2.36 | 0.60 | 0.39 | 1.15 | 0.49 | 0.91 | 1.28 |
-|  | encode | 0.93 | 2.20 | 0.79 | 0.42 | 0.99 | 0.45 | 0.96 | 0.98 |
+| Strips, reversible, 16-bit (6) | decode | 0.94 | 1.78 | 0.75 | 0.57 | 1.08 | 0.61 | 0.94 | 1.09 |
+|  | encode | 0.72 | 2.33 | 0.64 | 0.34 | 1.08 | 0.47 | 0.65 | 1.00 |
+| Strips, reversible, 32-bit (6) | decode | 1.05 | 1.16 | 0.88 | 0.91 | 1.00 | 0.87 | 0.98 | 1.04 |
+|  | encode | 0.57 | 0.61 | 0.53 | 0.62 | 0.66 | 1.08 | 0.57 | 0.55 |
+| Strips, irreversible (6) | decode | 0.88 | 2.69 | 0.82 | 0.32 | 0.97 | 0.36 | 1.01 | 1.55 |
+|  | encode | 0.88 | 2.49 | 0.80 | 0.35 | 0.99 | 0.40 | 0.98 | 1.40 |
+| Strips, noise (2) | decode | 1.04 | 1.76 | 0.77 | 0.69 | 1.16 | 0.66 | 0.82 | 0.93 |
+|  | encode | 0.79 | 1.03 | 0.72 | 0.58 | 0.76 | 0.74 | 0.58 | 0.73 |
+| 3840x2160, reversible (1) | decode | 0.90 | 1.75 | 0.82 | 0.50 | 0.97 | 0.56 | 0.97 | 1.06 |
+|  | encode | 0.76 | 2.30 | 0.67 | 0.34 | 1.03 | 0.45 | 0.70 | 1.02 |
+| 3840x2160, irreversible (2) | decode | 1.16 | 2.83 | 0.80 | 0.50 | 1.21 | 0.43 | 0.90 | 0.99 |
+|  | encode | 1.00 | 2.45 | 0.86 | 0.45 | 1.10 | 0.45 | 0.96 | 0.98 |
 
 ### Decode, all configurations
 
@@ -207,57 +211,57 @@ Cycles per sample (cycles:u), and htj2k's ratios:
 
 | configuration | bits/sample | OpenJPH generic | OpenJPH SIMD | htj2k | htj2k native | htj2k simd | htj2k / generic | htj2k / SIMD | native / generic | simd / SIMD | ± max |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| s16_1c_rev_8192x32 | 13.43 | 28.4 | 16.3 | 30.5 | 26.6 | 25.4 | 1.07 | 1.87 | 0.94 | 1.56 | 9.5% |
-| s16_3c_rev_8192x32 | 13.79 | 35.4 | 20.8 | 34.7 | 44.0 | 26.0 | 0.98 | 1.67 | 1.24 | 1.25 | 7.4% |
-| s16_4c_rev_8192x32 | 13.69 | 38.3 | 19.1 | 34.3 | 28.2 | 22.4 | 0.90 | 1.79 | 0.74 | 1.17 | 6.1% |
-| s32_1c_rev_8192x32 | 29.62 | 58.6 | 52.2 | 63.5 | 47.9 | 52.0 | 1.08 | 1.22 | 0.82 | 1.00 | 5.7% |
-| s32_3c_rev_8192x32 | 29.78 | 65.0 | 52.0 | 65.5 | 57.9 | 55.0 | 1.01 | 1.26 | 0.89 | 1.06 | 6.9% |
-| s32_4c_rev_8192x32 | 29.72 | 65.8 | 57.7 | 63.4 | 69.8 | 60.5 | 0.96 | 1.10 | 1.06 | 1.05 | 10.9% |
-| s16_1c_rev_2048x256 | 12.53 | 30.0 | 17.8 | 28.7 | 26.2 | 21.3 | 0.96 | 1.62 | 0.87 | 1.20 | 11.9% |
-| s16_3c_rev_2048x256 | 12.75 | 31.1 | 17.0 | 29.3 | 25.1 | 21.8 | 0.94 | 1.72 | 0.81 | 1.28 | 5.4% |
-| s16_4c_rev_2048x256 | 12.65 | 34.3 | 20.6 | 31.3 | 26.4 | 20.4 | 0.91 | 1.52 | 0.77 | 0.99 | 6.3% |
-| s32_1c_rev_2048x256 | 28.51 | 57.9 | 46.5 | 53.2 | 49.9 | 52.3 | 0.92 | 1.14 | 0.86 | 1.12 | 6.9% |
-| s32_3c_rev_2048x256 | 28.73 | 52.4 | 48.9 | 64.2 | 51.1 | 56.8 | 1.23 | 1.31 | 0.98 | 1.16 | 5.3% |
-| s32_4c_rev_2048x256 | 28.69 | 52.4 | 47.3 | 70.2 | 46.5 | 56.0 | 1.34 | 1.48 | 0.89 | 1.18 | 9.6% |
-| s16_3c_ict_q90_8192x32 | 1.31 | 54.6 | 19.3 | 65.1 | 54.1 | 32.6 | 1.19 | 3.37 | 0.99 | 1.69 | 3.5% |
-| s32_3c_ict_q90_8192x32 | 1.25 | 52.2 | 18.1 | 54.0 | 54.1 | 26.4 | 1.03 | 2.98 | 1.04 | 1.46 | 3.8% |
-| s16_3c_ict_q90_2048x256 | 0.60 | 53.5 | 18.7 | 44.1 | 44.6 | 21.6 | 0.83 | 2.36 | 0.83 | 1.15 | 5.3% |
-| s32_3c_ict_q90_2048x256 | 0.59 | 57.3 | 17.9 | 54.8 | 42.5 | 18.7 | 0.96 | 3.06 | 0.74 | 1.05 | 14.0% |
-| s16_3c_ict_qs002_8192x32 | 5.29 | 70.1 | 21.1 | 63.6 | 60.9 | 29.6 | 0.91 | 3.02 | 0.87 | 1.41 | 3.4% |
-| s32_3c_ict_qs002_8192x32 | 5.32 | 65.7 | 22.0 | 69.5 | 64.7 | 28.7 | 1.06 | 3.16 | 0.98 | 1.30 | 9.2% |
-| s16_3c_rev_noise_8192x32 | 17.46 | 39.7 | 23.2 | 38.4 | 26.1 | 20.1 | 0.97 | 1.65 | 0.66 | 0.86 | 8.0% |
-| s32_3c_rev_noise_8192x32 | 33.47 | 63.7 | 58.8 | 50.6 | 42.2 | 49.6 | 0.80 | 0.86 | 0.66 | 0.84 | 5.3% |
-| u12_3c_rev_3840x2160 | 8.14 | 41.6 | 17.0 | 21.5 | 27.3 | 27.1 | 0.52 | 1.26 | 0.66 | 1.59 | 8.3% |
-| u12_3c_ict_q90_3840x2160 | 0.04 | 18.7 | 6.2 | 13.1 | 12.2 | 8.5 | 0.70 | 2.13 | 0.65 | 1.38 | 22.2% |
-| u12_3c_ict_qs002_3840x2160 | 3.82 | 58.1 | 20.5 | 53.6 | 32.2 | 19.5 | 0.92 | 2.62 | 0.55 | 0.95 | 26.2% |
+| s16_1c_rev_8192x32 | 13.43 | 30.4 | 16.4 | 28.1 | 23.4 | 19.1 | 0.93 | 1.71 | 0.77 | 1.16 | 7.0% |
+| s16_3c_rev_8192x32 | 13.79 | 32.5 | 20.6 | 47.4 | 27.0 | 19.6 | 1.46 | 2.30 | 0.83 | 0.95 | 21.5% |
+| s16_4c_rev_8192x32 | 13.69 | 33.3 | 17.9 | 30.5 | 30.0 | 20.1 | 0.92 | 1.71 | 0.90 | 1.13 | 6.5% |
+| s32_1c_rev_8192x32 | 29.62 | 51.8 | 44.3 | 59.9 | 42.2 | 50.7 | 1.16 | 1.35 | 0.81 | 1.14 | 6.1% |
+| s32_3c_rev_8192x32 | 29.78 | 54.9 | 65.6 | 62.6 | 70.5 | 75.0 | 1.14 | 0.96 | 1.28 | 1.14 | 16.4% |
+| s32_4c_rev_8192x32 | 29.72 | 98.0 | 77.4 | 78.7 | 71.5 | 57.9 | 0.80 | 1.02 | 0.73 | 0.75 | 19.4% |
+| s16_1c_rev_2048x256 | 12.53 | 27.5 | 15.4 | 26.5 | 23.5 | 17.3 | 0.96 | 1.72 | 0.85 | 1.13 | 2.4% |
+| s16_3c_rev_2048x256 | 12.75 | 31.9 | 16.6 | 32.0 | 21.3 | 26.1 | 1.00 | 1.92 | 0.67 | 1.57 | 15.2% |
+| s16_4c_rev_2048x256 | 12.65 | 53.6 | 22.1 | 31.1 | 28.5 | 16.2 | 0.58 | 1.41 | 0.53 | 0.73 | 15.2% |
+| s32_1c_rev_2048x256 | 28.51 | 36.1 | 42.9 | 50.1 | 42.1 | 48.9 | 1.39 | 1.17 | 1.17 | 1.14 | 17.8% |
+| s32_3c_rev_2048x256 | 28.73 | 65.8 | 45.2 | 68.0 | 44.1 | 40.5 | 1.03 | 1.51 | 0.67 | 0.90 | 14.8% |
+| s32_4c_rev_2048x256 | 28.69 | 84.8 | 71.9 | 76.0 | 68.1 | 73.6 | 0.90 | 1.06 | 0.80 | 1.02 | 7.7% |
+| s16_3c_ict_q90_8192x32 | 1.31 | 73.4 | 28.1 | 63.5 | 48.2 | 23.3 | 0.87 | 2.26 | 0.66 | 0.83 | 5.6% |
+| s32_3c_ict_q90_8192x32 | 1.25 | 64.8 | 27.4 | 55.0 | 56.1 | 25.7 | 0.85 | 2.00 | 0.87 | 0.94 | 10.1% |
+| s16_3c_ict_q90_2048x256 | 0.60 | 53.9 | 14.9 | 53.9 | 58.2 | 11.2 | 1.00 | 3.61 | 1.08 | 0.75 | 13.1% |
+| s32_3c_ict_q90_2048x256 | 0.59 | 50.0 | 19.1 | 45.2 | 42.0 | 18.6 | 0.90 | 2.37 | 0.84 | 0.97 | 12.5% |
+| s16_3c_ict_qs002_8192x32 | 5.29 | 67.5 | 21.9 | 71.2 | 59.8 | 24.0 | 1.06 | 3.25 | 0.89 | 1.09 | 10.3% |
+| s32_3c_ict_qs002_8192x32 | 5.32 | 99.1 | 22.1 | 66.7 | 65.9 | 29.6 | 0.67 | 3.03 | 0.67 | 1.34 | 17.4% |
+| s16_3c_rev_noise_8192x32 | 17.46 | 51.7 | 20.9 | 49.4 | 40.1 | 27.1 | 0.96 | 2.36 | 0.77 | 1.30 | 11.0% |
+| s32_3c_rev_noise_8192x32 | 33.47 | 53.0 | 46.1 | 60.3 | 40.5 | 47.8 | 1.14 | 1.31 | 0.76 | 1.04 | 17.1% |
+| u12_3c_rev_3840x2160 | 8.14 | 31.8 | 16.4 | 28.6 | 26.2 | 16.0 | 0.90 | 1.75 | 0.82 | 0.97 | 6.3% |
+| u12_3c_ict_q90_3840x2160 | 0.04 | 15.3 | 6.1 | 19.7 | 11.3 | 8.6 | 1.29 | 3.26 | 0.74 | 1.41 | 18.9% |
+| u12_3c_ict_qs002_3840x2160 | 3.82 | 38.4 | 16.3 | 40.1 | 33.2 | 16.8 | 1.05 | 2.46 | 0.86 | 1.03 | 4.1% |
 
 Instructions per sample (instructions:u):
 
 | configuration | OpenJPH generic | OpenJPH SIMD | htj2k | htj2k native | htj2k simd | htj2k / generic | htj2k / SIMD | simd / SIMD | ± max |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| s16_1c_rev_8192x32 | 101.8 | 46.4 | 98.2 | 81.1 | 63.0 | 0.97 | 2.12 | 1.36 | 0.00% |
-| s16_3c_rev_8192x32 | 107.2 | 47.0 | 99.8 | 82.0 | 63.8 | 0.93 | 2.12 | 1.36 | 0.00% |
-| s16_4c_rev_8192x32 | 105.8 | 46.9 | 99.4 | 81.8 | 63.6 | 0.94 | 2.12 | 1.36 | 0.00% |
-| s32_1c_rev_8192x32 | 184.0 | 155.3 | 177.6 | 143.7 | 159.5 | 0.97 | 1.14 | 1.03 | 0.00% |
-| s32_3c_rev_8192x32 | 182.7 | 155.8 | 175.5 | 142.9 | 158.5 | 0.96 | 1.13 | 1.02 | 0.00% |
-| s32_4c_rev_8192x32 | 183.0 | 155.6 | 176.2 | 143.2 | 158.9 | 0.96 | 1.13 | 1.02 | 0.00% |
-| s16_1c_rev_2048x256 | 99.1 | 44.2 | 95.6 | 78.7 | 59.9 | 0.96 | 2.16 | 1.35 | 0.00% |
-| s16_3c_rev_2048x256 | 104.2 | 44.9 | 97.0 | 79.5 | 60.6 | 0.93 | 2.16 | 1.35 | 0.00% |
-| s16_4c_rev_2048x256 | 102.8 | 44.7 | 96.6 | 79.3 | 60.4 | 0.94 | 2.16 | 1.35 | 0.00% |
-| s32_1c_rev_2048x256 | 179.9 | 151.1 | 181.2 | 146.6 | 163.1 | 1.01 | 1.20 | 1.08 | 0.00% |
-| s32_3c_rev_2048x256 | 178.8 | 151.8 | 178.8 | 145.6 | 161.8 | 1.00 | 1.18 | 1.07 | 0.00% |
-| s32_4c_rev_2048x256 | 179.1 | 151.6 | 179.3 | 145.7 | 162.0 | 1.00 | 1.18 | 1.07 | 0.00% |
-| s16_3c_ict_q90_8192x32 | 121.7 | 38.3 | 125.6 | 102.5 | 72.0 | 1.03 | 3.28 | 1.88 | 0.00% |
-| s32_3c_ict_q90_8192x32 | 121.1 | 37.8 | 125.2 | 102.2 | 71.5 | 1.03 | 3.31 | 1.89 | 0.00% |
-| s16_3c_ict_q90_2048x256 | 104.8 | 27.9 | 104.5 | 83.8 | 54.5 | 1.00 | 3.75 | 1.95 | 0.00% |
-| s32_3c_ict_q90_2048x256 | 104.8 | 27.9 | 104.5 | 83.9 | 54.5 | 1.00 | 3.75 | 1.96 | 0.00% |
-| s16_3c_ict_qs002_8192x32 | 148.9 | 44.7 | 148.0 | 120.9 | 82.6 | 0.99 | 3.31 | 1.85 | 0.00% |
-| s32_3c_ict_qs002_8192x32 | 149.0 | 44.6 | 148.0 | 120.9 | 82.6 | 0.99 | 3.32 | 1.85 | 0.00% |
-| s16_3c_rev_noise_8192x32 | 114.7 | 48.2 | 102.8 | 84.9 | 66.2 | 0.90 | 2.13 | 1.37 | 0.00% |
-| s32_3c_rev_noise_8192x32 | 193.1 | 166.2 | 143.9 | 116.2 | 126.9 | 0.75 | 0.87 | 0.76 | 0.00% |
-| u12_3c_rev_3840x2160 | 93.0 | 37.4 | 90.9 | 75.3 | 57.4 | 0.98 | 2.43 | 1.53 | 0.00% |
-| u12_3c_ict_q90_3840x2160 | 52.3 | 16.4 | 44.1 | 27.5 | 18.2 | 0.84 | 2.69 | 1.11 | 0.00% |
-| u12_3c_ict_qs002_3840x2160 | 108.1 | 40.8 | 105.2 | 80.4 | 60.7 | 0.97 | 2.58 | 1.49 | 0.00% |
+| s16_1c_rev_8192x32 | 101.8 | 46.4 | 98.0 | 80.9 | 51.0 | 0.96 | 2.11 | 1.10 | 0.00% |
+| s16_3c_rev_8192x32 | 107.2 | 47.0 | 99.6 | 81.8 | 51.8 | 0.93 | 2.12 | 1.10 | 0.00% |
+| s16_4c_rev_8192x32 | 105.8 | 46.9 | 99.2 | 81.6 | 51.6 | 0.94 | 2.12 | 1.10 | 0.00% |
+| s32_1c_rev_8192x32 | 184.0 | 155.3 | 177.4 | 143.5 | 159.3 | 0.96 | 1.14 | 1.03 | 0.00% |
+| s32_3c_rev_8192x32 | 182.7 | 155.8 | 175.3 | 142.7 | 158.3 | 0.96 | 1.13 | 1.02 | 0.00% |
+| s32_4c_rev_8192x32 | 183.0 | 155.6 | 176.0 | 143.0 | 158.6 | 0.96 | 1.13 | 1.02 | 0.00% |
+| s16_1c_rev_2048x256 | 99.1 | 44.2 | 95.4 | 78.6 | 47.6 | 0.96 | 2.16 | 1.08 | 0.00% |
+| s16_3c_rev_2048x256 | 104.2 | 44.9 | 96.9 | 79.4 | 48.4 | 0.93 | 2.16 | 1.08 | 0.00% |
+| s16_4c_rev_2048x256 | 102.8 | 44.7 | 96.5 | 79.1 | 48.1 | 0.94 | 2.16 | 1.08 | 0.00% |
+| s32_1c_rev_2048x256 | 179.9 | 151.1 | 181.1 | 146.4 | 162.9 | 1.01 | 1.20 | 1.08 | 0.00% |
+| s32_3c_rev_2048x256 | 178.8 | 151.8 | 178.7 | 145.4 | 161.6 | 1.00 | 1.18 | 1.06 | 0.00% |
+| s32_4c_rev_2048x256 | 179.1 | 151.6 | 179.1 | 145.6 | 161.8 | 1.00 | 1.18 | 1.07 | 0.00% |
+| s16_3c_ict_q90_8192x32 | 121.7 | 38.3 | 125.3 | 102.3 | 59.2 | 1.03 | 3.28 | 1.55 | 0.00% |
+| s32_3c_ict_q90_8192x32 | 121.1 | 37.8 | 124.9 | 102.0 | 58.9 | 1.03 | 3.30 | 1.56 | 0.00% |
+| s16_3c_ict_q90_2048x256 | 104.8 | 27.9 | 104.3 | 83.7 | 46.9 | 1.00 | 3.74 | 1.68 | 0.00% |
+| s32_3c_ict_q90_2048x256 | 104.8 | 27.9 | 104.3 | 83.7 | 47.0 | 1.00 | 3.74 | 1.68 | 0.00% |
+| s16_3c_ict_qs002_8192x32 | 148.9 | 44.7 | 147.7 | 120.7 | 63.7 | 0.99 | 3.30 | 1.43 | 0.00% |
+| s32_3c_ict_qs002_8192x32 | 149.0 | 44.6 | 147.8 | 120.7 | 63.7 | 0.99 | 3.31 | 1.43 | 0.00% |
+| s16_3c_rev_noise_8192x32 | 114.7 | 48.2 | 102.6 | 84.7 | 54.3 | 0.89 | 2.13 | 1.12 | 0.00% |
+| s32_3c_rev_noise_8192x32 | 193.1 | 166.2 | 143.7 | 116.0 | 126.7 | 0.74 | 0.86 | 0.76 | 0.00% |
+| u12_3c_rev_3840x2160 | 93.0 | 37.4 | 90.6 | 75.0 | 39.8 | 0.97 | 2.42 | 1.06 | 0.00% |
+| u12_3c_ict_q90_3840x2160 | 52.3 | 16.4 | 43.7 | 27.0 | 16.0 | 0.84 | 2.67 | 0.98 | 0.00% |
+| u12_3c_ict_qs002_3840x2160 | 108.1 | 40.8 | 104.8 | 80.1 | 41.1 | 0.97 | 2.57 | 1.01 | 0.00% |
 
 ### Encode, all configurations
 
@@ -265,29 +269,29 @@ Cycles per sample (cycles:u), and htj2k's ratios:
 
 | configuration | bits/sample | OpenJPH generic | OpenJPH SIMD | htj2k | htj2k native | htj2k simd | htj2k / generic | htj2k / SIMD | native / generic | simd / SIMD | ± max |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| s16_1c_rev_8192x32 | 13.43 | 92.3 | 25.2 | 50.6 | 48.5 | 30.6 | 0.55 | 2.01 | 0.53 | 1.21 | 7.2% |
-| s16_3c_rev_8192x32 | 13.79 | 91.1 | 24.7 | 40.0 | 47.1 | 26.0 | 0.44 | 1.62 | 0.52 | 1.05 | 12.1% |
-| s16_4c_rev_8192x32 | 13.69 | 82.7 | 32.1 | 65.0 | 50.9 | 29.9 | 0.79 | 2.03 | 0.62 | 0.93 | 5.6% |
-| s32_1c_rev_8192x32 | 29.62 | 109.4 | 94.0 | 63.7 | 66.6 | 60.6 | 0.58 | 0.68 | 0.61 | 0.64 | 3.3% |
-| s32_3c_rev_8192x32 | 29.78 | 100.4 | 109.2 | 58.2 | 51.1 | 72.0 | 0.58 | 0.53 | 0.51 | 0.66 | 3.9% |
-| s32_4c_rev_8192x32 | 29.72 | 149.6 | 118.1 | 64.8 | 63.9 | 67.3 | 0.43 | 0.55 | 0.43 | 0.57 | 9.9% |
-| s16_1c_rev_2048x256 | 12.53 | 77.0 | 19.5 | 48.2 | 47.4 | 23.2 | 0.63 | 2.47 | 0.62 | 1.19 | 5.1% |
-| s16_3c_rev_2048x256 | 12.75 | 83.9 | 24.3 | 55.3 | 47.5 | 29.5 | 0.66 | 2.28 | 0.57 | 1.22 | 6.2% |
-| s16_4c_rev_2048x256 | 12.65 | 73.6 | 22.8 | 54.3 | 47.7 | 23.8 | 0.74 | 2.38 | 0.65 | 1.04 | 5.4% |
-| s32_1c_rev_2048x256 | 28.51 | 105.6 | 98.2 | 59.4 | 51.7 | 54.8 | 0.56 | 0.60 | 0.49 | 0.56 | 5.7% |
-| s32_3c_rev_2048x256 | 28.73 | 109.4 | 109.4 | 64.6 | 58.6 | 63.4 | 0.59 | 0.59 | 0.54 | 0.58 | 6.7% |
-| s32_4c_rev_2048x256 | 28.69 | 109.9 | 107.8 | 63.5 | 58.0 | 59.3 | 0.58 | 0.59 | 0.53 | 0.55 | 2.2% |
-| s16_3c_ict_q90_8192x32 | 1.31 | 83.8 | 38.2 | 85.8 | 71.4 | 30.8 | 1.02 | 2.25 | 0.85 | 0.81 | 6.7% |
-| s32_3c_ict_q90_8192x32 | 1.25 | 97.2 | 42.0 | 88.7 | 78.4 | 34.0 | 0.91 | 2.11 | 0.81 | 0.81 | 6.4% |
-| s16_3c_ict_q90_2048x256 | 0.60 | 67.5 | 27.2 | 59.4 | 54.4 | 22.4 | 0.88 | 2.18 | 0.81 | 0.82 | 4.9% |
-| s32_3c_ict_q90_2048x256 | 0.59 | 83.3 | 31.4 | 76.6 | 67.1 | 23.4 | 0.92 | 2.44 | 0.81 | 0.74 | 6.0% |
-| s16_3c_ict_qs002_8192x32 | 5.29 | 136.1 | 42.0 | 105.9 | 99.0 | 34.3 | 0.78 | 2.52 | 0.73 | 0.82 | 5.4% |
-| s32_3c_ict_qs002_8192x32 | 5.32 | 133.3 | 42.2 | 117.6 | 105.7 | 37.5 | 0.88 | 2.78 | 0.79 | 0.89 | 3.8% |
-| s16_3c_rev_noise_8192x32 | 17.46 | 74.5 | 29.2 | 49.0 | 44.2 | 25.6 | 0.66 | 1.68 | 0.59 | 0.88 | 7.9% |
-| s32_3c_rev_noise_8192x32 | 33.47 | 114.8 | 107.5 | 64.1 | 57.6 | 57.7 | 0.56 | 0.60 | 0.50 | 0.54 | 5.7% |
-| u12_3c_rev_3840x2160 | 8.14 | 69.7 | 20.4 | 53.1 | 50.3 | 25.0 | 0.76 | 2.60 | 0.72 | 1.23 | 6.1% |
-| u12_3c_ict_q90_3840x2160 | 0.04 | 14.4 | 10.5 | 17.5 | 12.9 | 8.7 | 1.21 | 1.67 | 0.90 | 0.83 | 11.8% |
-| u12_3c_ict_qs002_3840x2160 | 3.82 | 91.6 | 22.4 | 64.9 | 62.9 | 26.2 | 0.71 | 2.90 | 0.69 | 1.17 | 13.2% |
+| s16_1c_rev_8192x32 | 13.43 | 72.1 | 20.7 | 55.5 | 42.7 | 24.7 | 0.77 | 2.68 | 0.59 | 1.19 | 5.2% |
+| s16_3c_rev_8192x32 | 13.79 | 83.7 | 21.4 | 50.3 | 45.6 | 24.6 | 0.60 | 2.34 | 0.55 | 1.15 | 11.2% |
+| s16_4c_rev_8192x32 | 13.69 | 74.4 | 22.4 | 56.4 | 41.7 | 25.0 | 0.76 | 2.52 | 0.56 | 1.12 | 6.5% |
+| s32_1c_rev_8192x32 | 29.62 | 112.3 | 98.2 | 59.0 | 51.6 | 54.6 | 0.53 | 0.60 | 0.46 | 0.56 | 11.4% |
+| s32_3c_rev_8192x32 | 29.78 | 141.9 | 68.3 | 62.8 | 71.2 | 61.7 | 0.44 | 0.92 | 0.50 | 0.90 | 4.9% |
+| s32_4c_rev_8192x32 | 29.72 | 115.7 | 105.3 | 66.5 | 60.7 | 65.8 | 0.58 | 0.63 | 0.52 | 0.63 | 3.7% |
+| s16_1c_rev_2048x256 | 12.53 | 68.9 | 23.0 | 46.7 | 41.4 | 21.3 | 0.68 | 2.03 | 0.60 | 0.92 | 9.0% |
+| s16_3c_rev_2048x256 | 12.75 | 77.0 | 29.9 | 41.2 | 50.9 | 22.8 | 0.53 | 1.38 | 0.66 | 0.76 | 12.9% |
+| s16_4c_rev_2048x256 | 12.65 | 69.6 | 21.9 | 78.8 | 66.3 | 32.9 | 1.13 | 3.60 | 0.95 | 1.50 | 5.2% |
+| s32_1c_rev_2048x256 | 28.51 | 101.0 | 97.3 | 59.5 | 47.8 | 55.1 | 0.59 | 0.61 | 0.47 | 0.57 | 2.7% |
+| s32_3c_rev_2048x256 | 28.73 | 135.5 | 128.9 | 49.0 | 53.7 | 98.3 | 0.36 | 0.38 | 0.40 | 0.76 | 22.3% |
+| s32_4c_rev_2048x256 | 28.69 | 74.9 | 147.5 | 93.8 | 74.4 | 89.9 | 1.25 | 0.64 | 0.99 | 0.61 | 12.4% |
+| s16_3c_ict_q90_8192x32 | 1.31 | 115.2 | 46.1 | 95.2 | 85.8 | 44.3 | 0.83 | 2.06 | 0.75 | 0.96 | 3.1% |
+| s32_3c_ict_q90_8192x32 | 1.25 | 95.6 | 32.9 | 82.5 | 71.8 | 35.5 | 0.86 | 2.51 | 0.75 | 1.08 | 5.5% |
+| s16_3c_ict_q90_2048x256 | 0.60 | 63.8 | 26.6 | 63.3 | 51.7 | 23.4 | 0.99 | 2.38 | 0.81 | 0.88 | 5.5% |
+| s32_3c_ict_q90_2048x256 | 0.59 | 100.5 | 35.3 | 80.0 | 77.5 | 33.0 | 0.80 | 2.27 | 0.77 | 0.93 | 11.0% |
+| s16_3c_ict_qs002_8192x32 | 5.29 | 112.2 | 35.8 | 92.4 | 85.5 | 32.2 | 0.82 | 2.58 | 0.76 | 0.90 | 5.4% |
+| s32_3c_ict_qs002_8192x32 | 5.32 | 129.8 | 37.8 | 126.7 | 123.2 | 47.5 | 0.98 | 3.35 | 0.95 | 1.26 | 8.9% |
+| s16_3c_rev_noise_8192x32 | 17.46 | 47.1 | 28.8 | 47.3 | 43.9 | 27.3 | 1.00 | 1.65 | 0.93 | 0.95 | 15.0% |
+| s32_3c_rev_noise_8192x32 | 33.47 | 105.8 | 102.1 | 65.3 | 58.6 | 62.1 | 0.62 | 0.64 | 0.55 | 0.61 | 5.0% |
+| u12_3c_rev_3840x2160 | 8.14 | 64.9 | 21.3 | 49.0 | 43.8 | 21.9 | 0.76 | 2.30 | 0.67 | 1.03 | 4.5% |
+| u12_3c_ict_q90_3840x2160 | 0.04 | 11.3 | 7.6 | 14.9 | 12.8 | 9.0 | 1.32 | 1.96 | 1.13 | 1.18 | 4.3% |
+| u12_3c_ict_qs002_3840x2160 | 3.82 | 89.6 | 22.3 | 68.2 | 58.7 | 22.9 | 0.76 | 3.05 | 0.66 | 1.03 | 8.3% |
 
 Instructions per sample (instructions:u):
 
@@ -329,128 +333,130 @@ AVX2 clone that multiversion compiles,
 `vectorised::rev_horz_syn::rev_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version`.
 
 The default build's profiles have the same shape as OpenJPH generic's:
-`decode_codeblock32` takes 71.1% of the `s16_3c_rev_8192x32` decode
-(`ojph_decode_codeblock32` 69.6%), `encoder::encode` 77.9% of its
-encode (`ojph_encode_codeblock32` 87.6%), and the NLT type 4
-conversions about half of the Qfactor 90 strips on both sides.
+`decode_codeblock32` takes 71.0% of the `s16_3c_rev_8192x32` decode
+(`ojph_decode_codeblock32` 72.3%), `encoder::encode` 81.6% of its
+encode (`ojph_encode_codeblock32` 89.9%), and the NLT type 4
+conversions about half of the Qfactor 90 strip decode on both sides
+(52.1% against 56.9%).
 
-**Decode, `s16_3c_rev_8192x32`** (htj2k simd 26.0, OpenJPH SIMD 20.8
+**Decode, `s16_3c_rev_8192x32`** (htj2k simd 19.6, OpenJPH SIMD 20.6
 cycles/sample)
 
 | htj2k simd | % | OpenJPH SIMD | % |
 |---|--:|---|--:|
-| `coding::decoder_avx2::magsgn` | 37.0 | `decode_cb_step2_32bit` | 37.9 |
-| `coding::decoder32::decode_codeblock32` | 29.5 | `decode_cb_step1_vlc` | 31.1 |
-| `vectorised::rev_horz_syn` | 4.3 | `memmove` | 5.9 |
-| `memset` | 4.3 | `avx2_rev_horz_syn` | 4.2 |
-| `vectorised::rev_tx_from_cb32` | 3.5 | `avx2_rev_tx_from_cb32` | 3.8 |
+| `coding::decoder_avx2::rows` | 35.3 | `decode_cb_step2_32bit` | 41.2 |
+| `coding::vlc_avx2::decode_vlc_mel32` | 32.1 | `decode_cb_step1_vlc` | 31.5 |
+| `memset` | 4.3 | `avx2_rev_horz_syn` | 4.3 |
+| `vectorised::rev_horz_syn` | 4.1 | `memmove` | 4.3 |
+| `vectorised::rev_vert_step` | 3.2 | `avx2_rev_vert_step` | 3.1 |
 
-Here `decode_codeblock32` is the scalar VLC and MEL step around the
-AVX2 MagSgn kernel; OpenJPH's `decode_cb_step1_vlc`, part of its AVX2
-block decoder, does the same work in fewer instructions (13.5 a
-sample against htj2k's 21.2; see below).
+`decoder_avx2::rows` is the MagSgn step (`row_u_q`, 2.4%, computes its
+`U_q`), `vlc_avx2::decode_vlc_mel32` the VLC and MEL step: the two
+halves of the cleanup pass, as in OpenJPH's AVX2 decoder.
 
-**Encode, `s16_3c_rev_8192x32`** (26.0 against 24.7)
+**Encode, `s16_3c_rev_8192x32`** (24.6 against 21.4)
 
 | htj2k simd | % | OpenJPH SIMD | % |
 |---|--:|---|--:|
-| `coding::encoder_avx2::proc_ms_encode` | 35.5 | `ojph_encode_codeblock_avx2` | 32.8 |
-| `coding::encoder_avx2::encode32` | 31.8 | `proc_ms_encode` | 31.1 |
-| `memmove` | 6.5 | `proc_pixel` | 8.1 |
-| `memset` | 5.1 | `memmove` | 8.0 |
-| `vectorised::rev_horz_ana` | 3.5 | `avx2_rev_horz_ana` | 4.5 |
+| `coding::encoder_avx2::proc_ms_encode` | 37.1 | `ojph_encode_codeblock_avx2` | 34.9 |
+| `coding::encoder_avx2::encode32` | 35.4 | `proc_ms_encode` | 33.2 |
+| `vectorised::rev_horz_ana` | 4.2 | `proc_pixel` | 9.7 |
+| `memmove` | 3.9 | `memmove` | 4.7 |
+| `vectorised::rev_vert_step` | 3.1 | `avx2_rev_horz_ana` | 3.1 |
 
 (htj2k inlines `proc_pixel` into `encode32`.)
 
-**Decode, `s16_3c_ict_q90_8192x32`** (32.6 against 19.3)
+**Decode, `s16_3c_ict_q90_8192x32`** (23.3 against 28.1)
 
 | htj2k simd | % | OpenJPH SIMD | % |
 |---|--:|---|--:|
-| `coding::decoder32::decode_codeblock32` | 28.1 | `avx2_irv_convert_to_integer_nlt` | 26.7 |
-| `vectorised::irv_convert_to_integer_nlt2or4` | 26.8 | `decode_cb_step1_vlc` | 26.7 |
-| `coding::decoder_avx2::magsgn` | 14.0 | `decode_cb_step2_16bit` | 12.4 |
-| `vectorised::irv_horz_syn` | 6.8 | `avx_irv_horz_syn` | 7.3 |
-| `vectorised::irv_vert_step` | 4.6 | `avx_irv_vert_step` | 5.6 |
+| `vectorised::irv_convert_to_integer_nlt2or4` | 28.7 | `avx2_irv_convert_to_integer_nlt` | 29.0 |
+| `coding::vlc_avx2::decode_vlc_mel32` | 27.5 | `decode_cb_step1_vlc` | 27.1 |
+| `coding::decoder_avx2::rows` | 7.8 | `decode_cb_step2_16bit` | 12.4 |
+| `vectorised::irv_horz_syn` | 6.9 | `avx_irv_horz_syn` | 7.8 |
+| `vectorised::irv_vert_step` | 5.3 | `avx_irv_vert_step` | 5.6 |
 
-OpenJPH decodes these blocks with its 16-bit MagSgn path
-(`decode_cb_step2_16bit`), which htj2k does not have; htj2k runs its
-32-bit one.
+Both decode these blocks in 16-bit MagSgn lanes.
 
-**Encode, `s16_3c_ict_q90_8192x32`** (30.8 against 38.2)
+**Encode, `s16_3c_ict_q90_8192x32`** (44.3 against 46.1)
 
 | htj2k simd | % | OpenJPH SIMD | % |
 |---|--:|---|--:|
-| `vectorised::irv_convert_to_float_nlt2or4_precise_1step` | 27.1 | `avx2_irv_convert_to_float_nlt` | 38.8 |
-| `coding::encoder_avx2::encode32` | 26.2 | `ojph_encode_codeblock_avx2` | 23.4 |
-| `coding::encoder_avx2::proc_ms_encode` | 21.1 | `proc_ms_encode` | 12.8 |
-| `vectorised::irv_horz_ana` | 5.7 | `proc_pixel` | 6.0 |
-| `vectorised::irv_vert_step` | 4.1 | `avx_irv_horz_ana` | 5.0 |
+| `vectorised::irv_convert_to_float_nlt2or4_precise_1step` | 25.7 | `avx2_irv_convert_to_float_nlt` | 39.1 |
+| `coding::encoder_avx2::encode32` | 24.1 | `ojph_encode_codeblock_avx2` | 22.1 |
+| `coding::encoder_avx2::proc_ms_encode` | 20.1 | `proc_ms_encode` | 13.0 |
+| `vectorised::irv_horz_ana` | 5.8 | `proc_pixel` | 6.6 |
+| `vectorised::irv_vert_step` | 4.7 | `avx_irv_horz_ana` | 5.1 |
 
 **32-bit reversible samples** (`s32_3c_rev_8192x32`) take the 64-bit
 block coders, which neither side vectorises: `decode_codeblock64` is
-75.7% of the simd decode, `ojph_decode_codeblock64` 75.0% of OpenJPH
-SIMD's, and the encoders 73.4% and 88.9%.
+78.0% of the simd decode, `ojph_decode_codeblock64` 76.3% of OpenJPH
+SIMD's, and the encoders 75.6% and 89.3%.
 
-**3840x2160**: the reversible decode is led by `decoder_avx2::magsgn`
-(19.2%) and `decode_codeblock32` (17.6%), against OpenJPH SIMD's
-`decode_cb_step1_vlc` (14.1%) and `decode_cb_step2_16bit` (9.6%). In
-the Qfactor 90 decode, where almost every block is empty, the default
-build spends 17.3% in `irv_convert_to_integer`. With the feature that
-is the intrinsics kernel `vectorised::avx2::irv_convert_to_integer`
-(2.9%, OpenJPH SIMD's `avx2_irv_convert_to_integer` 1.9%), and the
-wavelet leads, as on OpenJPH SIMD: `irv_horz_syn` 7.1% and
-`irv_vert_step` 5.9%, against 5.2% and 6.1%.
+**3840x2160**: the reversible decode is led by
+`vlc_avx2::decode_vlc_mel32` (16.2%) and the two `decoder_avx2::rows`
+versions, 16-bit and 32-bit lanes (8.6% and 4.5%), against OpenJPH
+SIMD's `decode_cb_step1_vlc` (14.2%), `decode_cb_step2_16bit` (8.8%)
+and `decode_cb_step2_32bit` (4.4%). In the Qfactor 90 decode, where
+almost every block is empty, the default build spends 15.9% in
+`irv_convert_to_integer`. With the feature that is the intrinsics
+kernel `vectorised::avx2::irv_convert_to_integer` (2.6%, OpenJPH
+SIMD's `avx2_irv_convert_to_integer` 2.4%), and the wavelet leads, as
+on OpenJPH SIMD: `irv_horz_syn` 6.5% and `irv_vert_step` 5.8%,
+against 4.9% and 5.8%.
 
 ## Where the gaps are
 
 **The default build against OpenJPH generic.** htj2k executes fewer
 instructions than the C++ it is ported from on most rows: 0.55 to 0.70
-times on the reversible encodes, 0.75 to 1.01 on the reversible
+times on the reversible encodes, 0.74 to 1.01 on the reversible
 decodes, and 1.00 to 1.05 on the Qfactor 90 strips, where the float
 conversions dominate. In cycles, which on this run are noisy (see
-Variation), it is 0.43 to 1.34 times OpenJPH generic on the strips.
-The native build is at or below OpenJPH generic on all but three rows
-(1.04 to 1.24, with the same instructions as the rows around them).
+Variation), it is 0.36 to 1.46 times OpenJPH generic on the strips.
+The native build is at or below OpenJPH generic on all but four rows
+(1.08 to 1.28, with the same instructions as the rows around them).
 
 **The `simd` build against OpenJPH SIMD.** With the feature, htj2k
-takes 0.25 to 1.09 times OpenJPH generic's cycles, and executes 0.41
-to 0.90 times the default build's instructions. Against OpenJPH SIMD,
-the 16-bit and 12-bit rows take 0.86 to 1.69 times its cycles to
-decode and 0.81 to 1.23 times to encode. What is left:
+executes 0.37 to 0.90 times the default build's instructions. On the
+16-bit and 12-bit rows it executes 0.95 to 1.12 times OpenJPH SIMD's
+instructions on every reversible and noise row, encode and decode, and
+on the 3840x2160 irreversible ones; only the irreversible strips are
+further off (1.43 to 1.68 to decode, 1.34 to 1.48 to encode). In
+cycles the 16-bit and 12-bit rows take 0.73 to 1.57 times OpenJPH
+SIMD's to decode and 0.76 to 1.50 times to encode. What is left, measured by symbol with perf at N and 2N
+iterations (instructions per sample; the split between the symbols of
+one side moves by one or two instructions from run to run, the totals
+do not):
 
-1. **The block decoder.** On the 16-bit reversible decodes (1.35x in
-   instructions, 1.23x in cycles) the gap is split about evenly.
-   Measured by symbol on `s16_3c_rev_8192x32` (perf N/2N,
-   instructions per sample):
-   - htj2k's MagSgn kernel takes 29.7 against OpenJPH's 22.5
-     (`decoder_avx2::magsgn` and `row_u_q` against
-     `decode_cb_step2_32bit`);
-   - its scalar VLC and MEL step takes 21.2 (`decode_codeblock32`)
-     against 13.5 for OpenJPH's `decode_cb_step1_vlc`, part of its
-     AVX2 block decoder.
-   The whole decode is 63.7 against 46.9.
-2. **OpenJPH's 16-bit MagSgn path.** For blocks whose magnitudes fit
-   in 16 bits, OpenJPH decodes with `decode_cb_step2_16bit`, half the
-   width of its 32-bit path. htj2k has only the 32-bit path. On the
-   3840x2160 reversible decode (1.53x in instructions; its 1.59x in
-   cycles is a noisy row), MagSgn takes htj2k 25.4 instructions per
-   sample. OpenJPH takes 12.5 there, 7.9 in its 16-bit path and 4.5 in
-   its 32-bit one. Its VLC step takes 15.3 against htj2k's 22.1.
-3. **The NLT type 4 conversions.** These are table lookups. htj2k's
+1. **The NLT type 4 conversions.** These are table lookups. htj2k's
    versions are plain loops that the compiler vectorises around scalar
    lookups. They execute four to five times OpenJPH's instructions
-   (about 21 a sample against 4 on decoding, about 24 against 6 on
-   encoding), but take about as many cycles, since OpenJPH waits on
-   its gathers. So the irreversible strips run 1.90x OpenJPH's
-   instructions to decode but 1.33x its cycles, and 1.40x the
-   instructions to encode but 0.81x the cycles.
-4. **Zeroing and copying.** `memset` takes 1.7 to 5.1% of every simd
-   strip profile and is in none of OpenJPH's. `Codeblock::pull_line` is a
-   copy that OpenJPH avoids.
+   (21.6 a sample against 4.0 on the `s16_3c_ict_q90_8192x32` decode,
+   about 24 against 6 on encoding), but take about as many cycles,
+   since OpenJPH waits on its gathers. This is most of what separates
+   the irreversible strips: 59.2 instructions a sample against 38.1 to
+   decode, at 0.83 times OpenJPH SIMD's cycles on this row.
+2. **The block decoder.** htj2k's cleanup pass now has OpenJPH's AVX2
+   structure: the VLC and MEL step with the unstuffed VLC buffer and
+   the wide UVLC table, and the MagSgn step in 16-bit or 32-bit lanes.
+   On `s16_3c_rev_8192x32` the two steps take about 42 instructions a
+   sample against about 37 for OpenJPH's, of a whole decode of 52.0
+   against 46.6; on the 3840x2160 reversible decode about 31 against
+   28, of 39.8 against 37.1. What remains is mostly in the VLC step:
+   MEL decoding stays the scalar reader's, out of line, with its state
+   in memory, and the loop keeps a few more values on the stack than
+   OpenJPH's. Pulling MEL's runs into registers batch by batch was
+   tried and executed more instructions, not fewer. The MagSgn loops
+   are at OpenJPH's instruction count per pair of quads.
+3. **Zeroing and copying.** `memset` takes 2.3 instructions a sample
+   on the `s16_3c_rev_8192x32` decode and 2.5 on the Qfactor 90 one
+   (1.9 to 4.3% of the strip decode profiles) and is in none of
+   OpenJPH's; `Codeblock::pull_line` is a copy that OpenJPH
+   avoids.
 
 For 32-bit reversible samples neither side has SIMD block coders,
 because they take the 64-bit paths, so the feature changes only the
-wavelet, colour and line conversion kernels there (0.88 to 0.90 times the default
-build's instructions to decode). htj2k simd encodes them in 0.54 to
-0.66 times OpenJPH SIMD's cycles and decodes them in 0.84 to 1.18
-times.
+wavelet, colour and line conversion kernels there (0.88 to 0.90 times
+the default build's instructions to decode). htj2k simd encodes them
+in 0.56 to 0.90 times OpenJPH SIMD's cycles and decodes them in 0.75
+to 1.14 times.

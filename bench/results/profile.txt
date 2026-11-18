@@ -1,456 +1,448 @@
 ## s16_3c_rev_8192x32 dec OpenJPH generic (N=81)
 
-  69.59%  [.] ojph::local::ojph_decode_codeblock32(unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
-   5.96%  [.] __memmove_avx_unaligned_erms
-   4.27%  [.] ojph::local::gen_rev_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
+  72.31%  [.] ojph::local::ojph_decode_codeblock32(unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
    3.91%  [.] ojph::local::gen_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   3.58%  [.] ojph::local::gen_rct_backward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
-   2.35%  [.] ojph::local::gen_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   2.24%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   1.94%  [.] ojph::local::gen_rev_convert_nlt_type3(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, long, unsigned int)
+   3.84%  [.] ojph::local::gen_rct_backward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
+   3.39%  [.] ojph::local::gen_rev_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
+   3.01%  [.] __memmove_avx_unaligned_erms
+   2.61%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   2.28%  [.] ojph::local::gen_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.06%  [.] ojph::local::gen_rev_convert_nlt_type3(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, long, unsigned int)
 
 ## s16_3c_rev_8192x32 dec OpenJPH SIMD (N=81)
 
-  37.91%  [.] ojph::local::decode_cb_step2_32bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
-  31.09%  [.] ojph::local::decode_cb_step1_vlc(unsigned short*, unsigned char*, int, int, unsigned int, unsigned int, unsigned int)
-   5.91%  [.] __memmove_avx_unaligned_erms
-   4.20%  [.] ojph::local::avx2_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   3.79%  [.] ojph::local::avx2_rev_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
-   3.43%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   2.44%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-   1.60%  [.] ojph::local::avx2_rct_backward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
-   1.57%  [.] ojph::local::avx2_rev_convert_nlt_type3(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, long, unsigned int)
+  41.17%  [.] ojph::local::decode_cb_step2_32bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
+  31.45%  [.] ojph::local::decode_cb_step1_vlc(unsigned short*, unsigned char*, int, int, unsigned int, unsigned int, unsigned int)
+   4.32%  [.] ojph::local::avx2_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   4.28%  [.] __memmove_avx_unaligned_erms
+   3.07%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.91%  [.] ojph::local::avx2_rev_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
+   2.64%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+   1.76%  [.] ojph::local::avx2_rev_convert_nlt_type3(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, long, unsigned int)
 
 ## s16_3c_rev_8192x32 dec htj2k (N=81)
 
-  71.10%  [.] htj2k::coding::decoder32::decode_codeblock32
-   4.10%  [.] htj2k::transform::wavelet::rev_horz_syn
-   3.56%  [.] htj2k::codestream::codeblock::Codeblock::pull_line
-   3.17%  [.] htj2k::transform::wavelet::rev_vert_step
-   2.63%  [.] htj2k::transform::colour::rev_convert_nlt_type3
-   1.97%  [.] __memset_avx2_unaligned_erms
-   1.75%  [.] __memmove_avx_unaligned_erms
-   1.71%  [.] htj2k::transform::colour::rct_backward
-   1.63%  [.] htj2k::coding::encoder::encode
+  71.01%  [.] htj2k::coding::decoder32::decode_codeblock32
+   4.47%  [.] htj2k::transform::wavelet::rev_horz_syn
+   3.50%  [.] htj2k::codestream::subband::Subband::pull_line
+   3.31%  [.] htj2k::transform::wavelet::rev_vert_step
+   2.31%  [.] __memset_avx2_unaligned_erms
+   2.12%  [.] htj2k::transform::colour::rev_convert_nlt_type3
+   2.07%  [.] __memmove_avx_unaligned_erms
+   1.65%  [.] htj2k::coding::encoder::encode
 
 ## s16_3c_rev_8192x32 dec htj2k simd (N=81)
 
-  36.98%  [.] htj2k::coding::decoder_avx2::magsgn
-  29.51%  [.] htj2k::coding::decoder32::decode_codeblock32
-   4.34%  [.] htj2k::transform::vectorised::rev_horz_syn::rev_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   4.28%  [.] __memset_avx2_unaligned_erms
-   3.49%  [.] htj2k::transform::vectorised::rev_tx_from_cb32::rev_tx_from_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.93%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.81%  [.] __memmove_avx_unaligned_erms
-   2.17%  [.] htj2k::coding::readers::Rev::read
-   2.16%  [.] htj2k::coding::decoder_avx2::row_u_q
-   1.63%  [.] bench_codec::common::synth::EncArgs::synthesise
+  35.28%  [.] htj2k::coding::decoder_avx2::rows
+  32.07%  [.] htj2k::coding::vlc_avx2::decode_vlc_mel32
+   4.33%  [.] __memset_avx2_unaligned_erms
+   4.09%  [.] htj2k::transform::vectorised::rev_horz_syn::rev_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   3.17%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   2.64%  [.] htj2k::transform::vectorised::rev_tx_from_cb32::rev_tx_from_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   2.40%  [.] htj2k::coding::decoder_avx2::row_u_q
+   2.06%  [.] bench_codec::common::synth::EncArgs::synthesise
+   1.98%  [.] htj2k::transform::vectorised::rct_backward::rct_backward_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   1.94%  [.] __memmove_avx_unaligned_erms
+   1.87%  [.] htj2k::transform::vectorised::rev_convert_nlt_type3::rev_convert_nlt_type3_avx2_bmi1_bmi2_lzcnt_popcnt_version
 
 ## s16_3c_rev_8192x32 enc OpenJPH generic (N=81)
 
-  87.60%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   2.78%  [.] __memmove_avx_unaligned_erms
-   2.01%  [.] ojph::local::gen_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.91%  [.] ojph::local::gen_rct_forward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
-   1.74%  [.] ojph::local::gen_rev_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
+  89.93%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   1.82%  [.] ojph::local::gen_rct_forward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
 
 ## s16_3c_rev_8192x32 enc OpenJPH SIMD (N=81)
 
-  32.83%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-  31.13%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
-   8.09%  [.] ojph::local::proc_pixel(long long __vector(4)*, unsigned int, long long __vector(4)*, long long __vector(4)*, long long __vector(4)&, long long __vector(4)&)
-   7.98%  [.] __memmove_avx_unaligned_erms
-   4.45%  [.] ojph::local::avx2_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   3.81%  [.] ojph::local::avx2_rev_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
-   2.22%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.65%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+  34.93%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+  33.18%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
+   9.74%  [.] ojph::local::proc_pixel(long long __vector(4)*, unsigned int, long long __vector(4)*, long long __vector(4)*, long long __vector(4)&, long long __vector(4)&)
+   4.71%  [.] __memmove_avx_unaligned_erms
+   3.10%  [.] ojph::local::avx2_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.69%  [.] ojph::local::avx2_rev_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
+   2.38%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.21%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
 
 ## s16_3c_rev_8192x32 enc htj2k (N=81)
 
-  77.92%  [.] htj2k::coding::encoder::encode
-   4.54%  [.] __memmove_avx_unaligned_erms
-   3.57%  [.] __memset_avx2_unaligned_erms
-   2.98%  [.] htj2k::codestream::write::codeblock::Codeblock::push
-   2.85%  [.] htj2k::transform::wavelet::rev_horz_ana
-   1.97%  [.] htj2k::transform::wavelet::rev_vert_step
+  81.59%  [.] htj2k::coding::encoder::encode
+   3.38%  [.] __memmove_avx_unaligned_erms
+   2.46%  [.] htj2k::transform::wavelet::rev_horz_ana
+   2.25%  [.] __memset_avx2_unaligned_erms
+   2.10%  [.] htj2k::codestream::write::codeblock::Codeblock::push
+   1.55%  [.] htj2k::transform::wavelet::rev_vert_step
 
 ## s16_3c_rev_8192x32 enc htj2k simd (N=81)
 
-  35.53%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
-  31.78%  [.] htj2k::coding::encoder_avx2::encode32
-   6.46%  [.] __memmove_avx_unaligned_erms
-   5.08%  [.] __memset_avx2_unaligned_erms
-   3.50%  [.] htj2k::transform::vectorised::rev_horz_ana::rev_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.84%  [.] htj2k::transform::vectorised::rev_tx_to_cb32::rev_tx_to_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.76%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   1.61%  [.] htj2k::transform::vectorised::rct_forward::rct_forward_avx2_bmi1_bmi2_lzcnt_popcnt_version
+  37.13%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
+  35.41%  [.] htj2k::coding::encoder_avx2::encode32
+   4.16%  [.] htj2k::transform::vectorised::rev_horz_ana::rev_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   3.85%  [.] __memmove_avx_unaligned_erms
+   3.06%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   2.12%  [.] __memset_avx2_unaligned_erms
+   1.95%  [.] htj2k::transform::vectorised::rev_tx_to_cb32::rev_tx_to_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   1.74%  [.] bench_codec::common::synth::EncArgs::synthesise
+   1.68%  [.] __memmove_avx_unaligned
+   1.56%  [.] htj2k::transform::vectorised::rct_forward::rct_forward_avx2_bmi1_bmi2_lzcnt_popcnt_version
 
 ## s32_3c_rev_8192x32 dec OpenJPH generic (N=81)
 
-  67.65%  [.] ojph::local::ojph_decode_codeblock64(unsigned char*, unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
-   8.14%  [.] ojph::local::gen_rev_tx_from_cb64(unsigned long const*, void*, unsigned int, float, unsigned int)
-   6.33%  [.] ojph::local::gen_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   4.55%  [.] __memmove_avx_unaligned_erms
-   4.06%  [.] ojph::local::gen_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.96%  [.] ojph::local::ojph_encode_codeblock64(unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   1.61%  [.] ojph::local::gen_rev_convert_nlt_type3(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, long, unsigned int)
+  68.94%  [.] ojph::local::ojph_decode_codeblock64(unsigned char*, unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
+   6.78%  [.] ojph::local::gen_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   6.72%  [.] ojph::local::gen_rev_tx_from_cb64(unsigned long const*, void*, unsigned int, float, unsigned int)
+   4.50%  [.] __memmove_avx_unaligned_erms
+   4.44%  [.] ojph::local::gen_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.06%  [.] ojph::local::ojph_encode_codeblock64(unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
 
 ## s32_3c_rev_8192x32 dec OpenJPH SIMD (N=81)
 
-  74.98%  [.] ojph::local::ojph_decode_codeblock64(unsigned char*, unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
-   5.76%  [.] __memmove_avx_unaligned_erms
-   4.22%  [.] ojph::local::avx2_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   4.20%  [.] ojph::local::avx2_rev_tx_from_cb64(unsigned long const*, void*, unsigned int, float, unsigned int)
-   2.60%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   2.17%  [.] ojph::local::ojph_encode_codeblock64(unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+  76.27%  [.] ojph::local::ojph_decode_codeblock64(unsigned char*, unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
+   5.81%  [.] __memmove_avx_unaligned_erms
+   4.56%  [.] ojph::local::avx2_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   3.31%  [.] ojph::local::avx2_rev_tx_from_cb64(unsigned long const*, void*, unsigned int, float, unsigned int)
+   2.22%  [.] ojph::local::ojph_encode_codeblock64(unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   2.06%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
 
 ## s32_3c_rev_8192x32 dec htj2k (N=81)
 
-  71.64%  [.] htj2k::coding::decoder64::decode_codeblock64
-   7.13%  [.] htj2k::transform::wavelet::rev_horz_syn
-   4.66%  [.] htj2k::codestream::codeblock::Codeblock::pull_line
-   3.84%  [.] htj2k::transform::wavelet::rev_vert_step
-   2.84%  [.] __memset_avx2_unaligned_erms
-   2.12%  [.] __memmove_avx_unaligned_erms
-   1.80%  [.] htj2k::transform::colour::rct_backward
+  72.77%  [.] htj2k::coding::decoder64::decode_codeblock64
+   6.84%  [.] htj2k::transform::wavelet::rev_horz_syn
+   4.13%  [.] htj2k::transform::wavelet::rev_vert_step
+   3.89%  [.] htj2k::codestream::subband::Subband::pull_line
+   2.38%  [.] __memset_avx2_unaligned_erms
+   1.99%  [.] htj2k::transform::colour::rev_convert_nlt_type3
+   1.77%  [.] __memmove_avx_unaligned_erms
+   1.61%  [.] htj2k::transform::colour::rct_backward
 
 ## s32_3c_rev_8192x32 dec htj2k simd (N=81)
 
-  75.66%  [.] htj2k::coding::decoder64::decode_codeblock64
-   4.65%  [.] htj2k::transform::vectorised::rev_horz_syn::rev_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   4.50%  [.] htj2k::codestream::codeblock::Codeblock::pull_line
-   2.93%  [.] __memset_avx2_unaligned_erms
-   2.77%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   1.96%  [.] __memmove_avx_unaligned_erms
+  78.03%  [.] htj2k::coding::decoder64::decode_codeblock64
+   4.06%  [.] htj2k::transform::vectorised::rev_horz_syn::rev_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   3.72%  [.] htj2k::codestream::subband::Subband::pull_line
+   2.92%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   1.89%  [.] __memset_avx2_unaligned_erms
+   1.61%  [.] htj2k::transform::vectorised::rct_backward::rct_backward_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   1.50%  [.] __memmove_avx_unaligned_erms
 
 ## s32_3c_rev_8192x32 enc OpenJPH generic (N=81)
 
-  84.66%  [.] ojph::local::ojph_encode_codeblock64(unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   3.25%  [.] ojph::local::gen_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   2.85%  [.] __memmove_avx_unaligned_erms
-   2.83%  [.] ojph::local::gen_rev_tx_to_cb64(void const*, unsigned long*, unsigned int, float, unsigned int, unsigned long*)
-   2.17%  [.] ojph::local::gen_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+  85.41%  [.] ojph::local::ojph_encode_codeblock64(unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   3.13%  [.] ojph::local::gen_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.73%  [.] __memmove_avx_unaligned_erms
+   2.33%  [.] ojph::local::gen_rev_tx_to_cb64(void const*, unsigned long*, unsigned int, float, unsigned int, unsigned long*)
+   2.28%  [.] ojph::local::gen_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
 
 ## s32_3c_rev_8192x32 enc OpenJPH SIMD (N=81)
 
-  88.85%  [.] ojph::local::ojph_encode_codeblock64(unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   2.94%  [.] __memmove_avx_unaligned_erms
-   2.11%  [.] ojph::local::avx2_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.63%  [.] ojph::local::avx2_rev_tx_to_cb64(void const*, unsigned long*, unsigned int, float, unsigned int, unsigned long*)
+  89.26%  [.] ojph::local::ojph_encode_codeblock64(unsigned long*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   2.90%  [.] __memmove_avx_unaligned_erms
+   1.70%  [.] ojph::local::avx2_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
 
 ## s32_3c_rev_8192x32 enc htj2k (N=81)
 
-  71.88%  [.] htj2k::coding::encoder::encode
-   5.06%  [.] __memmove_avx_unaligned_erms
-   4.62%  [.] htj2k::transform::wavelet::rev_horz_ana
-   4.35%  [.] __memset_avx2_unaligned_erms
-   3.59%  [.] htj2k::transform::wavelet::rev_vert_step
-   3.33%  [.] htj2k::codestream::write::codeblock::Codeblock::push
-   2.14%  [.] htj2k::transform::colour::rct_forward
+  72.16%  [.] htj2k::coding::encoder::encode
+   5.27%  [.] htj2k::transform::wavelet::rev_horz_ana
+   5.04%  [.] __memmove_avx_unaligned_erms
+   4.18%  [.] __memset_avx2_unaligned_erms
+   3.48%  [.] htj2k::transform::wavelet::rev_vert_step
+   3.10%  [.] htj2k::codestream::write::codeblock::Codeblock::push
+   1.82%  [.] htj2k::transform::colour::rct_forward
 
 ## s32_3c_rev_8192x32 enc htj2k simd (N=81)
 
-  73.38%  [.] htj2k::coding::encoder::encode
-   5.79%  [.] __memmove_avx_unaligned_erms
-   4.96%  [.] __memset_avx2_unaligned_erms
-   4.14%  [.] htj2k::codestream::write::codeblock::Codeblock::push
-   3.65%  [.] htj2k::transform::vectorised::rev_horz_ana::rev_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.68%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+  75.62%  [.] htj2k::coding::encoder::encode
+   5.52%  [.] __memmove_avx_unaligned_erms
+   3.81%  [.] __memset_avx2_unaligned_erms
+   3.78%  [.] htj2k::transform::vectorised::rev_horz_ana::rev_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   3.65%  [.] htj2k::codestream::write::codeblock::Codeblock::push
+   1.87%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
 
 ## s16_3c_ict_q90_8192x32 dec OpenJPH generic (N=81)
 
-  54.36%  [.] ojph::local::gen_irv_convert_to_integer_nlt(ojph::line_buf const*, ojph::line_buf*, unsigned int, unsigned int, bool, unsigned int, ojph::local::nlt_rec const*)
-  24.19%  [.] ojph::local::ojph_decode_codeblock32(unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
-   4.69%  [.] ojph::local::gen_irv_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   3.03%  [.] ojph::local::gen_ict_backward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
-   2.89%  [.] ojph::local::gen_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   2.76%  [.] ojph::local::gen_irv_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
-   1.55%  [.] __memmove_avx_unaligned_erms
+  56.88%  [.] ojph::local::gen_irv_convert_to_integer_nlt(ojph::line_buf const*, ojph::line_buf*, unsigned int, unsigned int, bool, unsigned int, ojph::local::nlt_rec const*)
+  24.18%  [.] ojph::local::ojph_decode_codeblock32(unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
+   3.98%  [.] ojph::local::gen_irv_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   3.05%  [.] ojph::local::gen_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.92%  [.] ojph::local::gen_ict_backward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
+   2.34%  [.] ojph::local::gen_irv_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
 
 ## s16_3c_ict_q90_8192x32 dec OpenJPH SIMD (N=81)
 
-  26.72%  [.] ojph::local::avx2_irv_convert_to_integer_nlt(ojph::line_buf const*, ojph::line_buf*, unsigned int, unsigned int, bool, unsigned int, ojph::local::nlt_rec const*)
-  26.71%  [.] ojph::local::decode_cb_step1_vlc(unsigned short*, unsigned char*, int, int, unsigned int, unsigned int, unsigned int)
-  12.42%  [.] ojph::local::decode_cb_step2_16bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
-   7.26%  [.] ojph::local::avx_irv_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   5.57%  [.] ojph::local::avx_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   5.29%  [.] __memmove_avx_unaligned_erms
-   4.02%  [.] ojph::local::avx2_irv_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
-   2.07%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+  28.99%  [.] ojph::local::avx2_irv_convert_to_integer_nlt(ojph::line_buf const*, ojph::line_buf*, unsigned int, unsigned int, bool, unsigned int, ojph::local::nlt_rec const*)
+  27.14%  [.] ojph::local::decode_cb_step1_vlc(unsigned short*, unsigned char*, int, int, unsigned int, unsigned int, unsigned int)
+  12.41%  [.] ojph::local::decode_cb_step2_16bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
+   7.83%  [.] ojph::local::avx_irv_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   5.60%  [.] ojph::local::avx_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   3.39%  [.] ojph::local::avx2_irv_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
+   2.47%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+   2.02%  [.] __memmove_avx_unaligned_erms
+   1.58%  [.] ojph::local::avx_ict_backward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
 
 ## s16_3c_ict_q90_8192x32 dec htj2k (N=81)
 
-  52.87%  [.] htj2k::transform::colour::irv_convert_to_integer_nlt
-  26.25%  [.] htj2k::coding::decoder32::decode_codeblock32
-   4.79%  [.] htj2k::transform::wavelet::irv_horz_syn
-   3.15%  [.] htj2k::transform::wavelet::irv_vert_step
-   2.32%  [.] htj2k::codestream::codeblock::Codeblock::pull_line
+  52.07%  [.] htj2k::transform::colour::irv_convert_to_integer_nlt
+  27.40%  [.] htj2k::coding::decoder32::decode_codeblock32
+   4.50%  [.] htj2k::transform::wavelet::irv_horz_syn
+   3.65%  [.] htj2k::transform::wavelet::irv_vert_step
+   2.23%  [.] htj2k::codestream::subband::Subband::pull_line
+   1.56%  [.] __memset_avx2_unaligned_erms
 
 ## s16_3c_ict_q90_8192x32 dec htj2k simd (N=81)
 
-  28.06%  [.] htj2k::coding::decoder32::decode_codeblock32
-  26.84%  [.] htj2k::transform::vectorised::irv_convert_to_integer_nlt2or4::irv_convert_to_integer_nlt2or4_avx2_bmi1_bmi2_lzcnt_popcnt_version
-  14.00%  [.] htj2k::coding::decoder_avx2::magsgn
-   6.75%  [.] htj2k::transform::vectorised::irv_horz_syn::irv_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   4.58%  [.] htj2k::transform::vectorised::irv_vert_step::irv_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.36%  [.] __memset_avx2_unaligned_erms
-   2.10%  [.] htj2k::transform::vectorised::irv_tx_from_cb32::irv_tx_from_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.06%  [.] htj2k::coding::readers::Mel::decode
-   1.96%  [.] __memmove_avx_unaligned_erms
-   1.63%  [.] bench_codec::common::synth::EncArgs::synthesise
-   1.62%  [.] htj2k::coding::decoder_avx2::row_u_q
+  28.74%  [.] htj2k::transform::vectorised::irv_convert_to_integer_nlt2or4::irv_convert_to_integer_nlt2or4_avx2_bmi1_bmi2_lzcnt_popcnt_version
+  27.47%  [.] htj2k::coding::vlc_avx2::decode_vlc_mel32
+   7.78%  [.] htj2k::coding::decoder_avx2::rows
+   6.90%  [.] htj2k::transform::vectorised::irv_horz_syn::irv_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   5.30%  [.] htj2k::transform::vectorised::irv_vert_step::irv_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   3.57%  [.] __memset_avx2_unaligned_erms
+   2.65%  [.] htj2k::coding::readers::Mel::decode
+   2.50%  [.] htj2k::transform::vectorised::irv_tx_from_cb32::irv_tx_from_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   1.93%  [.] __memmove_avx_unaligned_erms
+   1.76%  [.] bench_codec::common::synth::EncArgs::synthesise
+   1.52%  [k] 0000000000000000
 
 ## s16_3c_ict_q90_8192x32 enc OpenJPH generic (N=81)
 
-  50.19%  [.] ojph::local::gen_irv_convert_to_float_nlt(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, bool, unsigned int, ojph::local::nlt_rec const*)
-  38.45%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   3.04%  [.] ojph::local::gen_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   2.14%  [.] ojph::local::gen_ict_forward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
-   1.75%  [.] ojph::local::gen_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+  49.32%  [.] ojph::local::gen_irv_convert_to_float_nlt(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, bool, unsigned int, ojph::local::nlt_rec const*)
+  38.58%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   3.03%  [.] ojph::local::gen_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.31%  [.] ojph::local::gen_ict_forward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
+   1.93%  [.] ojph::local::gen_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
 
 ## s16_3c_ict_q90_8192x32 enc OpenJPH SIMD (N=81)
 
-  38.84%  [.] ojph::local::avx2_irv_convert_to_float_nlt(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, bool, unsigned int, ojph::local::nlt_rec const*)
-  23.39%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-  12.84%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
-   6.00%  [.] ojph::local::proc_pixel(long long __vector(4)*, unsigned int, long long __vector(4)*, long long __vector(4)*, long long __vector(4)&, long long __vector(4)&)
-   4.97%  [.] ojph::local::avx_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   4.59%  [.] ojph::local::avx_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.74%  [.] ojph::local::avx2_irv_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
-   1.64%  [.] __memmove_avx_unaligned_erms
-   1.52%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+  39.06%  [.] ojph::local::avx2_irv_convert_to_float_nlt(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, bool, unsigned int, ojph::local::nlt_rec const*)
+  22.10%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+  13.04%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
+   6.59%  [.] ojph::local::proc_pixel(long long __vector(4)*, unsigned int, long long __vector(4)*, long long __vector(4)*, long long __vector(4)&, long long __vector(4)&)
+   5.11%  [.] ojph::local::avx_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   3.89%  [.] ojph::local::avx_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   1.95%  [.] __memmove_avx_unaligned_erms
+   1.57%  [.] ojph::local::avx2_irv_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
 
 ## s16_3c_ict_q90_8192x32 enc htj2k (N=81)
 
-  43.05%  [.] htj2k::transform::colour::irv_convert_to_float_nlt
-  38.20%  [.] htj2k::coding::encoder::encode
-   6.25%  [.] htj2k::codestream::write::codeblock::Codeblock::push
-   3.72%  [.] htj2k::transform::wavelet::irv_horz_ana
-   2.45%  [.] htj2k::transform::wavelet::irv_vert_step
+  43.19%  [.] htj2k::transform::colour::irv_convert_to_float_nlt
+  36.78%  [.] htj2k::coding::encoder::encode
+   6.05%  [.] htj2k::codestream::write::codeblock::Codeblock::push
+   4.27%  [.] htj2k::transform::wavelet::irv_horz_ana
+   2.48%  [.] htj2k::transform::wavelet::irv_vert_step
+   1.51%  [.] __memset_avx2_unaligned_erms
 
 ## s16_3c_ict_q90_8192x32 enc htj2k simd (N=81)
 
-  27.13%  [.] htj2k::transform::vectorised::irv_convert_to_float_nlt2or4_precise_1step::irv_convert_to_float_nlt2or4_precise_1step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-  26.21%  [.] htj2k::coding::encoder_avx2::encode32
-  21.08%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
-   5.68%  [.] htj2k::transform::vectorised::irv_horz_ana::irv_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   4.09%  [.] htj2k::transform::vectorised::irv_vert_step::irv_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.57%  [.] htj2k::transform::vectorised::avx2::irv_tx_to_cb32
-   1.83%  [.] __memmove_avx_unaligned_erms
-   1.69%  [.] __memset_avx2_unaligned_erms
-   1.61%  [.] htj2k::transform::vectorised::irv_vert_times_k::irv_vert_times_k_avx2_bmi1_bmi2_lzcnt_popcnt_version
+  25.73%  [.] htj2k::transform::vectorised::irv_convert_to_float_nlt2or4_precise_1step::irv_convert_to_float_nlt2or4_precise_1step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+  24.09%  [.] htj2k::coding::encoder_avx2::encode32
+  20.07%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
+   5.84%  [.] htj2k::transform::vectorised::irv_horz_ana::irv_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   4.69%  [.] htj2k::transform::vectorised::irv_vert_step::irv_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   3.69%  [.] __memset_avx2_unaligned_erms
+   2.88%  [.] __memmove_avx_unaligned_erms
+   2.55%  [.] htj2k::transform::vectorised::avx2::irv_tx_to_cb32
 
 ## u12_3c_rev_3840x2160 dec OpenJPH generic (N=4)
 
-  35.91%  [.] ojph::local::ojph_decode_codeblock32(unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
-  21.20%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-  16.35%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-   7.19%  [.] main
-   4.42%  [k] 0000000000000000
-   3.09%  [.] __memmove_avx_unaligned_erms
-   2.31%  [.] ojph::local::gen_rev_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
-   2.20%  [.] ojph::local::gen_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   2.12%  [.] ojph::local::gen_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.73%  [.] ojph::local::gen_rct_backward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
+  35.22%  [.] ojph::local::ojph_decode_codeblock32(unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
+  22.29%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+  16.20%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+   7.08%  [.] main
+   4.49%  [k] 0000000000000000
+   3.25%  [.] __memmove_avx_unaligned_erms
+   2.47%  [.] ojph::local::gen_rev_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
+   2.05%  [.] ojph::local::gen_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   1.80%  [.] ojph::local::gen_rct_backward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
+   1.78%  [.] ojph::local::gen_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
 
 ## u12_3c_rev_3840x2160 dec OpenJPH SIMD (N=4)
 
-  25.17%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-  14.13%  [.] ojph::local::decode_cb_step1_vlc(unsigned short*, unsigned char*, int, int, unsigned int, unsigned int, unsigned int)
-  11.41%  [.] main
-   9.55%  [.] ojph::local::decode_cb_step2_16bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
-   7.27%  [k] 0000000000000000
-   5.04%  [.] __memmove_avx_unaligned_erms
-   4.89%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   4.48%  [.] ojph::local::decode_cb_step2_32bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
-   4.33%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
-   3.34%  [.] ojph::local::avx2_rev_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
-   2.32%  [.] ojph::local::avx2_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.68%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+  26.46%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+  14.15%  [.] ojph::local::decode_cb_step1_vlc(unsigned short*, unsigned char*, int, int, unsigned int, unsigned int, unsigned int)
+  12.21%  [.] main
+   8.81%  [.] ojph::local::decode_cb_step2_16bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
+   7.20%  [k] 0000000000000000
+   5.60%  [.] __memmove_avx_unaligned_erms
+   4.37%  [.] ojph::local::decode_cb_step2_32bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
+   4.37%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   4.12%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
+   2.97%  [.] ojph::local::avx2_rev_tx_from_cb32(unsigned int const*, void*, unsigned int, float, unsigned int)
+   2.11%  [.] ojph::local::avx2_rev_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   1.82%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
 
 ## u12_3c_rev_3840x2160 dec htj2k (N=4)
 
-  38.93%  [.] htj2k::coding::decoder32::decode_codeblock32
-  19.10%  [.] htj2k::coding::encoder::encode
-  15.06%  [.] bench_codec::common::synth::EncArgs::synthesise
-   6.69%  [.] bench_codec::main
-   4.78%  [k] 0000000000000000
-   2.98%  [.] htj2k::codestream::codeblock::Codeblock::pull_line
-   2.71%  [.] htj2k::transform::wavelet::rev_horz_syn
-   2.68%  [.] __memmove_avx_unaligned_erms
-   2.22%  [.] htj2k::transform::wavelet::rev_vert_step
+  39.50%  [.] htj2k::coding::decoder32::decode_codeblock32
+  18.52%  [.] htj2k::coding::encoder::encode
+  15.66%  [.] bench_codec::common::synth::EncArgs::synthesise
+   7.14%  [.] bench_codec::main
+   4.87%  [k] 0000000000000000
+   2.66%  [.] htj2k::codestream::subband::Subband::pull_line
+   2.55%  [.] htj2k::transform::wavelet::rev_horz_syn
+   2.52%  [.] __memmove_avx_unaligned_erms
+   1.95%  [.] htj2k::transform::wavelet::rev_vert_step
 
 ## u12_3c_rev_3840x2160 dec htj2k simd (N=4)
 
-  20.28%  [.] bench_codec::common::synth::EncArgs::synthesise
-  19.21%  [.] htj2k::coding::decoder_avx2::magsgn
-  17.59%  [.] htj2k::coding::decoder32::decode_codeblock32
-   9.00%  [.] bench_codec::main
-   6.05%  [k] 0000000000000000
-   4.78%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
-   4.46%  [.] htj2k::coding::encoder_avx2::encode32
-   3.73%  [.] htj2k::transform::vectorised::rev_tx_from_cb32::rev_tx_from_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.92%  [.] __memmove_avx_unaligned_erms
-   2.38%  [.] htj2k::transform::vectorised::rev_horz_syn::rev_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.15%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   1.53%  [.] htj2k::coding::decoder_avx2::row_u_q
+  23.99%  [.] bench_codec::common::synth::EncArgs::synthesise
+  16.16%  [.] htj2k::coding::vlc_avx2::decode_vlc_mel32
+  10.79%  [.] bench_codec::main
+   8.62%  [.] htj2k::coding::decoder_avx2::rows
+   7.20%  [k] 0000000000000000
+   5.21%  [.] htj2k::coding::encoder_avx2::encode32
+   4.82%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
+   4.53%  [.] htj2k::coding::decoder_avx2::rows
+   3.91%  [.] __memmove_avx_unaligned_erms
+   2.81%  [.] htj2k::transform::vectorised::rev_horz_syn::rev_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   2.67%  [.] htj2k::transform::vectorised::rev_tx_from_cb32::rev_tx_from_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   2.26%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
 
 ## u12_3c_rev_3840x2160 enc OpenJPH generic (N=4)
 
-  72.10%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-  12.61%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-   2.89%  [k] 0000000000000000
-   2.30%  [.] __memmove_avx_unaligned_erms
-   1.88%  [.] ojph::local::gen_rct_forward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
-   1.79%  [.] ojph::local::gen_rev_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
-   1.78%  [.] ojph::local::gen_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+  71.67%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+  13.37%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+   2.96%  [k] 0000000000000000
+   2.46%  [.] __memmove_avx_unaligned_erms
+   1.79%  [.] ojph::local::gen_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   1.60%  [.] ojph::local::gen_rct_forward(ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf*, ojph::line_buf*, ojph::line_buf*, unsigned int)
 
 ## u12_3c_rev_3840x2160 enc OpenJPH SIMD (N=4)
 
-  26.88%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-  21.78%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-  19.01%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
-   6.26%  [k] 0000000000000000
-   6.17%  [.] ojph::local::proc_pixel(long long __vector(4)*, unsigned int, long long __vector(4)*, long long __vector(4)*, long long __vector(4)&, long long __vector(4)&)
-   5.02%  [.] __memmove_avx_unaligned_erms
-   3.25%  [.] ojph::local::avx2_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   2.72%  [.] ojph::local::avx2_rev_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
-   2.61%  [.] (anonymous namespace)::print_j2c(ojph::mem_outfile const&) [clone .isra.0]
-   1.72%  [.] main
-   1.72%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+  29.76%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+  20.15%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+  17.47%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
+   6.64%  [k] 0000000000000000
+   6.30%  [.] ojph::local::proc_pixel(long long __vector(4)*, unsigned int, long long __vector(4)*, long long __vector(4)*, long long __vector(4)&, long long __vector(4)&)
+   5.80%  [.] __memmove_avx_unaligned_erms
+   2.87%  [.] (anonymous namespace)::print_j2c(ojph::mem_outfile const&) [clone .isra.0]
+   2.15%  [.] ojph::local::avx2_rev_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   1.93%  [.] ojph::local::avx2_rev_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
+   1.83%  [.] main
+   1.61%  [.] ojph::local::avx2_rev_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
 
 ## u12_3c_rev_3840x2160 enc htj2k (N=4)
 
-  68.45%  [.] htj2k::coding::encoder::encode
-  13.60%  [.] bench_codec::common::synth::EncArgs::synthesise
-   4.37%  [k] 0000000000000000
-   2.70%  [.] htj2k::codestream::write::codeblock::Codeblock::push
-   2.54%  [.] __memmove_avx_unaligned_erms
-   2.52%  [.] htj2k::transform::wavelet::rev_horz_ana
-   1.52%  [.] bench_codec::main
+  67.31%  [.] htj2k::coding::encoder::encode
+  14.71%  [.] bench_codec::common::synth::EncArgs::synthesise
+   5.07%  [k] 0000000000000000
+   3.05%  [.] __memmove_avx_unaligned_erms
+   2.28%  [.] htj2k::codestream::write::codeblock::Codeblock::push
+   2.05%  [.] htj2k::transform::wavelet::rev_horz_ana
+   1.66%  [.] bench_codec::main
 
 ## u12_3c_rev_3840x2160 enc htj2k simd (N=4)
 
-  24.76%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
-  23.96%  [.] bench_codec::common::synth::EncArgs::synthesise
-  22.50%  [.] htj2k::coding::encoder_avx2::encode32
-   8.12%  [k] 0000000000000000
-   3.97%  [.] __memmove_avx_unaligned_erms
-   3.70%  [.] htj2k::transform::vectorised::rev_tx_to_cb32::rev_tx_to_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   3.25%  [.] htj2k::transform::vectorised::rev_horz_ana::rev_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.78%  [.] bench_codec::main
-   2.03%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+  26.83%  [.] bench_codec::common::synth::EncArgs::synthesise
+  22.76%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
+  21.71%  [.] htj2k::coding::encoder_avx2::encode32
+   8.84%  [k] 0000000000000000
+   4.99%  [.] __memmove_avx_unaligned_erms
+   3.08%  [.] htj2k::transform::vectorised::rev_horz_ana::rev_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   2.98%  [.] bench_codec::main
+   2.44%  [.] htj2k::transform::vectorised::rev_tx_to_cb32::rev_tx_to_cb32_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   1.90%  [.] htj2k::transform::vectorised::rev_vert_step::rev_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
 
 ## u12_3c_ict_q90_3840x2160 dec OpenJPH generic (N=4)
 
-  28.67%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-  15.75%  [.] ojph::local::gen_irv_convert_to_integer(ojph::line_buf const*, ojph::line_buf*, unsigned int, unsigned int, bool, unsigned int)
-  12.44%  [.] main
-   7.62%  [.] ojph::local::gen_irv_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   5.99%  [k] 0000000000000000
-   5.64%  [.] ojph::local::gen_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   4.78%  [.] ojph::local::gen_ict_backward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
-   4.01%  [.] ojph::local::ojph_decode_codeblock32(unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
-   3.72%  [.] __memmove_avx_unaligned_erms
-   1.79%  [.] ojph::local::gen_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.78%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   1.66%  [.] ojph::local::gen_irv_vert_times_K(float, ojph::line_buf const*, unsigned int)
+  29.82%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+  13.70%  [.] main
+  13.18%  [.] ojph::local::gen_irv_convert_to_integer(ojph::line_buf const*, ojph::line_buf*, unsigned int, unsigned int, bool, unsigned int)
+   6.78%  [.] ojph::local::gen_irv_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   5.94%  [k] 0000000000000000
+   5.60%  [.] ojph::local::gen_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   5.26%  [.] ojph::local::gen_ict_backward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
+   4.36%  [.] ojph::local::ojph_decode_codeblock32(unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, bool)
+   4.15%  [.] __memmove_avx_unaligned_erms
+   1.88%  [.] ojph::local::gen_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   1.69%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   1.62%  [.] ojph::local::gen_ict_forward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
 
 ## u12_3c_ict_q90_3840x2160 dec OpenJPH SIMD (N=4)
 
-  37.90%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-  16.97%  [.] main
-   8.36%  [k] 0000000000000000
-   6.27%  [.] __memmove_avx_unaligned_erms
-   6.09%  [.] ojph::local::avx_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   5.21%  [.] ojph::local::avx_irv_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   3.41%  [.] ojph::local::decode_cb_step1_vlc(unsigned short*, unsigned char*, int, int, unsigned int, unsigned int, unsigned int)
-   1.85%  [.] ojph::local::avx2_irv_convert_to_integer(ojph::line_buf const*, ojph::line_buf*, unsigned int, unsigned int, bool, unsigned int)
-   1.72%  [.] ojph::local::avx_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   1.69%  [.] ojph::local::decode_cb_step2_16bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
-   1.59%  [.] ojph::local::avx_irv_vert_times_K(float, ojph::line_buf const*, unsigned int)
+  38.98%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+  17.82%  [.] main
+   8.40%  [k] 0000000000000000
+   5.84%  [.] ojph::local::avx_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   5.32%  [.] __memmove_avx_unaligned_erms
+   4.94%  [.] ojph::local::avx_irv_horz_syn(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   2.87%  [.] ojph::local::decode_cb_step1_vlc(unsigned short*, unsigned char*, int, int, unsigned int, unsigned int, unsigned int)
+   2.39%  [.] ojph::local::avx2_irv_convert_to_integer(ojph::line_buf const*, ojph::line_buf*, unsigned int, unsigned int, bool, unsigned int)
+   1.82%  [.] ojph::local::avx_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   1.60%  [.] ojph::local::decode_cb_step2_16bit(unsigned short*, unsigned int*, unsigned char*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, int, int)
 
 ## u12_3c_ict_q90_3840x2160 dec htj2k (N=4)
 
-  23.64%  [.] bench_codec::common::synth::EncArgs::synthesise
-  17.26%  [.] htj2k::transform::colour::irv_convert_to_integer
-  10.50%  [.] bench_codec::main
-   7.90%  [.] htj2k::transform::wavelet::irv_horz_syn
-   6.88%  [.] htj2k::transform::wavelet::irv_vert_step
-   6.65%  [k] 0000000000000000
-   6.10%  [.] htj2k::coding::decoder32::decode_codeblock32
-   4.73%  [.] htj2k::codestream::write::codeblock::Codeblock::push
-   3.45%  [.] __memmove_avx_unaligned_erms
-   2.09%  [.] htj2k::coding::encoder::encode
-   1.86%  [.] htj2k::codestream::resolution::Resolution::produce_line
-   1.84%  [.] htj2k::transform::wavelet::irv_horz_ana
+  25.71%  [.] bench_codec::common::synth::EncArgs::synthesise
+  15.93%  [.] htj2k::transform::colour::irv_convert_to_integer
+  11.51%  [.] bench_codec::main
+   7.50%  [.] htj2k::transform::wavelet::irv_horz_syn
+   7.29%  [k] 0000000000000000
+   6.47%  [.] htj2k::transform::wavelet::irv_vert_step
+   6.03%  [.] htj2k::coding::decoder32::decode_codeblock32
+   4.55%  [.] __memmove_avx_unaligned_erms
+   3.80%  [.] htj2k::codestream::write::codeblock::Codeblock::push
+   1.95%  [.] htj2k::coding::encoder::encode
+   1.89%  [.] htj2k::codestream::resolution::Resolution::produce_line
+   1.76%  [.] htj2k::transform::wavelet::irv_horz_ana
 
 ## u12_3c_ict_q90_3840x2160 dec htj2k simd (N=4)
 
-  32.92%  [.] bench_codec::common::synth::EncArgs::synthesise
-  14.63%  [.] bench_codec::main
-   9.31%  [k] 0000000000000000
-   7.14%  [.] htj2k::transform::vectorised::irv_horz_syn::irv_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   5.93%  [.] htj2k::transform::vectorised::irv_vert_step::irv_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   5.65%  [.] __memmove_avx_unaligned_erms
-   4.63%  [.] htj2k::coding::decoder32::decode_codeblock32
-   2.93%  [.] htj2k::transform::vectorised::avx2::irv_convert_to_integer
-   2.47%  [.] htj2k::coding::decoder_avx2::magsgn
-   1.76%  [.] __memset_avx2_unaligned_erms
-   1.70%  [.] htj2k::transform::vectorised::irv_horz_ana::irv_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   1.56%  [.] htj2k::transform::vectorised::irv_vert_times_k::irv_vert_times_k_avx2_bmi1_bmi2_lzcnt_popcnt_version
+  33.95%  [.] bench_codec::common::synth::EncArgs::synthesise
+  15.44%  [.] bench_codec::main
+   9.87%  [k] 0000000000000000
+   6.50%  [.] htj2k::transform::vectorised::irv_horz_syn::irv_horz_syn_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   6.34%  [.] __memmove_avx_unaligned_erms
+   5.80%  [.] htj2k::transform::vectorised::irv_vert_step::irv_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   4.31%  [.] htj2k::coding::vlc_avx2::decode_vlc_mel32
+   2.63%  [.] htj2k::transform::vectorised::avx2::irv_convert_to_integer
+   1.65%  [.] htj2k::transform::vectorised::irv_horz_ana::irv_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   1.57%  [.] __memset_avx2_unaligned_erms
+   1.52%  [.] htj2k::transform::vectorised::ict_backward::ict_backward_avx2_bmi1_bmi2_lzcnt_popcnt_version
 
 ## u12_3c_ict_q90_3840x2160 enc OpenJPH generic (N=4)
 
-  37.89%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-  10.89%  [.] ojph::local::gen_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-  10.63%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   8.54%  [.] ojph::local::gen_ict_forward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
-   6.77%  [.] ojph::local::gen_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   6.45%  [.] ojph::local::gen_irv_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
-   5.87%  [k] 0000000000000000
-   4.80%  [.] __memmove_avx_unaligned_erms
-   2.54%  [.] main
-   1.98%  [.] ojph::local::gen_irv_convert_to_float(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, bool, unsigned int)
-   1.76%  [.] ojph::local::gen_irv_vert_times_K(float, ojph::line_buf const*, unsigned int)
+  41.39%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+  10.39%  [.] ojph::local::ojph_encode_codeblock32(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   8.66%  [.] ojph::local::gen_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   6.85%  [.] ojph::local::gen_ict_forward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
+   6.67%  [k] 0000000000000000
+   6.55%  [.] ojph::local::gen_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   5.35%  [.] ojph::local::gen_irv_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
+   5.21%  [.] __memmove_avx_unaligned_erms
+   2.65%  [.] main
+   2.16%  [.] ojph::local::gen_irv_vert_times_K(float, ojph::line_buf const*, unsigned int)
+   2.04%  [.] ojph::local::gen_irv_convert_to_float(ojph::line_buf const*, unsigned int, ojph::line_buf*, unsigned int, bool, unsigned int)
 
 ## u12_3c_ict_q90_3840x2160 enc OpenJPH SIMD (N=4)
 
-  44.45%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
-   8.24%  [.] ojph::local::avx_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   7.04%  [k] 0000000000000000
-   6.25%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
-   6.14%  [.] ojph::local::avx2_irv_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
-   5.92%  [.] ojph::local::avx_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
-   5.70%  [.] __memmove_avx_unaligned_erms
-   3.63%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
-   2.83%  [.] main
-   1.81%  [.] ojph::local::proc_pixel(long long __vector(4)*, unsigned int, long long __vector(4)*, long long __vector(4)*, long long __vector(4)&, long long __vector(4)&)
-   1.76%  [.] ojph::local::avx_ict_forward(float const*, float const*, float const*, float*, float*, float*, unsigned int)
-   1.74%  [.] ojph::local::codeblock::push(ojph::line_buf*)
+  49.35%  [.] enc_setup::synthesise(enc_setup::EncArgs const&)
+   7.41%  [k] 0000000000000000
+   6.92%  [.] __memmove_avx_unaligned_erms
+   6.72%  [.] ojph::local::avx_irv_horz_ana(ojph::local::param_atk const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   5.81%  [.] ojph::local::ojph_encode_codeblock_avx2(unsigned int*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int*, ojph::mem_elastic_allocator*, ojph::coded_lists*&)
+   5.63%  [.] ojph::local::avx_irv_vert_step(ojph::local::lifting_step const*, ojph::line_buf const*, ojph::line_buf const*, ojph::line_buf const*, unsigned int, bool)
+   3.81%  [.] main
+   3.58%  [.] ojph::local::avx2_irv_tx_to_cb32(void const*, unsigned int*, unsigned int, float, unsigned int, unsigned int*)
+   3.47%  [.] ojph::local::proc_ms_encode(ojph::local::ms_struct*, long long __vector(4)&, long long __vector(4)&, long long __vector(4)&, long long __vector(4)*) [clone .isra.0]
+   1.62%  [.] ojph::local::proc_pixel(long long __vector(4)*, unsigned int, long long __vector(4)*, long long __vector(4)*, long long __vector(4)&, long long __vector(4)&)
 
 ## u12_3c_ict_q90_3840x2160 enc htj2k (N=4)
 
-  29.88%  [.] bench_codec::common::synth::EncArgs::synthesise
-  23.87%  [.] htj2k::codestream::write::codeblock::Codeblock::push
-  11.71%  [.] htj2k::coding::encoder::encode
-  10.19%  [.] htj2k::transform::wavelet::irv_horz_ana
-   6.74%  [k] 0000000000000000
-   6.43%  [.] htj2k::transform::wavelet::irv_vert_step
-   4.21%  [.] __memmove_avx_unaligned_erms
-   2.65%  [.] htj2k::codestream::write::resolution::Resolution::push_line
+  34.68%  [.] bench_codec::common::synth::EncArgs::synthesise
+  18.93%  [.] htj2k::codestream::write::codeblock::Codeblock::push
+  10.35%  [.] htj2k::coding::encoder::encode
+  10.30%  [.] htj2k::transform::wavelet::irv_horz_ana
+   7.64%  [k] 0000000000000000
+   6.37%  [.] htj2k::transform::wavelet::irv_vert_step
+   4.83%  [.] __memmove_avx_unaligned_erms
+   2.74%  [.] htj2k::codestream::write::resolution::Resolution::push_line
 
 ## u12_3c_ict_q90_3840x2160 enc htj2k simd (N=4)
 
-  41.08%  [.] bench_codec::common::synth::EncArgs::synthesise
-   9.14%  [.] htj2k::transform::vectorised::irv_horz_ana::irv_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   8.64%  [k] 0000000000000000
-   7.12%  [.] htj2k::coding::encoder_avx2::encode32
-   6.97%  [.] htj2k::transform::vectorised::irv_vert_step::irv_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   5.88%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
-   5.70%  [.] __memmove_avx_unaligned_erms
-   5.28%  [.] htj2k::transform::vectorised::avx2::irv_tx_to_cb32
-   2.20%  [.] htj2k::transform::vectorised::irv_vert_times_k::irv_vert_times_k_avx2_bmi1_bmi2_lzcnt_popcnt_version
-   2.04%  [.] htj2k::codestream::write::codeblock::Codeblock::push
-   1.51%  [.] htj2k::transform::vectorised::ict_forward::ict_forward_avx2_bmi1_bmi2_lzcnt_popcnt_version
+  44.42%  [.] bench_codec::common::synth::EncArgs::synthesise
+   9.92%  [k] 0000000000000000
+   8.13%  [.] htj2k::transform::vectorised::irv_horz_ana::irv_horz_ana_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   6.67%  [.] htj2k::coding::encoder_avx2::encode32
+   6.60%  [.] __memmove_avx_unaligned_erms
+   6.27%  [.] htj2k::transform::vectorised::irv_vert_step::irv_vert_step_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   4.90%  [.] htj2k::coding::encoder_avx2::proc_ms_encode
+   3.88%  [.] htj2k::transform::vectorised::avx2::irv_tx_to_cb32
+   2.50%  [.] htj2k::transform::vectorised::irv_vert_times_k::irv_vert_times_k_avx2_bmi1_bmi2_lzcnt_popcnt_version
+   1.80%  [.] htj2k::transform::vectorised::ict_forward::ict_forward_avx2_bmi1_bmi2_lzcnt_popcnt_version
 
