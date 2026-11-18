@@ -8,7 +8,9 @@ repository = "https://github.com/jedypod/htj2k"
 description = "High-Throughput JPEG 2000 (HTJ2K, ITU-T T.814) codestream codec in safe Rust, ported from OpenJPH"
 keywords = ["jpeg2000", "htj2k", "codec", "image"]
 categories = ["multimedia::images", "multimedia::encoding"]
-exclude = ["oracle/"]
+# The tests, their vectors, the benchmark and the examples stay in the
+# repository; the published crate is the library and its docs.
+exclude = ["oracle/", "tests/", "bench/", "examples/"]
 
 [dependencies]
 # Only with the `simd` feature: run-time selection of the AVX2 kernels.
