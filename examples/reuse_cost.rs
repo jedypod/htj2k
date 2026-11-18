@@ -24,8 +24,9 @@
 //!
 //! The decode pulls every line; the encode configures the encoder,
 //! writes the headers, fills every line through `exchange` and flushes.
-//! The input (the codestream, or the image as 32-bit samples) and the
-//! output vector are made before the loop and are not counted.
+//! The input (the codestream, or the image as 32-bit samples and the
+//! NLT tables the encoder is given) and the output vector are made
+//! before the loop and are not counted.
 //!
 //! With no arguments, a counting global allocator measures, per
 //! codestream (the mean over 8, after one to warm up): allocations
@@ -66,6 +67,16 @@ const CASES: &[(&str, &str, u32)] = &[
         "1920x32 4c 16-bit",
         "--size 1920x32 --comps 4 --depth 16 --signed 1 --nlt3 --rct 1 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R",
         100,
+    ),
+    (
+        "1920x32 4c 16-bit NLT4 QCC COC",
+        "--size 1920x32 --comps 4 --depth 16 --signed 1 --irrev --rct 1 --rev-comps 3 --nlt3-comps 3 --nlt4 0:300 --nlt4 1:300 --nlt4 2:300 --qstep 0.0005 --qstep-comp 0:0.0004 --qstep-comp 1:0.0008 --qstep-comp 2:0.0008 --coc 0:5:128x32 --coc 1:4:64x32 --coc 2:4:64x32 --coc 3:5:128x32 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R",
+        100,
+    ),
+    (
+        "64x64 4c 16-bit NLT4 QCC COC",
+        "--size 64x64 --comps 4 --depth 16 --signed 1 --irrev --rct 1 --rev-comps 3 --nlt3-comps 3 --nlt4 0:300 --nlt4 1:300 --nlt4 2:300 --qstep 0.0005 --qstep-comp 0:0.0004 --qstep-comp 1:0.0008 --qstep-comp 2:0.0008 --coc 0:5:64x64 --coc 1:4:32x32 --coc 2:4:32x32 --coc 3:5:64x64 --levels 5 --block 64x64 --prog RPCL --tlm --tileparts R",
+        1000,
     ),
     (
         "3840x2160 3c 12-bit",
@@ -139,6 +150,8 @@ fn die(msg: &str) -> ! {
 struct Input {
     args: EncArgs,
     sizes: Vec<(u32, u32)>,
+    /// The `--nlt4` tables, made once.
+    luts: Vec<Vec<u32>>,
     img: Vec<Vec<i32>>,
     j2c: Vec<u8>,
 }
@@ -156,6 +169,11 @@ impl Input {
         drive::encode(&args, &mut j2c).unwrap();
         Input {
             sizes: args.comp_sizes(),
+            luts: args
+                .nlt4
+                .iter()
+                .map(|&(c, n)| args.nlt4_lut(c, n))
+                .collect(),
             args,
             img,
             j2c,
@@ -175,7 +193,7 @@ fn decode<'a>(mut cs: Codestream<'a>, j2c: &'a [u8]) -> DecoderMemory {
 /// Encodes the image with `enc`, new or reset, into `out`, and returns
 /// the encoder.
 fn encode(enc: Encoder, input: &Input, out: &mut Vec<u8>) -> Encoder {
-    let mut enc = drive::configure_on(enc, &input.args).unwrap();
+    let mut enc = drive::configure_with_luts(enc, &input.args, &input.luts).unwrap();
     enc.write_headers(out, &[]).unwrap();
     let mut row = vec![0usize; input.img.len()];
     while let Some((c, line)) = enc.exchange().unwrap() {

@@ -21,7 +21,19 @@ pub fn configure(a: &EncArgs) -> htj2k::Result<Encoder> {
 }
 
 /// [`configure`] on `cs`, which must be new or reset.
-pub fn configure_on(mut cs: Encoder, a: &EncArgs) -> htj2k::Result<Encoder> {
+pub fn configure_on(cs: Encoder, a: &EncArgs) -> htj2k::Result<Encoder> {
+    let luts: Vec<Vec<u32>> = a.nlt4.iter().map(|&(c, n)| a.nlt4_lut(c, n)).collect();
+    configure_with_luts(cs, a, &luts)
+}
+
+/// [`configure_on`] with the `--nlt4` tables made beforehand, one per
+/// entry of `a.nlt4` (see [`EncArgs::nlt4_lut`]), so that a caller
+/// timing the encoder does not count making them.
+pub fn configure_with_luts(
+    mut cs: Encoder,
+    a: &EncArgs,
+    luts: &[Vec<u32>],
+) -> htj2k::Result<Encoder> {
     cs.set_version_comment(Some(OPENJPH_VERSION_COMMENT))?;
     let (xs, ys) = a.extent();
     {
@@ -81,9 +93,8 @@ pub fn configure_on(mut cs: Encoder, a: &EncArgs) -> htj2k::Result<Encoder> {
                 .set_nonlinear_transform(c, nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_NLT)?;
         }
     }
-    for &(c, n) in &a.nlt4 {
+    for (&(c, n), lut) in a.nlt4.iter().zip(luts) {
         let (depth, signed) = a.format(c);
-        let lut = a.nlt4_lut(c, n);
         cs.access_nlt_mut()?.set_nonlinear_transform_lut(
             c,
             depth as u8,
@@ -92,7 +103,7 @@ pub fn configure_on(mut cs: Encoder, a: &EncArgs) -> htj2k::Result<Encoder> {
             0xFFFF_FFFF,
             depth as u8,
             n as u16,
-            &lut,
+            lut,
             nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_PLUS_LUT,
             false,
             0,
