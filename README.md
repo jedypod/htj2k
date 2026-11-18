@@ -75,8 +75,8 @@ The crate handles the codestream only, as OpenJPH's library does.
 - By default every path is OpenJPH's generic code. The `simd` feature
   adds AVX2 kernels on x86_64 (see [The `simd` feature](#the-simd-feature)).
   The 64-bit block coders and code-block conversions (taken by 32-bit
-  reversible samples, for example) stay scalar, though the wavelet and
-  colour kernels they share with the 32-bit paths are vectorised.
+  reversible samples, for example) stay scalar, though 64-bit lines go
+  through the same AVX2 wavelet and colour kernels as 32-bit ones.
   Other instruction sets (SSE-only, AVX-512, Arm NEON) have no SIMD
   versions.
 
@@ -392,23 +392,48 @@ htj2k = { version = "0.1", features = ["simd"] }
   baseline and once for AVX2: the wavelet lifting steps, the colour
   transforms, and the conversions between lines, code blocks and the
   nonlinearities. The other kernels are ports of OpenJPH's AVX2
-  intrinsics: the HT block encoder, the MagSgn decoding of the block
-  decoder, and two float-to-integer conversions (the irreversible
-  quantisation and `irv_convert_to_integer`). Those two were plain
-  loops first, but they stayed well behind OpenJPH, because Rust's
-  saturating float-to-integer cast does not vectorise on x86.
-- A build whose `-C target-cpu` or `-C target-feature` already enables
-  all five features (`-C target-cpu=native` on such a CPU, or
-  `x86-64-v3`) vectorises the plain loops for that target. In place of
-  the intrinsics kernels it runs the scalar block coder and the plain
-  loops of the two conversions. Rust requires the
-  `#[target_feature]` attribute on any caller of the intrinsics kernels
-  even then, and `multiversion` then calls a version of the
-  dispatching function without it, so safe code cannot reach them.
-  Build the feature for a baseline target to get them.
+  intrinsics code: the HT block encoder; the cleanup pass of the
+  32-bit block decoder, that is its VLC and MEL step and its MagSgn
+  step, in 16-bit lanes for blocks of up to 14 bit-planes and 32-bit
+  lanes otherwise, as OpenJPH chooses; and two float-to-integer
+  conversions (the irreversible quantisation and
+  `irv_convert_to_integer`). Those two were plain loops first, but they
+  stayed well behind OpenJPH, because Rust's saturating float-to-integer
+  cast does not vectorise on x86.
+- 64-bit lines (32-bit reversible samples, for example) go through the
+  AVX2 wavelet and colour kernels too: those kernels are written for
+  both sample widths. The 64-bit block coders and the 64-bit
+  code-block conversions have no AVX2 version, as in OpenJPH, and stay
+  scalar. The SigProp and MagRef passes of the 32-bit block decoder
+  also stay scalar.
+- Build the feature for a baseline x86_64 target (the default
+  `x86_64-unknown-linux-gnu` and the like, without `-C target-cpu`)
+  to get every kernel. A build whose `-C target-cpu` or
+  `-C target-feature` already enables all five features
+  (`-C target-cpu=native` on such a CPU, or `x86-64-v3`) vectorises
+  the plain loops for that target, but runs none of the intrinsics
+  kernels: in their place it runs the scalar block coders and the plain
+  loops of the two conversions. This is a consequence of the crate's
+  `#![forbid(unsafe_code)]`, which holds under every feature and
+  configuration. Rust requires the `#[target_feature]` attribute on any
+  caller of the intrinsics kernels even then, and `multiversion` then
+  calls a version of the dispatching function without it, so safe code
+  cannot reach them.
+- A crate that depends on htj2k does not need to forward the feature.
+  Cargo unifies features across the dependency graph, so an
+  application can turn it on for every use of htj2k in its build by
+  naming htj2k in its own `Cargo.toml`, with the same version
+  requirement as the crate that uses it:
+
+  ```toml
+  [dependencies]
+  htj2k = { version = "0.1", features = ["simd"] }
+  ```
 - Decoding a code block with the feature takes up to about 45 kB of
-  stack, against about 10.5 kB without: the AVX2 MagSgn decoder unstuffs
-  the segment into a stack buffer first.
+  stack, against about 10.5 kB without: the AVX2 MagSgn step unstuffs
+  the segment into a stack buffer first. The VLC step's buffer, about
+  4 kB, is released before the MagSgn step runs, so the peak does not
+  change.
 - The output does not change: the encoder writes the same bytes and the
   decoder returns the same samples with the feature as without it.
   OpenJPH's own SIMD kernels round some float conversions differently
