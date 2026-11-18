@@ -696,60 +696,88 @@ fn quads16(
     out: &mut impl RowPair<u32>,
 ) {
     let nq = width.div_ceil(2);
-    // the columns to write
-    let cols = width.min(2 * end);
-    let lane = _mm_setr_epi32(0, 1, 2, 3);
+    let end = end.min(nq);
+    // one bounds check each for the row's records (2 entries a quad, and
+    // the 2 zeros after them), `U_q` and `v_n`
+    let recs = &scratch[sp..sp + 2 * nq + 2];
+    let u_q = &u_q[..nq + 4];
+    let v_n = &mut v_n[..nq + 4];
     let low16 = _mm_set1_epi32(0xFFFF);
+    let high16 = _mm256_set1_epi32(0xFFFF0000u32 as i32);
     let carry_lane = _mm256_setr_epi32(0, 2, 4, 6, 1, 3, 5, 7);
-
+    let mut bit = *pos;
     let mut carry = 0u32; // v_n of the previous quad's bottom-right sample
+
+    // the v_n of quads `q` to `q + 3` into `v_n`, from those of their
+    // samples 1 (low half) and 3 (high half); returns the new carry
+    let put_v_n = |v_n: &mut [u32], q: usize, vn: __m256i, carry: u32| -> u32 {
+        let vn = _mm256_permutevar8x32_epi32(_mm256_srli_epi32::<16>(vn), carry_lane);
+        let s1 = _mm256_castsi256_si128(vn);
+        let s3 = _mm256_extracti128_si256::<1>(vn);
+        let before = _mm_or_si128(_mm_bslli_si128::<4>(s3), _mm_cvtsi32_si128(carry as i32));
+        store_u32x4(&mut v_n[q..], _mm_or_si128(s1, before));
+        _mm_extract_epi32::<3>(s3) as u32
+    };
+
+    // groups of four quads with nothing to mask: in an odd-width block,
+    // the last quad's right column is not decoded
+    let plain = if width & 1 != 0 { end.min(nq - 1) } else { end };
     let mut q = 0;
-    while q < end {
-        let quads = load_quads4(scratch, sp + 2 * q);
-        let mut inf = _mm_and_si128(quads, low16);
+    while q + 4 <= plain {
+        let r: &[u16; 8] = recs[2 * q..2 * q + 8].try_into().unwrap();
+        let quads = _mm_setr_epi16(
+            r[0] as i16,
+            r[1] as i16,
+            r[2] as i16,
+            r[3] as i16,
+            r[4] as i16,
+            r[5] as i16,
+            r[6] as i16,
+            r[7] as i16,
+        );
         let uq = if initial {
             _mm_srli_epi32::<16>(quads)
         } else {
             load_u32x4(&u_q[q..])
         };
-        if q + 4 > end || (q + 4 >= nq && width & 1 != 0) {
-            // quads from `end` on are not decoded, and in an odd-width
-            // block the samples right of the last column are left alone
-            let k = _mm_add_epi32(_mm_set1_epi32(q as i32), lane);
-            let keep = _mm_cmpgt_epi32(_mm_set1_epi32(end as i32), k);
-            let last = _mm_cmpeq_epi32(k, _mm_set1_epi32(nq as i32 - 1));
-            let odd = if width & 1 != 0 { 0xCCC0 } else { 0 };
-            let drop = _mm_and_si128(last, _mm_set1_epi32(odd));
-            inf = _mm_andnot_si128(drop, _mm_and_si128(inf, keep));
-        }
-        let (row, vn) = decode_four_quads(inf, uq, dbuf, limit, pos, p);
+        let inf = _mm_and_si128(quads, low16);
+        let (row, vn) = decode_four_quads(inf, uq, dbuf, limit, &mut bit, p);
         // samples 0 and 2 of a quad are on the top row, 1 and 3 below
         let top = lanes_u32(_mm256_slli_epi32::<16>(row));
-        let bottom = lanes_u32(_mm256_and_si256(
-            row,
-            _mm256_set1_epi32(0xFFFF0000u32 as i32),
-        ));
-        let x = 2 * q;
-        let n = (cols - x).min(8);
-        if n == 8 {
-            // a fixed length: no call to `memcpy`
-            out.put_run(0, x, &top);
-            out.put_run(1, x, &bottom);
-        } else {
-            out.put_run(0, x, &top[..n]);
-            out.put_run(1, x, &bottom[..n]);
-        }
-
-        // v_n of samples 1 (low half) and 3 (high half) of each quad
-        let vn = _mm256_permutevar8x32_epi32(_mm256_srli_epi32::<16>(vn), carry_lane);
-        let s1 = _mm256_castsi256_si128(vn);
-        let s3 = _mm256_extracti128_si256::<1>(vn);
-        let before = _mm_or_si128(_mm_bslli_si128::<4>(s3), _mm_cvtsi32_si128(carry as i32));
-        // past the last quad, s1 is 0: v_n[nq] gets its s3 here
-        store_u32x4(&mut v_n[q..], _mm_or_si128(s1, before));
-        carry = _mm_extract_epi32::<3>(s3) as u32;
+        let bottom = lanes_u32(_mm256_and_si256(row, high16));
+        out.put_run(0, 2 * q, &top);
+        out.put_run(1, 2 * q, &bottom);
+        carry = put_v_n(v_n, q, vn, carry);
         q += 4;
     }
+
+    // the one to four quads left
+    if q < end {
+        let quads = load_quads4(recs, 2 * q);
+        let uq = if initial {
+            _mm_srli_epi32::<16>(quads)
+        } else {
+            load_u32x4(&u_q[q..])
+        };
+        // quads from `end` on are not decoded, and in an odd-width block
+        // the samples right of the last column are left alone
+        let k = _mm_add_epi32(_mm_set1_epi32(q as i32), _mm_setr_epi32(0, 1, 2, 3));
+        let keep = _mm_cmpgt_epi32(_mm_set1_epi32(end as i32), k);
+        let last = _mm_cmpeq_epi32(k, _mm_set1_epi32(nq as i32 - 1));
+        let odd = if width & 1 != 0 { 0xCCC0 } else { 0 };
+        let drop = _mm_and_si128(last, _mm_set1_epi32(odd));
+        let inf = _mm_andnot_si128(drop, _mm_and_si128(_mm_and_si128(quads, low16), keep));
+        let (row, vn) = decode_four_quads(inf, uq, dbuf, limit, &mut bit, p);
+        let top = lanes_u32(_mm256_slli_epi32::<16>(row));
+        let bottom = lanes_u32(_mm256_and_si256(row, high16));
+        let x = 2 * q;
+        let n = (width.min(2 * end) - x).min(8);
+        out.put_run(0, x, &top[..n]);
+        out.put_run(1, x, &bottom[..n]);
+        // past the last quad, s1 is 0: v_n[nq] gets its s3 here
+        carry = put_v_n(v_n, q, vn, carry);
+    }
+    *pos = bit;
     if end == nq && nq % 4 == 0 {
         v_n[nq] = carry;
     }
