@@ -77,8 +77,9 @@ The crate handles the codestream only, as OpenJPH's library does.
   The 64-bit block coders and code-block conversions (taken by 32-bit
   reversible samples, for example) stay scalar, though 64-bit lines go
   through the same AVX2 wavelet and colour kernels as 32-bit ones.
-  Other instruction sets (SSE-only, AVX-512, Arm NEON) have no SIMD
-  versions.
+  On aarch64 the feature compiles the sample-level kernels for NEON;
+  the block coders there stay scalar. Other instruction sets
+  (SSE-only, AVX-512) have no SIMD versions.
 
 ## Decoding
 
@@ -375,9 +376,9 @@ where the gaps are, and how to reproduce the run.
 
 ## The `simd` feature
 
-The `simd` cargo feature, off by default, adds AVX2 versions of hot
-kernels. Without it the crate is unchanged: the same code paths and no
-dependencies.
+The `simd` cargo feature, off by default, adds vectorised versions of
+hot kernels: AVX2 on x86_64 and NEON on aarch64. Without it the crate
+is unchanged: the same code paths and no dependencies.
 
 ```toml
 htj2k = { version = "0.1", features = ["simd"] }
@@ -385,8 +386,13 @@ htj2k = { version = "0.1", features = ["simd"] }
 
 - On x86_64 the crate checks the CPU once per process and runs the AVX2
   kernels when it has AVX2, BMI1, BMI2, LZCNT and POPCNT (every CPU
-  with AVX2 has the others). Elsewhere, and on other architectures, it
-  runs the scalar code.
+  with AVX2 has the others). Elsewhere it runs the scalar code.
+- On aarch64 the sample-level kernels below are compiled for the
+  target's baseline, which always includes NEON, so they need no
+  run-time check. The intrinsics kernels are x86_64 only: on aarch64
+  the block coders stay scalar, as OpenJPH's do (it has no NEON
+  kernels). On other architectures the plain loops are compiled for
+  the baseline and vectorised as far as it allows.
 - There are two kinds of kernels. The sample-level kernels are plain
   Rust loops that the compiler vectorises, compiled once for the
   baseline and once for AVX2: the wavelet lifting steps, the colour
@@ -399,7 +405,8 @@ htj2k = { version = "0.1", features = ["simd"] }
   conversions (the irreversible quantisation and
   `irv_convert_to_integer`). Those two were plain loops first, but they
   stayed well behind OpenJPH, because Rust's saturating float-to-integer
-  cast does not vectorise on x86.
+  cast does not vectorise on x86. On aarch64 the cast is one vector
+  instruction, so there the plain loops run.
 - 64-bit lines (32-bit reversible samples, for example) go through the
   AVX2 wavelet and colour kernels too: those kernels are written for
   both sample widths. The 64-bit block coders and the 64-bit
@@ -453,6 +460,15 @@ cargo test --release
 cargo test --release --features simd
 RUSTFLAGS="-C target-cpu=native" cargo test --release --features simd
 cargo clippy --all-targets && cargo clippy --all-targets --features simd
+```
+
+On an x86_64 Linux machine, the aarch64 build can be tested under
+`qemu-aarch64` (with `rustup target add aarch64-unknown-linux-musl`):
+
+```sh
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUNNER=qemu-aarch64 \
+  cargo test --release --target aarch64-unknown-linux-musl --features simd
 ```
 
 With the feature, a unit test checks that the kernels are selected
