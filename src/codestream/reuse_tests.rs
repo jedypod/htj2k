@@ -212,3 +212,34 @@ fn poisoned_memory_decodes_as_new() {
         }
     }
 }
+
+/// Codestreams with per-component segments (type 4 nonlinearities,
+/// QCC or COC segments) followed by plain ones, and the reverse, through
+/// memory filled with garbage: what one leaves in the kept parameter
+/// objects changes nothing in the next.
+#[test]
+fn poisoned_memory_between_parameter_sets_decodes_as_new() {
+    let all = test_codestreams();
+    let per_component = |name: &str| {
+        ["nlt4", "qstep_comp", "rev_comps", "irrev_comps", "coc"]
+            .iter()
+            .any(|k| name.contains(k))
+    };
+    let rich: Vec<_> = all.iter().filter(|(n, _)| per_component(n)).collect();
+    let plain: Vec<_> = all
+        .iter()
+        .filter(|(n, _)| !per_component(n))
+        .step_by(20)
+        .collect();
+    assert!(rich.len() >= 20 && plain.len() >= 10);
+    let bits = 0xA5A5_A5A5;
+    for (r, rd) in &rich {
+        for (p, pd) in &plain {
+            check_poisoned(&[p.as_str(), r].join(" after "), rd, pd, false, bits);
+            check_poisoned(&[r.as_str(), p].join(" after "), pd, rd, false, bits);
+        }
+        for (r2, rd2) in rich.iter().step_by(5) {
+            check_poisoned(&[r2.as_str(), r].join(" after "), rd, rd2, false, bits);
+        }
+    }
+}
