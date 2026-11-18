@@ -30,6 +30,13 @@ The port holds to four rules.
   decoder returns the same samples, and the encoder writes the same
   bytes.
 
+On x86_64 the default build takes 0.57 to 1.16 times the CPU cycles of
+OpenJPH built without its SIMD kernels, by the group means of the
+benchmark below. With the `simd` feature, 10 of the 12 group means
+are at most 1.10 times the cycles of OpenJPH with its AVX2 kernels,
+and the highest is 1.21.
+See [Performance](#performance).
+
 ## Supported features
 
 The decoder accepts codestreams whose code blocks all use the HT block
@@ -373,6 +380,12 @@ SIMD 64-bit block coder. There the `simd` build encodes in 0.56 to
 0.90 times OpenJPH SIMD's cycles and decodes in 0.75 to 1.14 times.
 [bench/README.md](bench/README.md) has the full tables, the profiles,
 where the gaps are, and how to reproduce the run.
+
+All of these numbers are from x86_64. Nothing has been measured on
+aarch64. There the `simd` feature compiles the sample-level kernels for
+NEON and leaves the block coders scalar (see
+[The `simd` feature](#the-simd-feature)), and OpenJPH has no NEON
+kernels to compare with.
 
 ## The `simd` feature
 
