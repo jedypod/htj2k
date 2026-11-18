@@ -29,11 +29,13 @@
 //! before the loop and are not counted.
 //!
 //! With no arguments, a counting global allocator measures, per
-//! codestream (the mean over 8, after one to warm up): allocations
+//! codestream (the mean over 8, after two to warm up): allocations
 //! (calls to `alloc`, `alloc_zeroed` and `realloc`), the bytes they ask
 //! for, and the peak of live heap bytes above what was live when the
 //! codestream started. `held` is what stays allocated between
-//! codestreams, in the reused mode: the kept memory.
+//! codestreams, in the reused mode: the kept memory. Two codestreams
+//! warm up because the first one that reuses memory also allocates the
+//! lists that keep the per-component parameter objects, once.
 //!
 //! `perf` runs `run` under `perf stat -e instructions:u` for N and for 2N
 //! codestreams and prints (count(2N) - count(N)) / N, which removes the
@@ -195,7 +197,9 @@ fn decode<'a>(mut cs: Codestream<'a>, j2c: &'a [u8]) -> DecoderMemory {
 fn encode(enc: Encoder, input: &Input, out: &mut Vec<u8>) -> Encoder {
     let mut enc = drive::configure_with_luts(enc, &input.args, &input.luts).unwrap();
     enc.write_headers(out, &[]).unwrap();
-    let mut row = vec![0usize; input.img.len()];
+    // on the stack, so that only the encoder's allocations count
+    let mut row = [0usize; 16];
+    assert!(input.img.len() <= row.len(), "too many components");
     while let Some((c, line)) = enc.exchange().unwrap() {
         let c = c as usize;
         let w = input.sizes[c].0 as usize;
@@ -262,12 +266,13 @@ impl<'a> Runner<'a> {
     }
 }
 
-/// The mean allocations, bytes and peak per codestream, and the bytes
-/// held between codestreams.
-fn measure(input: &Input, side: &str, reused: bool) -> [usize; 4] {
+/// The allocations per codestream (mean), bytes and peak per codestream,
+/// and the bytes held between codestreams.
+fn measure(input: &Input, side: &str, reused: bool) -> (f64, [usize; 3]) {
     const RUNS: usize = 8;
     let mut runner = Runner::new(input, reused);
     let base = CUR.load(Relaxed);
+    runner.one(side);
     runner.one(side);
     let (mut allocs, mut bytes, mut peak) = (0, 0, 0);
     for _ in 0..RUNS {
@@ -280,7 +285,10 @@ fn measure(input: &Input, side: &str, reused: bool) -> [usize; 4] {
         peak += PEAK.load(Relaxed) - start;
     }
     let held = CUR.load(Relaxed) - base;
-    [allocs / RUNS, bytes / RUNS, peak / RUNS, held]
+    (
+        allocs as f64 / RUNS as f64,
+        [bytes / RUNS, peak / RUNS, held],
+    )
 }
 
 fn table() {
@@ -290,9 +298,9 @@ fn table() {
         let input = Input::new(options);
         for side in ["dec", "enc"] {
             for reused in [false, true] {
-                let [allocs, bytes, peak, held] = measure(&input, side, reused);
+                let (allocs, [bytes, peak, held]) = measure(&input, side, reused);
                 let mode = if reused { "reused" } else { "fresh" };
-                println!("| {name} | {side} | {mode} | {allocs} | {bytes} | {peak} | {held} |");
+                println!("| {name} | {side} | {mode} | {allocs:.1} | {bytes} | {peak} | {held} |");
             }
         }
     }
