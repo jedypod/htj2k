@@ -11,7 +11,8 @@
 
 use super::super::tests::common::{drive, synth::EncArgs};
 use super::Encoder;
-use crate::codestream::Budget;
+use crate::codestream::{Budget, KeptParams};
+use crate::params::reuse_tests::poison_params;
 
 /// `ojph_enc` arguments covering several rows of code blocks with a
 /// short last one, tiles, subsampling, precincts, irreversible coding,
@@ -26,6 +27,7 @@ pub(crate) const CONFIGS: &[&str] = &[
     "--size 61x45 --comps 2 --depth 12 --levels 3 --block 16x16 --precincts 64x64,32x32 --tile 40x30 --tile-off 3,2 --img-off 5,4 --prog CPRL --tileparts C --planar 1",
     "--size 45x27 --depth 24 --signed 1 --levels 3 --block 16x8 --prog RLCP --irrev --qstep 0.01",
     "--size 33x31 --depth 10 --levels 0 --block 8x8 --pattern noise",
+    "--size 96x32 --comps 4 --depth 16 --signed 1 --irrev --rct 1 --rev-comps 3 --nlt3-comps 3 --nlt4 0:300 --nlt4 1:300 --nlt4 2:300 --qstep 0.0005 --qstep-comp 0:0.0004 --qstep-comp 1:0.0008 --qstep-comp 2:0.0008 --coc 0:5:64x32 --coc 1:4:32x32 --coc 2:4:32x32 --coc 3:5:64x32 --levels 5 --block 64x32 --prog RPCL --tlm --tileparts R",
 ];
 
 fn args(config: &str) -> EncArgs {
@@ -118,8 +120,26 @@ fn encode_with(enc: Encoder, a: &EncArgs, img: &[Vec<i64>]) -> (Result<Vec<u8>, 
     (r, kept.unwrap_or_default())
 }
 
-/// Fills every buffer `enc` keeps with the bit pattern `bits`.
+/// Fills every buffer `enc` keeps with the bit pattern `bits`, and its
+/// parameter objects with garbage.
 fn poison(enc: &mut Encoder, bits: u32) {
+    // the parameter objects, with their spares, then reset again: what
+    // reset keeps of them must be storage only
+    let mut params = KeptParams {
+        siz: std::mem::take(&mut enc.siz),
+        cod: std::mem::take(&mut enc.cod),
+        qcd: std::mem::take(&mut enc.qcd),
+        nlt: std::mem::take(&mut enc.nlt),
+        dfs: Default::default(),
+        atk: std::mem::take(&mut enc.atk),
+    };
+    poison_params(&mut params);
+    enc.siz = params.siz;
+    enc.cod = params.cod;
+    enc.qcd = params.qcd;
+    enc.nlt = params.nlt;
+    enc.atk = params.atk;
+    enc.reset();
     for tile in enc.mem.tiles.iter_mut() {
         tile.fill_buffers(bits);
     }

@@ -8,7 +8,7 @@
 
 use super::tile::Tile;
 use super::Ctx;
-use crate::codestream::{Budget, OUTPUT_LIMIT_ERROR};
+use crate::codestream::{Budget, KeptParams, OUTPUT_LIMIT_ERROR};
 use crate::error::ojph_error;
 use crate::line::LineBuf;
 use crate::params::marker::{COM, EOC, SOC};
@@ -43,7 +43,8 @@ enum State {
 
 /// What an [`Encoder`] keeps from one codestream to the next: the tiles,
 /// the lines it exchanges, the component sizes, the packet-header
-/// scratch, and the parameters the tiles were built from.
+/// scratch, the parameters the tiles were built from, and the storage
+/// of the parameter objects.
 #[derive(Debug, Default)]
 struct EncoderMemory {
     tiles: Vec<Tile>,
@@ -58,6 +59,9 @@ struct EncoderMemory {
     built_for: Option<Box<TreeParams>>,
     /// What building them took from the memory limit.
     charge: u64,
+    /// The parameter objects, for their storage only, between `reset`
+    /// and the next encoder.
+    params: KeptParams,
 }
 
 /// The parameters the encoder's tree is built from, once `write_headers`
@@ -191,7 +195,11 @@ impl Encoder {
 
     /// A new encoder, with `mem`, the storage of `tlm` (whose contents
     /// are dropped) and `comment`'s storage for the version comment.
-    fn with_buffers(mem: EncoderMemory, mut tlm: ParamTlm, mut comment: Vec<u8>) -> Self {
+    /// The parameter objects are those kept in `mem`, given the state a
+    /// new object has.
+    fn with_buffers(mut mem: EncoderMemory, mut tlm: ParamTlm, mut comment: Vec<u8>) -> Self {
+        let mut params = std::mem::take(&mut mem.params);
+        params.recycle();
         tlm.pairs.clear();
         tlm.num_pairs = 0;
         tlm.next_pair_index = 0;
@@ -215,13 +223,13 @@ impl Encoder {
             cur_line: 0,
             cur_tile_row: 0,
             budget: Budget::new(DEFAULT_MEMORY_LIMIT),
-            siz: ParamSiz::default(),
-            cod: ParamCod::default(),
+            siz: params.siz,
+            cod: params.cod,
             cap: ParamCap::default(),
-            qcd: ParamQcd::default(),
+            qcd: params.qcd,
             tlm,
-            nlt: ParamNlt::default(),
-            atk: ParamAtk::default(),
+            nlt: params.nlt,
+            atk: params.atk,
         }
     }
 
@@ -231,9 +239,19 @@ impl Encoder {
     /// being written, if any, is abandoned. The encoder keeps its
     /// buffers, so that the next codestream, if `write_headers` finds the
     /// same image, tile and coding parameters as for the last one,
-    /// allocates none of them again. (OpenJPH has no such call.)
+    /// allocates none of them again. It also keeps the storage of the
+    /// parameter objects (per-component COC, QCC and NLT segments, and
+    /// NLT tables), but none of their values. (OpenJPH has no such call.)
     pub fn reset(&mut self) {
-        let mem = std::mem::take(&mut self.mem);
+        let mut mem = std::mem::take(&mut self.mem);
+        mem.params = KeptParams {
+            siz: std::mem::take(&mut self.siz),
+            cod: std::mem::take(&mut self.cod),
+            qcd: std::mem::take(&mut self.qcd),
+            nlt: std::mem::take(&mut self.nlt),
+            dfs: Default::default(),
+            atk: std::mem::take(&mut self.atk),
+        };
         let tlm = std::mem::take(&mut self.tlm);
         let comment = self.version_comment.take().unwrap_or_default();
         *self = Self::with_buffers(mem, tlm, comment);
