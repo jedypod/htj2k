@@ -135,6 +135,10 @@ impl Codeblock {
         self.zero_block = false;
     }
 
+    // inlined into the subband's line loop: left to itself LLVM inlines
+    // or outlines this and `pull_line` from one build to the next, which
+    // moves every decode by up to 0.4 instructions per sample
+    #[inline(always)]
     pub(crate) fn decode(&mut self, coded_cb: &CodedCbHeader, data: &[u8]) -> Result<()> {
         let padded;
         let coded = match coded_cb.data {
@@ -198,6 +202,8 @@ impl Codeblock {
     }
 
     /// Writes the next line of the block into its place in `line`.
+    // inlined, see `decode`
+    #[inline(always)]
     pub(crate) fn pull_line(&mut self, line: &mut LineBuf) -> Result<()> {
         let w = self.cb_size.w as usize;
         let off = line.pre_size + self.line_offset as usize;

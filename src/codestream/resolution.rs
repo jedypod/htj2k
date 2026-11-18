@@ -368,6 +368,9 @@ impl Resolution {
 
     /// Runs the synthesis until a line is ready, and returns its index in
     /// `self.lines`.
+    // kept out of `pull_line`, whose fast path (a line already made) is
+    // then small enough to inline; LLVM otherwise picks either layout
+    #[inline(never)]
     fn produce_line(&mut self, data: &[u8]) -> Result<usize> {
         let width = self.res_rect.siz.w;
         let height = self.res_rect.siz.h;
