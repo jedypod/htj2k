@@ -233,9 +233,17 @@ the tree is built from with those of the kept tree:
 - encoder: SIZ, COD/COC, QCD/QCC and NLT, after they are finalised.
 
 If they are equal, they reset each node's state and zero the lines
-handed to the caller. Otherwise they free the old tree and build a new
-one. So a codestream of a new shape costs what it did before, and one of
-the same shape allocates almost nothing in the tree.
+handed to the caller. Otherwise they build a new tree. So a codestream
+of a new shape costs what it did before, and one of the same shape
+allocates almost nothing in the tree.
+
+The decoder keeps the trees of the last two sets of parameters: the one
+used last and the one used before it, and `create` reuses whichever
+matches. A third set frees the tree used least recently. So an image
+coded as a sequence of fixed-height strips, whose last strip is
+shorter, followed by the next image's strips, allocates nothing in the
+tree once both heights have been seen. The encoder keeps one tree, and
+frees it before it builds another.
 
 Samples in the kept buffers are not cleared, because every sample is
 written before it is read. The tests check this. They fill every kept
@@ -244,8 +252,9 @@ the test data must then decode, or encode, exactly as with a new
 object. They fill the kept parameter objects with garbage too, and
 the decoder must then read the same parameters as a new one. They also
 run sequences of codestreams with the same shape and with different
-shapes, a damaged, failed or abandoned codestream followed by a valid
-one, and the robustness fuzz tests through a reused object. Further
+shapes, strips of two heights in turn and of three in a cycle, a
+damaged, failed or abandoned codestream followed by a valid one, and
+the robustness fuzz tests through a reused object. Further
 sequences mix codestreams that have type 4 nonlinearities and
 per-component QCC and COC segments with codestreams that have none, in
 both orders.
@@ -253,10 +262,22 @@ both orders.
 The memory limit applies to each codestream as to a new object. A kept
 tree is charged, against the new limit, what building it took, so the
 same codestreams and configurations are accepted and refused, with the
-same error. A tree that does not match is freed before the new one is
-built. Kept coded-byte capacity beyond what the limit has left is freed
-too. So kept memory cannot let a codestream hold more than the limit
-allows. The small allocations that the limits do not count (see
+same error. The decoder's other kept tree, which the codestream does
+not use, is charged nothing, so it changes no decision either way. It
+is kept only while the two trees fit within the limit together:
+
+- reusing a tree, the decoder frees the other if the two exceed the
+  limit;
+- building a tree, it frees the other first if that alone exceeds the
+  limit, and otherwise keeps it while the new one fits beside it. If
+  the new tree needs the memory the other holds, the decoder frees the
+  other and builds the new tree again from the start, against the
+  whole limit, so the decision is the one a new decoder makes.
+
+The encoder frees a tree that does not match before it builds the new
+one, and frees kept coded-byte capacity beyond what the limit has left.
+So kept memory cannot let a codestream hold more than the limit
+allows, even while a tree is being built. The small allocations that the limits do not count (see
 Differences from OpenJPH) are kept as well. The parameter objects are
 among them. The limits have never counted them, so keeping them changes
 no decision. They are bounded by the format: at most 16384 components,
@@ -267,6 +288,12 @@ Rejected designs:
 
 - A pool of buffers would still rebuild the tree each time. Buffers
   larger than asked for would also escape the limit.
+- Rebuilding the decoder's tree in place when only the sizes change,
+  reusing its allocations, would keep one tree instead of two. But the
+  code-block buffers have the size of the actual blocks, so going back
+  from a short strip to a full one grows them: to allocate nothing it
+  would have to keep capacity the tree is not charged for, which the
+  limit would not see.
 - Keeping the encoder's parameter values would write different bytes
   from a new encoder, because `write_headers` rewrites some of them.
   Only their storage is kept, and the caller sets the values again.
@@ -310,6 +337,33 @@ up past it. Before the parameter objects were kept, a reused object
 still allocated 4 to 8 times per codestream for these cases. The type 4
 cases allocated 22 times to decode and 36 to encode. Keeping the
 parameters changed the instruction counts by less than 0.3%.
+
+`examples/strip_reuse.rs` decodes images of 1000 lines, 300 wide with
+four 16-bit components, in strips of 256 or 32 lines, each its own
+codestream, then the next image's first strip, through one memory.
+The last strip of each image is shorter (232 or 8 lines). The strips
+are coded as above, lossless with the RCT, or lossy: irreversible with
+the ICT on three components and the fourth reversible. With one tree
+kept, the short strip and the next image's first strip each rebuilt
+the tree; with two, neither allocates:
+
+| Strips | Allocations at each change of height, one tree → two | Instructions per strip, one tree → two |
+|---|--:|--:|
+| 256 lines, lossless | 505 → 0 | 17.68 M → 17.48 M (−1.1%) |
+| 32 lines, lossless | 457 and 505 → 0 | 2.50 M → 2.49 M (−0.4%) |
+| 256 lines, lossy | 570 → 0 | 17.43 M → 17.21 M (−1.3%) |
+| 32 lines, lossy | 522 and 570 → 0 | 2.48 M → 2.46 M (−0.8%) |
+
+A caller that pads each irreversible strip to 1 modulo 32 lines and
+columns codes a 256-line strip and a short strip of 225 to 256 lines
+at the same size, so its decoder sees one height there. A shorter last
+strip pads to another size, and needs a tree of its own as an unpadded
+one does.
+
+The second tree costs memory. `peak_heap -- held` decodes strips of
+256 and 232 lines, 4096 wide with four components, through one memory:
+it held 6.3 to 6.4 MiB lossless and 7.5 to 7.7 MiB lossy with one
+tree, and holds 12.7 MiB and 15.3 MiB with two.
 
 ## Memory use
 
@@ -686,8 +740,8 @@ the encoder or its output in a broken state.
   OpenJPH has no such cap.
 - `Encoder::reset`, and `Codestream::reset`, `into_memory` and
   `with_memory` on the decoder, keep the tree of tiles and its buffers
-  for the next codestream of the same shape (see Reusing a decoder or
-  encoder). OpenJPH's `codestream::restart` keeps its allocator's
+  for the next codestream of the same shape, and the decoder those of
+  the last two shapes (see Reusing a decoder or encoder). OpenJPH's `codestream::restart` keeps its allocator's
   storage but builds the tree again for every codestream. It has no
   memory limit to keep.
 - `exchange()` takes no arguments. Each call returns the next line to

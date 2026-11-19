@@ -30,17 +30,22 @@ const DEFAULT_MEMORY_LIMIT: u64 = 1 << 32;
 /// [`Codestream::with_memory`] starts a new decoder with it, which may
 /// borrow a different input. A decoder started this way behaves exactly
 /// as one from [`Codestream::new`], but when the codestream's main
-/// header gives the same image, tile and coding parameters as the last
-/// one decoded with this memory, [`Codestream::create`] resets the
-/// decoder's buffers instead of allocating them again.
+/// header gives the same image, tile and coding parameters as one of the
+/// last two sets decoded with this memory, [`Codestream::create`] resets
+/// the decoder's buffers instead of allocating them again. So
+/// codestreams of two shapes in turn, such as the strips of an image
+/// and its shorter last strip, allocate nothing once each shape has
+/// been seen.
 ///
-/// It holds the tiles, with their line and code-block buffers, the lines
-/// handed out by [`Codestream::pull`] and some scratch space, as the
-/// last codestream needed them. It also holds the storage of the
-/// marker-segment parameters (per-component COC, QCC and NLT segments,
-/// and NLT tables), which [`Codestream::read_headers`] reuses whatever
-/// the codestream; their values are not kept. Dropping it frees them
-/// all.
+/// It holds the tiles, with their line and code-block buffers, and the
+/// lines handed out by [`Codestream::pull`], as the last codestream
+/// needed them. It holds them as the last codestream of other
+/// parameters needed them too, if the two sets fit within the memory
+/// limit together (see [`Codestream::set_memory_limit`]). It also holds
+/// some scratch space, and the storage of the marker-segment parameters
+/// (per-component COC, QCC and NLT segments, and NLT tables), which
+/// [`Codestream::read_headers`] reuses whatever the codestream; their
+/// values are not kept. Dropping it frees them all.
 #[derive(Debug, Default)]
 pub struct DecoderMemory {
     /// The tree the decoder uses.
@@ -353,7 +358,10 @@ impl<'a> Codestream<'a> {
     /// limit. Buffers kept from an earlier codestream (see
     /// [`with_memory`](Self::with_memory)) count as if they were
     /// allocated again, so the limit accepts and refuses the same
-    /// codestreams either way.
+    /// codestreams either way. The buffers kept for other parameters,
+    /// which this codestream does not use, count for nothing, but are
+    /// kept only while they fit within the limit beside the ones it
+    /// uses; otherwise they are freed.
     pub fn set_memory_limit(&mut self, bytes: u64) {
         self.memory_limit = bytes;
     }
