@@ -89,6 +89,11 @@ pub(crate) struct Budget {
     left: u64,
     /// The encoder's coded bytes that the output limit still allows.
     coded_left: u64,
+    /// Bytes of the limit held by something that can be freed, which
+    /// [`take`](Self::take) does not let the bytes taken reach.
+    reserve: u64,
+    /// Whether a `take` failed only because of the reserve.
+    reserve_hit: bool,
 }
 
 impl Budget {
@@ -97,7 +102,24 @@ impl Budget {
             limit,
             left: limit,
             coded_left: u64::MAX,
+            reserve: 0,
+            reserve_hit: false,
         }
+    }
+
+    /// Keeps `bytes` of the limit for memory already held that could be
+    /// freed: a `take` that the limit allows but that would reach into
+    /// them fails, and [`reserve_hit`](Self::reserve_hit) says so. The
+    /// caller can then free that memory and start again without the
+    /// reserve, which decides as if there had never been one.
+    pub(crate) fn reserve(&mut self, bytes: u64) {
+        self.reserve = bytes;
+    }
+
+    /// Whether a `take` failed because of the reserve rather than the
+    /// limit.
+    pub(crate) fn reserve_hit(&self) -> bool {
+        self.reserve_hit
     }
 
     /// Allows at most `bytes` more of coded data through
@@ -131,12 +153,20 @@ impl Budget {
         self.limit - self.left
     }
 
-    /// Accounts for `bytes` bytes, or fails if the limit would be passed.
+    /// Accounts for `bytes` bytes, or fails if the limit would be passed,
+    /// or the reserve reached.
     pub(crate) fn take(&mut self, bytes: u64) -> Result<()> {
         if bytes > self.left {
             return ojph_error!(
                 0x00070001,
                 "this codestream needs more memory than the limit allows"
+            );
+        }
+        if bytes > self.left.saturating_sub(self.reserve) {
+            self.reserve_hit = true;
+            return ojph_error!(
+                0x00070001,
+                "this codestream needs memory that kept memory holds"
             );
         }
         self.left -= bytes;

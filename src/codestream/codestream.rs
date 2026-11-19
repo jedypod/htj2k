@@ -45,6 +45,12 @@ const DEFAULT_MEMORY_LIMIT: u64 = 1 << 32;
 pub struct DecoderMemory {
     /// The tree the decoder uses.
     tree: Tree,
+    /// The tree used before it, built from other parameters, if both
+    /// fit within the memory limit of the last codestream; otherwise
+    /// empty. Kept so that codestreams of two shapes in turn, such as
+    /// the strips of an image and its shorter last strip, reuse a tree
+    /// each.
+    spare: Tree,
     /// Holds the tag trees while packet headers are read.
     precinct_scratch: Vec<u8>,
     /// The parameter objects of the last decoder, for their storage.
@@ -521,18 +527,51 @@ impl<'a> Codestream<'a> {
         };
         let mem = &mut self.mem;
 
-        // The tree of the last codestream, if it was built from the same
-        // parameters, is the tree this one needs. It is charged what it
-        // took to build, so the limit decides as it would for a new one.
+        let limit = self.memory_limit;
+
+        // A kept tree built from the same parameters, the last one used or
+        // the one before it, is the tree this codestream needs. It is
+        // charged what it took to build, so the limit decides as it would
+        // for a new decoder. The other kept tree is charged nothing, and
+        // so changes no decision, but it is kept only if the two fit
+        // within the limit together, whether or not the limit then
+        // refuses this one.
+        if !mem.tree.matches(&build) && mem.spare.matches(&build) {
+            std::mem::swap(&mut mem.tree, &mut mem.spare);
+        }
         if mem.tree.matches(&build) {
+            if mem.tree.charge.saturating_add(mem.spare.charge) > limit {
+                mem.spare = Tree::default();
+            }
             budget.take(mem.tree.charge)?;
             mem.tree.reset();
             return Ok(());
         }
-        // Otherwise the old tree is freed before the new one is built, so
-        // the two are never held together.
-        mem.tree = Tree::default();
-        mem.tree = Tree::new(&build, &mut budget, num_tiles)?;
+
+        // Otherwise a new tree is built, and the one used last becomes the
+        // other kept tree, in place of the one before it. A tree whose
+        // build failed is never kept, and does not displace one that was
+        // built whole.
+        if mem.tree.built_for.is_some() {
+            mem.spare = std::mem::take(&mut mem.tree);
+        } else {
+            mem.tree = Tree::default();
+        }
+        if mem.spare.charge > limit {
+            mem.spare = Tree::default();
+        }
+        // The new tree may not take the part of the limit the kept one
+        // holds. If it needs it, the kept tree is freed and the build
+        // starts again without the reserve, so the limit decides as for
+        // a new decoder and the two are never held beyond it.
+        budget.reserve(mem.spare.charge);
+        mem.tree = match Tree::new(&build, &mut budget, num_tiles) {
+            Err(_) if budget.reserve_hit() => {
+                mem.spare = Tree::default();
+                Tree::new(&build, &mut Budget::new(limit), num_tiles)?
+            }
+            tree => tree?,
+        };
         Ok(())
     }
 
