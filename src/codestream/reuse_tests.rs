@@ -162,15 +162,17 @@ fn decode<'a>(cs: &mut Codestream<'a>, data: &'a [u8], resilient: bool) -> Decod
     }
 }
 
-/// Fills every buffer `mem` keeps with the bit pattern `bits`, and its
-/// parameter objects with garbage.
+/// Fills every buffer `mem` keeps, in both trees, with the bit pattern
+/// `bits`, and its parameter objects with garbage.
 fn poison(mem: &mut DecoderMemory, bits: u32) {
     poison_params(&mut mem.params);
-    for tile in mem.tree.tiles.iter_mut() {
-        tile.fill_buffers(bits);
-    }
-    for line in mem.tree.lines.iter_mut() {
-        line.fill_bits(bits);
+    for tree in [&mut mem.tree, &mut mem.spare] {
+        for tile in tree.tiles.iter_mut() {
+            tile.fill_buffers(bits);
+        }
+        for line in tree.lines.iter_mut() {
+            line.fill_bits(bits);
+        }
     }
 }
 
@@ -242,4 +244,178 @@ fn poisoned_memory_between_parameter_sets_decodes_as_new() {
             check_poisoned(&[r2.as_str(), r].join(" after "), rd, rd2, false, bits);
         }
     }
+}
+
+/// Three strips of one image, coded with the same parameters but for
+/// the height: 300x32, 300x8 and 300x200, four components.
+fn strips() -> [Vec<u8>; 3] {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/strips");
+    ["300x32", "300x8", "300x200"]
+        .map(|size| std::fs::read(root.join(format!("s16_rct_4c_{size}.j2c"))).unwrap())
+}
+
+/// Decodes `data` through `mem` with the memory limit `limit`, requires
+/// what a new decoder with that limit gives, and returns the memory and
+/// the error code, if any.
+fn through(mem: DecoderMemory, data: &[u8], limit: u64) -> (DecoderMemory, Option<u32>) {
+    let mut fresh = Codestream::new();
+    fresh.set_memory_limit(limit);
+    let want = decode(&mut fresh, data, false);
+    let mut cs = Codestream::with_memory(mem);
+    cs.set_memory_limit(limit);
+    let got = decode(&mut cs, data, false);
+    assert!(got == want, "a reused decoder differs from a new one (limit {limit})");
+    (cs.into_memory(), got.error)
+}
+
+/// The memory after decoding `first` and then `second`, with no limit to
+/// speak of: it holds both trees.
+fn holding(first: &[u8], second: &[u8]) -> DecoderMemory {
+    let (mem, _) = through(DecoderMemory::new(), first, u64::MAX);
+    let (mem, _) = through(mem, second, u64::MAX);
+    assert!(mem.tree.built_for.is_some() && mem.spare.built_for.is_some());
+    mem
+}
+
+/// What building the tree for `data` is charged.
+fn charge(data: &[u8]) -> u64 {
+    through(DecoderMemory::new(), data, u64::MAX).0.tree.charge
+}
+
+/// Two shapes in turn, such as full strips and a shorter last one, each
+/// reuse their own tree, and decode as new even with both trees filled
+/// with garbage.
+#[test]
+fn two_shapes_in_turn_reuse_a_tree_each() {
+    let [a, b, _] = strips();
+    let mut mem = holding(&a, &b);
+    let (tiles_a, tiles_b) = (mem.spare.tiles.as_ptr(), mem.tree.tiles.as_ptr());
+    for (data, tiles, other) in [
+        (&a, tiles_a, tiles_b),
+        (&b, tiles_b, tiles_a),
+        (&a, tiles_a, tiles_b),
+        (&a, tiles_a, tiles_b),
+    ] {
+        poison(&mut mem, 0xA5A5_A5A5);
+        (mem, _) = through(mem, data, u64::MAX);
+        assert_eq!(mem.tree.tiles.as_ptr(), tiles, "the tree was not reused");
+        assert_eq!(mem.spare.tiles.as_ptr(), other, "the other tree went");
+    }
+}
+
+/// A third shape frees the tree used least recently and keeps the last;
+/// a cycle of three rebuilds each time, and decodes as new.
+#[test]
+fn a_third_shape_replaces_the_least_recently_used_tree() {
+    let [a, b, c] = strips();
+    let mut mem = holding(&a, &b);
+    let tiles_b = mem.tree.tiles.as_ptr();
+    (mem, _) = through(mem, &c, u64::MAX);
+    assert_eq!(mem.spare.tiles.as_ptr(), tiles_b, "the tree used last went");
+    let tiles_c = mem.tree.tiles.as_ptr();
+    (mem, _) = through(mem, &b, u64::MAX);
+    assert_eq!(mem.tree.tiles.as_ptr(), tiles_b);
+    assert_eq!(mem.spare.tiles.as_ptr(), tiles_c);
+    for data in [&a, &b, &c, &a, &b, &c] {
+        poison(&mut mem, 0xFFFF_FFFF);
+        (mem, _) = through(mem, data, u64::MAX);
+    }
+}
+
+/// A build that fails is not kept. Refused by the limit, it also frees
+/// the kept tree, which the limit has no room for beside it; the memory
+/// then serves the next codestreams as an empty one would.
+#[test]
+fn a_failed_build_is_not_kept() {
+    let [a, b, c] = strips();
+    for limit in [1, charge(&c) - 1] {
+        let (mut mem, error) = through(holding(&a, &b), &c, limit);
+        assert_eq!(error, Some(0x00070001));
+        assert!(mem.tree.built_for.is_none() && mem.tree.tiles.is_empty());
+        assert!(mem.spare.built_for.is_none() && mem.spare.tiles.is_empty());
+        // another failure, then two shapes in turn
+        (mem, _) = through(mem, &c, limit);
+        (mem, _) = through(mem, &b, u64::MAX);
+        assert!(mem.spare.built_for.is_none(), "the failed build was kept");
+        let tiles_b = mem.tree.tiles.as_ptr();
+        (mem, _) = through(mem, &a, u64::MAX);
+        (mem, _) = through(mem, &b, u64::MAX);
+        assert_eq!(mem.tree.tiles.as_ptr(), tiles_b);
+    }
+}
+
+/// `data` with the bit depth of its first NLT segment changed, so that
+/// its headers read but building its tree fails: the NLT segment no
+/// longer matches SIZ.
+fn with_mismatched_nlt(data: &[u8]) -> Vec<u8> {
+    let mut d = data.to_vec();
+    let at = d.windows(2).position(|w| w == [0xFF, 0x76]).unwrap();
+    d[at + 6] ^= 1; // BDnlt, after the marker, Lnlt and Cnlt
+    d
+}
+
+/// A build that fails for another reason than the limit is not kept,
+/// and leaves the kept tree in place, to serve after it.
+#[test]
+fn a_failed_build_does_not_displace_the_kept_tree() {
+    let [a, b, c] = strips();
+    let mem = holding(&a, &b);
+    let tiles_b = mem.tree.tiles.as_ptr();
+    let (mem, error) = through(mem, &with_mismatched_nlt(&a), u64::MAX);
+    assert_eq!(error, Some(0x000300A1));
+    assert!(mem.tree.built_for.is_none() && mem.tree.tiles.is_empty());
+    assert_eq!(mem.spare.tiles.as_ptr(), tiles_b);
+    // a third shape keeps b, which is then reused
+    let (mem, _) = through(mem, &c, u64::MAX);
+    assert_eq!(mem.spare.tiles.as_ptr(), tiles_b);
+    let (mem, _) = through(mem, &b, u64::MAX);
+    assert_eq!(mem.tree.tiles.as_ptr(), tiles_b);
+}
+
+/// The tree in use is charged what it took to build, so a reused memory
+/// accepts and refuses the limits a new decoder does. The other kept
+/// tree is charged nothing, but is kept only while the two fit within
+/// the limit together, whether the codestream reuses a tree or builds
+/// one.
+#[test]
+fn the_other_tree_is_kept_only_within_the_limit() {
+    let [a, b, c] = strips();
+    let (ca, cb, cc) = (charge(&a), charge(&b), charge(&c));
+    assert!(cb < ca && ca < cc);
+    let kept = |mem: &DecoderMemory| mem.spare.built_for.is_some();
+
+    // reusing the other tree (a) or the last (b): kept if both fit
+    for (data, used) in [(&a, ca), (&b, cb)] {
+        let (mem, error) = through(holding(&a, &b), data, ca + cb);
+        assert!(error.is_none() && kept(&mem));
+        let (mem, error) = through(holding(&a, &b), data, ca + cb - 1);
+        assert!(error.is_none() && !kept(&mem));
+        // exactly the tree's charge passes, one byte less fails
+        let (mem, error) = through(holding(&a, &b), data, used);
+        assert!(error.is_none() && !kept(&mem));
+        let (_, error) = through(mem, data, used - 1);
+        assert_eq!(error, Some(0x00070001));
+        // refused, the reused tree is kept, but not the other beside it
+        let (mem, error) = through(holding(&a, &b), data, used - 1);
+        assert_eq!(error, Some(0x00070001));
+        assert!(mem.tree.built_for.is_some() && !kept(&mem));
+    }
+
+    // building a third (c) keeps b, used last, if both fit; otherwise
+    // the build reaches b's reserve, frees b and starts again
+    let (mem, error) = through(holding(&a, &b), &c, cc + cb);
+    assert!(error.is_none() && kept(&mem) && mem.spare.charge == cb);
+    let (mem, error) = through(holding(&a, &b), &c, cc + cb - 1);
+    assert!(error.is_none() && !kept(&mem));
+    let (mem, error) = through(holding(&a, &b), &c, cc);
+    assert!(error.is_none() && !kept(&mem));
+    let (mem, error) = through(holding(&a, &b), &c, cc - 1);
+    assert_eq!(error, Some(0x00070001));
+    assert!(!kept(&mem) && mem.tree.built_for.is_none());
+
+    // a kept tree larger than the limit is freed before the build
+    let (mem, error) = through(holding(&a, &c), &b, cb);
+    assert!(error.is_none() && !kept(&mem));
+    let (mem, error) = through(mem, &c, u64::MAX);
+    assert!(error.is_none() && kept(&mem) && mem.spare.charge == cb);
 }

@@ -171,6 +171,79 @@ fn corrupt_then_valid_decodes_as_new() {
     }
 }
 
+/// How the strips below are coded: lossless (reversible, NLT type 3,
+/// the RCT), and lossy (irreversible with the ICT on the first three
+/// components, the fourth reversible), as the benchmark's strips.
+const STRIP_CODINGS: [&str; 2] = [
+    "--comps 4 --depth 16 --signed 1 --nlt3 --rct 1 --planar 0 \
+     --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R",
+    "--comps 4 --depth 16 --signed 1 --irrev --rct 1 --rev-comps 3 --nlt3-comps 3 \
+     --qstep 0.0005 --planar 0 --levels 5 --block 128x32 --prog RPCL --tlm --tileparts R",
+];
+
+/// A strip 96 wide and `height` lines high, coded with `options`.
+fn strip(options: &str, height: u32) -> Vec<u8> {
+    let line = format!("--size 96x{height} {options}");
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let mut out = Vec::new();
+    drive::encode(&EncArgs::parse(&words).unwrap(), &mut out).unwrap();
+    out
+}
+
+/// Strips of two heights in turn, as the strips of an image with a
+/// shorter last one and the next image give them, then of three heights
+/// in a cycle, through one memory: each decodes as with a new decoder.
+#[test]
+fn strips_of_two_and_three_heights_decode_as_new() {
+    for options in STRIP_CODINGS {
+        let [full, short, shorter] = [64, 40, 24].map(|h| strip(options, h));
+        let two = [&full, &short].repeat(4);
+        let three = [&full, &short, &shorter].repeat(3);
+        let mut mem = DecoderMemory::new();
+        for (k, data) in two.iter().chain(&three).enumerate() {
+            let o = Options::default();
+            let (got, m) = decode(Codestream::with_memory(mem), data, o);
+            mem = m;
+            assert_eq!(got, fresh(data, o), "strip {k} of {options}");
+        }
+    }
+}
+
+/// With trees of two shapes kept, a cut, damaged or headerless copy of
+/// either, decoded resiliently or not, leaves nothing behind that changes
+/// the strips after it, of either shape.
+#[test]
+fn shape_change_after_corrupt_codestream_decodes_as_new() {
+    for options in STRIP_CODINGS {
+        let [full, short] = [64, 40].map(|h| strip(options, h));
+        for (bad_of, then) in [
+            (&full, [&short, &full, &short]),
+            (&short, [&full, &short, &full]),
+        ] {
+            let [cut, damaged] = broken_copies(bad_of);
+            // too short for SIZ, so `read_headers` fails
+            let headerless = bad_of[..20].to_vec();
+            for bad in [&cut, &damaged, &headerless] {
+                for resilient in [false, true] {
+                    let o = Options {
+                        resilient,
+                        ..Options::default()
+                    };
+                    let (_, mem) = decode(Codestream::new(), &full, o);
+                    let (_, mem) = decode(Codestream::with_memory(mem), &short, o);
+                    let (got, mut mem) = decode(Codestream::with_memory(mem), bad, o);
+                    assert_eq!(got, fresh(bad, o), "the broken strip");
+                    for (k, data) in then.into_iter().enumerate() {
+                        let (got, m) = decode(Codestream::with_memory(mem), data, o);
+                        mem = m;
+                        assert_eq!(got, fresh(data, o), "strip {k} after a broken one");
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The smallest memory limit with which a new decoder decodes `data`.
 fn smallest_limit(data: &[u8]) -> u64 {
     let ok = |limit| {
@@ -194,8 +267,12 @@ fn smallest_limit(data: &[u8]) -> u64 {
 }
 
 /// A reused decoder accepts and refuses exactly the limits a new one
-/// does, whether its memory was built by the same codestream (with a
-/// larger limit) or by another.
+/// does, whether its memory holds trees built by the same codestream
+/// (with a larger limit) or by others. Two codestreams come first, so
+/// the memory holds two trees: the one the codestream may reuse, as the
+/// last or the other tree, and one it does not use, which must change
+/// no decision. At the limit the codestream needs, the two never fit
+/// together, so the other is freed or, on a build, its reserve reached.
 #[test]
 fn memory_limit_holds_with_reused_memory() {
     let all = codestreams();
@@ -209,20 +286,25 @@ fn memory_limit_holds_with_reused_memory() {
     for name in names {
         let data = pick(name);
         let need = smallest_limit(data);
-        for prior in names {
-            for (limit, ok) in [(need - 1, false), (need, true), (1 << 32, true)] {
-                let (_, mem) = decode(Codestream::new(), pick(prior), Options::default());
-                let o = Options {
-                    limit: Some(limit),
-                    ..Options::default()
-                };
-                let (got, mem) = decode(Codestream::with_memory(mem), data, o);
-                assert_eq!(got, fresh(data, o), "{name} after {prior}, limit {limit}");
-                let want = if ok { None } else { Some(0x00070001) };
-                assert_eq!(got.error, want, "{name} after {prior}, limit {limit}");
-                // and the memory still serves after a refusal
-                let (got, _) = decode(Codestream::with_memory(mem), data, Options::default());
-                assert_eq!(got, fresh(data, Options::default()), "{name} again");
+        for first in names {
+            for prior in names {
+                for (limit, ok) in [(need - 1, false), (need, true), (1 << 32, true)] {
+                    let after = format!("{name} after {first} and {prior}, limit {limit}");
+                    let o = Options::default();
+                    let (_, mem) = decode(Codestream::new(), pick(first), o);
+                    let (_, mem) = decode(Codestream::with_memory(mem), pick(prior), o);
+                    let o = Options {
+                        limit: Some(limit),
+                        ..Options::default()
+                    };
+                    let (got, mem) = decode(Codestream::with_memory(mem), data, o);
+                    assert_eq!(got, fresh(data, o), "{after}");
+                    let want = if ok { None } else { Some(0x00070001) };
+                    assert_eq!(got.error, want, "{after}");
+                    // and the memory still serves after a refusal
+                    let (got, _) = decode(Codestream::with_memory(mem), data, Options::default());
+                    assert_eq!(got, fresh(data, Options::default()), "{name} again");
+                }
             }
         }
     }
