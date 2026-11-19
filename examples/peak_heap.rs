@@ -11,7 +11,13 @@
 //! cargo run --release --example peak_heap -- slope   # bytes per column
 //! cargo run --release --example peak_heap -- FILE... # given codestreams
 //! cargo run --release --example peak_heap -- time FILE N  # N decodes
+//! cargo run --release --example peak_heap -- held    # kept by reuse
 //! ```
+//!
+//! `held` decodes strips of 256 and 232 lines, 4096 wide with four
+//! 16-bit components (see [`held`]), one after another through one
+//! `DecoderMemory`, and gives the bytes the memory holds after each:
+//! what reusing a decoder keeps between codestreams.
 //!
 //! The built-in cases are synthesised: a single tile, one component,
 //! reversible 5/3 with 5 decomposition levels, HT blocks, one quality
@@ -24,10 +30,15 @@
 //! `read_headers` and the last `pull`, including the codestream object
 //! itself but not the input bytes, which are allocated before.
 
+#[path = "../tests/common/mod.rs"]
+mod common;
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-use htj2k::codestream::Codestream;
+use common::drive;
+use common::synth::EncArgs;
+use htj2k::codestream::{Codestream, DecoderMemory};
 
 struct Counting;
 
@@ -189,11 +200,54 @@ fn slope() {
     }
 }
 
+/// The bytes one `DecoderMemory` holds between codestreams, for an image
+/// of 1000 lines in strips of 256 (the last of 232), 4096 wide, with
+/// four 16-bit signed components, lossless (reversible, NLT type 3, the
+/// RCT on three) and lossy (irreversible, the ICT on three, the fourth
+/// reversible), coded as the benchmark's strips. Each strip shape is
+/// decoded in turn, full then short then full again. The peak is the
+/// most the memory and the decoder held at once during the decode.
+fn held() {
+    const COMMON: &str = "--comps 4 --depth 16 --signed 1 --planar 0 --levels 5 \
+        --block 128x32 --prog RPCL --tlm --tileparts R";
+    let modes = [
+        ("lossless", "--nlt3 --rct 1"),
+        ("lossy", "--irrev --rct 1 --rev-comps 3 --nlt3-comps 3 --qstep 0.0005"),
+    ];
+    println!("| coding | strip | held after | peak during |");
+    println!("|---|---|---|---|");
+    for (name, extra) in modes {
+        let encode = |h: u32| {
+            let line = format!("--size 4096x{h} {COMMON} {extra}");
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let mut j2c = Vec::new();
+            drive::encode(&EncArgs::parse(&words).unwrap(), &mut j2c).unwrap();
+            j2c
+        };
+        let (full, short) = (encode(256), encode(232));
+        let base = CUR.load(Relaxed);
+        let mut memory = DecoderMemory::new();
+        for (h, data) in [(256, &full), (232, &short), (256, &full), (232, &short)] {
+            let start = CUR.load(Relaxed);
+            PEAK.store(start, Relaxed);
+            let mut cs = Codestream::with_memory(memory);
+            cs.read_headers(data).expect("read_headers");
+            cs.create().expect("create");
+            while cs.pull().expect("pull").is_some() {}
+            memory = cs.into_memory();
+            let peak = PEAK.load(Relaxed) - base;
+            let now = CUR.load(Relaxed) - base;
+            println!("| {name} | {h} lines | {} | {} |", kib(now), kib(peak));
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         None => table(),
         Some("slope") => slope(),
+        Some("held") => held(),
         Some("time") => {
             let data = std::fs::read(&args[1]).expect("read");
             let n: u32 = args[2].parse().expect("count");
