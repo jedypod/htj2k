@@ -99,7 +99,12 @@ const CASES: &[Case] = &[
     case("lossy, 32-line strips, 1000 lines", LOSSY, 32, 1000),
     Case {
         pad: true,
-        ..case("lossy padded, 256-line strips, 1000 lines", LOSSY, 256, 1000)
+        ..case(
+            "lossy padded, 256-line strips, 1000 lines",
+            LOSSY,
+            256,
+            1000,
+        )
     },
     Case {
         pad: true,
@@ -108,7 +113,12 @@ const CASES: &[Case] = &[
     // the 76-line last strip pads to 97 lines, not 257
     Case {
         pad: true,
-        ..case("lossy padded, 256-line strips, 1100 lines", LOSSY, 256, 1100)
+        ..case(
+            "lossy padded, 256-line strips, 1100 lines",
+            LOSSY,
+            256,
+            1100,
+        )
     },
 ];
 
@@ -180,8 +190,7 @@ impl Image {
         let encode = |h: u32| {
             let line = format!("--size {}x{} {}", pad(c.width), pad(h), c.options);
             let words: Vec<&str> = line.split_whitespace().collect();
-            let args =
-                EncArgs::parse(&words).unwrap_or_else(|e| die(&format!("{line}: {e}")));
+            let args = EncArgs::parse(&words).unwrap_or_else(|e| die(&format!("{line}: {e}")));
             let mut j2c = Vec::new();
             drive::encode(&args, &mut j2c).unwrap();
             j2c
@@ -299,9 +308,7 @@ fn perf() {
 }
 
 fn run(args: &[String]) {
-    let [mode, n, case] = args else {
-        die(USAGE)
-    };
+    let [mode, n, case] = args else { die(USAGE) };
     let reused = match mode.as_str() {
         "fresh" => false,
         "reused" => true,

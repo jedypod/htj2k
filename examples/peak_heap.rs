@@ -176,11 +176,7 @@ fn table() {
     for (w, h, cb_w, cb_h) in cases {
         let (p32, _) = measure(&synth(w, h, 16, cb_w, cb_h));
         let (p64, _) = measure(&synth(w, h, 32, cb_w, cb_h));
-        println!(
-            "| {w}x{h} | {cb_w}x{cb_h} | {} | {} |",
-            kib(p32),
-            kib(p64)
-        );
+        println!("| {w}x{h} | {cb_w}x{cb_h} | {} | {} |", kib(p32), kib(p64));
     }
 }
 
@@ -195,7 +191,10 @@ fn slope() {
             let (b, _) = measure(&synth(8192, h, 32, cb_w, cb_h));
             let per = (b - a) as f64 / 4096.0;
             let fixed = a as f64 - per * 4096.0;
-            println!("| {h} | {cb_w}x{cb_h} | {per:.1} | {} |", kib(fixed as usize));
+            println!(
+                "| {h} | {cb_w}x{cb_h} | {per:.1} | {} |",
+                kib(fixed as usize)
+            );
         }
     }
 }
@@ -212,7 +211,10 @@ fn held() {
         --block 128x32 --prog RPCL --tlm --tileparts R";
     let modes = [
         ("lossless", "--nlt3 --rct 1"),
-        ("lossy", "--irrev --rct 1 --rev-comps 3 --nlt3-comps 3 --qstep 0.0005"),
+        (
+            "lossy",
+            "--irrev --rct 1 --rev-comps 3 --nlt3-comps 3 --qstep 0.0005",
+        ),
     ];
     println!("| coding | strip | held after | peak during |");
     println!("|---|---|---|---|");

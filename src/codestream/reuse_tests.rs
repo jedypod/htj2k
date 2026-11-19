@@ -264,7 +264,10 @@ fn through(mem: DecoderMemory, data: &[u8], limit: u64) -> (DecoderMemory, Optio
     let mut cs = Codestream::with_memory(mem);
     cs.set_memory_limit(limit);
     let got = decode(&mut cs, data, false);
-    assert!(got == want, "a reused decoder differs from a new one (limit {limit})");
+    assert!(
+        got == want,
+        "a reused decoder differs from a new one (limit {limit})"
+    );
     (cs.into_memory(), got.error)
 }
 
