@@ -43,18 +43,10 @@ const DEFAULT_MEMORY_LIMIT: u64 = 1 << 32;
 /// all.
 #[derive(Debug, Default)]
 pub struct DecoderMemory {
-    tiles: Vec<Tile>,
-    /// The lines handed out by `pull`, one per component.
-    lines: Vec<LineBuf>,
-    /// The number of lines and the width of each component.
-    recon_comp_size: Vec<Size>,
+    /// The tree the decoder uses.
+    tree: Tree,
     /// Holds the tag trees while packet headers are read.
     precinct_scratch: Vec<u8>,
-    /// What the tiles and lines were built from, if they were built
-    /// whole; `None` after a failed build.
-    built_for: Option<Box<TreeParams>>,
-    /// What building them took from the memory limit.
-    charge: u64,
     /// The parameter objects of the last decoder, for their storage.
     params: KeptParams,
 }
@@ -63,6 +55,97 @@ impl DecoderMemory {
     /// Empty memory, which allocates nothing until it is used.
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+/// The decoder's tree: the tiles, with their line and code-block
+/// buffers, and the lines handed out by `pull`, with what they were
+/// built from.
+#[derive(Debug, Default)]
+struct Tree {
+    tiles: Vec<Tile>,
+    /// The lines handed out by `pull`, one per component.
+    lines: Vec<LineBuf>,
+    /// The number of lines and the width of each component.
+    recon_comp_size: Vec<Size>,
+    /// What the tiles and lines were built from, if they were built
+    /// whole; `None` after a failed build.
+    built_for: Option<Box<TreeParams>>,
+    /// What building them took from the memory limit.
+    charge: u64,
+}
+
+impl Tree {
+    /// Builds the tree for `build`, taking every buffer from `budget`,
+    /// which must be new: what it has taken at the end is the charge.
+    fn new(build: &Build, budget: &mut Budget, num_tiles: Size) -> Result<Tree> {
+        let sz = build.siz;
+        let image_extent = sz.get_image_extent();
+        let image_offset = sz.get_image_offset();
+        let tile_offset = sz.get_tile_offset();
+        let tile_size = sz.get_tile_size();
+
+        budget.take(num_tiles.area() * std::mem::size_of::<Tile>() as u64)?;
+        let mut tiles = Vec::with_capacity(num_tiles.area() as usize);
+        // The grid is worked out in 64 bits; OpenJPH lets the far edge of
+        // the last tile wrap.
+        for y in 0..num_tiles.h as u64 {
+            let y0 = tile_offset.y as u64 + y * tile_size.h as u64;
+            let y1 = y0 + tile_size.h as u64; // end of tile
+            let org_y = y0.max(image_offset.y as u64);
+            let end_y = y1.min(image_extent.y as u64);
+
+            let mut offset = 0;
+            for x in 0..num_tiles.w as u64 {
+                let x0 = tile_offset.x as u64 + x * tile_size.w as u64;
+                let x1 = x0 + tile_size.w as u64;
+                let org_x = x0.max(image_offset.x as u64);
+                let end_x = x1.min(image_extent.x as u64);
+                if end_x < org_x || end_y < org_y {
+                    return ojph_error!(0x00070032, "a tile lies outside the image");
+                }
+                let tile_rect = Rect {
+                    org: Point::new(org_x as u32, org_y as u32),
+                    siz: Size::new((end_x - org_x) as u32, (end_y - org_y) as u32),
+                };
+                tiles.push(Tile::new(build, budget, tile_rect, &mut offset)?);
+            }
+        }
+
+        // These lines are used by the codestream to exchange data with the
+        // external world.
+        let num_comps = sz.get_num_components();
+        let mut lines = Vec::with_capacity(num_comps as usize);
+        let mut recon_comp_size = Vec::with_capacity(num_comps as usize);
+        for i in 0..num_comps {
+            let cw = sz.get_recon_width(i);
+            recon_comp_size.push(Size::new(cw, sz.get_recon_height(i)));
+            lines.push(budget.line_i32(cw as usize, 0)?);
+        }
+
+        Ok(Tree {
+            tiles,
+            lines,
+            recon_comp_size,
+            built_for: Some(Box::new(TreeParams::new(build))),
+            charge: budget.taken(),
+        })
+    }
+
+    /// Whether this tree is the tree `build` would build.
+    fn matches(&self, build: &Build) -> bool {
+        self.built_for.as_ref().is_some_and(|p| p.matches(build))
+    }
+
+    /// Puts every node back in the state the build left it in, and zeroes
+    /// the lines handed to the caller.
+    fn reset(&mut self) {
+        for tile in self.tiles.iter_mut() {
+            tile.reset();
+        }
+        for line in self.lines.iter_mut() {
+            line.i32_full_mut().fill(0);
+        }
     }
 }
 
@@ -398,7 +481,6 @@ impl<'a> Codestream<'a> {
     fn alloc(&mut self) -> Result<()> {
         let sz = &self.siz;
         let image_extent = sz.get_image_extent();
-        let image_offset = sz.get_image_offset();
         let tile_offset = sz.get_tile_offset();
         let tile_size = sz.get_tile_size();
         if tile_size.w == 0 || tile_size.h == 0 {
@@ -442,68 +524,15 @@ impl<'a> Codestream<'a> {
         // The tree of the last codestream, if it was built from the same
         // parameters, is the tree this one needs. It is charged what it
         // took to build, so the limit decides as it would for a new one.
-        if let Some(built_for) = &mem.built_for {
-            if built_for.matches(&build) {
-                budget.take(mem.charge)?;
-                for tile in mem.tiles.iter_mut() {
-                    tile.reset();
-                }
-                for line in mem.lines.iter_mut() {
-                    line.i32_full_mut().fill(0);
-                }
-                return Ok(());
-            }
+        if mem.tree.matches(&build) {
+            budget.take(mem.tree.charge)?;
+            mem.tree.reset();
+            return Ok(());
         }
         // Otherwise the old tree is freed before the new one is built, so
         // the two are never held together.
-        mem.built_for = None;
-        mem.tiles = Vec::new();
-        mem.lines = Vec::new();
-        mem.recon_comp_size = Vec::new();
-
-        budget.take(num_tiles.area() * std::mem::size_of::<Tile>() as u64)?;
-        let mut tiles = Vec::with_capacity(num_tiles.area() as usize);
-        // The grid is worked out in 64 bits; OpenJPH lets the far edge of
-        // the last tile wrap.
-        for y in 0..num_tiles.h as u64 {
-            let y0 = tile_offset.y as u64 + y * tile_size.h as u64;
-            let y1 = y0 + tile_size.h as u64; // end of tile
-            let org_y = y0.max(image_offset.y as u64);
-            let end_y = y1.min(image_extent.y as u64);
-
-            let mut offset = 0;
-            for x in 0..num_tiles.w as u64 {
-                let x0 = tile_offset.x as u64 + x * tile_size.w as u64;
-                let x1 = x0 + tile_size.w as u64;
-                let org_x = x0.max(image_offset.x as u64);
-                let end_x = x1.min(image_extent.x as u64);
-                if end_x < org_x || end_y < org_y {
-                    return ojph_error!(0x00070032, "a tile lies outside the image");
-                }
-                let tile_rect = Rect {
-                    org: Point::new(org_x as u32, org_y as u32),
-                    siz: Size::new((end_x - org_x) as u32, (end_y - org_y) as u32),
-                };
-                tiles.push(Tile::new(&build, &mut budget, tile_rect, &mut offset)?);
-            }
-        }
-
-        // These lines are used by the codestream to exchange data with the
-        // external world.
-        let num_comps = self.num_comps;
-        let mut lines = Vec::with_capacity(num_comps as usize);
-        let mut recon_comp_size = Vec::with_capacity(num_comps as usize);
-        for i in 0..num_comps {
-            let cw = sz.get_recon_width(i);
-            recon_comp_size.push(Size::new(cw, sz.get_recon_height(i)));
-            lines.push(budget.line_i32(cw as usize, 0)?);
-        }
-
-        mem.tiles = tiles;
-        mem.lines = lines;
-        mem.recon_comp_size = recon_comp_size;
-        mem.charge = budget.taken();
-        mem.built_for = Some(Box::new(TreeParams::new(&build)));
+        mem.tree = Tree::default();
+        mem.tree = Tree::new(&build, &mut budget, num_tiles)?;
         Ok(())
     }
 
@@ -577,7 +606,7 @@ impl<'a> Codestream<'a> {
                         )?
                     };
                     if sod_found {
-                        self.mem.tiles[usize::from(sot.get_tile_index())].parse_tile_header(
+                        self.mem.tree.tiles[usize::from(sot.get_tile_index())].parse_tile_header(
                             &sot,
                             &mut self.mem.precinct_scratch,
                             infile,
@@ -613,7 +642,7 @@ impl<'a> Codestream<'a> {
         if self.cur_comp >= self.num_comps {
             return Ok(None);
         }
-        if !self.planar && self.cur_line >= self.mem.recon_comp_size[0].h {
+        if !self.planar && self.cur_line >= self.mem.tree.recon_comp_size[0].h {
             return Ok(None);
         }
         let Some(infile) = self.infile.as_ref() else {
@@ -622,12 +651,12 @@ impl<'a> Codestream<'a> {
         let data = infile.data();
 
         let cur_comp = self.cur_comp;
-        let line = &mut self.mem.lines[cur_comp as usize];
+        let line = &mut self.mem.tree.lines[cur_comp as usize];
         let mut failures = 0;
         loop {
             let mut success = true;
             let row = self.cur_tile_row as usize * self.num_tiles.w as usize;
-            for tile in &mut self.mem.tiles[row..row + self.num_tiles.w as usize] {
+            for tile in &mut self.mem.tree.tiles[row..row + self.num_tiles.w as usize] {
                 if !tile.pull(line, cur_comp, data)? {
                     success = false;
                     break;
@@ -656,7 +685,7 @@ impl<'a> Codestream<'a> {
         if self.planar {
             // process one component at a time
             self.cur_line += 1;
-            if self.cur_line >= self.mem.recon_comp_size[cur_comp as usize].h {
+            if self.cur_line >= self.mem.tree.recon_comp_size[cur_comp as usize].h {
                 self.cur_line = 0;
                 self.cur_tile_row = 0;
                 self.cur_comp += 1;
@@ -670,7 +699,7 @@ impl<'a> Codestream<'a> {
             }
         }
 
-        Ok(Some((comp_num, &self.mem.lines[comp_num as usize])))
+        Ok(Some((comp_num, &self.mem.tree.lines[comp_num as usize])))
     }
 }
 
